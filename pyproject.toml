@@ -1,0 +1,55 @@
+[project]
+name = "haularr"
+version = "0.1.0"
+description = "Download orchestrator for self-hosted media automation"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "httpx>=0.28.0",
+    "sqlalchemy>=2.0.36",
+    "alembic>=1.14.0",
+    "aiosqlite>=0.20.0",
+    "greenlet>=3.1.0",
+    "python-multipart>=0.0.17",
+    "python-jose[cryptography]>=3.3.0",
+    "cryptography>=44.0.0",
+    "anyio>=4.7.0",
+    "typer>=0.14.0",
+    "pycurl>=7.45.0",
+    "bcrypt>=5.0.0",
+]
+
+[project.scripts]
+haularr = "app.main:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend/app"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "httpx>=0.28.0",
+    "anyio[trio]>=4.7.0",
+    "respx>=0.21.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["backend/tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
