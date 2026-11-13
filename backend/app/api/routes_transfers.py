@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.repositories import TransferRepository
@@ -145,14 +146,31 @@ async def test_transfer(
     return result
 
 
+def _redact_config(config: dict) -> dict:
+    """Redact password-like fields from config dict."""
+    if not isinstance(config, dict):
+        return config
+    redacted = dict(config)
+    sensitive_keys = {"password", "api_key", "apikey", "secret", "token", "credential"}
+    for key in list(redacted.keys()):
+        if any(s in key.lower() for s in sensitive_keys):
+            redacted[key] = "***REDACTED***"
+    return redacted
+
+
 def _transfer_to_dict(obj: Any) -> dict:
+    # Safely access endpoints without triggering lazy loading
+    try:
+        endpoints = list(obj.endpoints) if "endpoints" not in inspect(obj).unloaded else []
+    except Exception:
+        endpoints = []
     return {
         "id": obj.id,
         "name": obj.name,
         "adapter_type": obj.adapter_type,
-        "config": obj.config_json,
+        "config": _redact_config(obj.config_json),
         "enabled": obj.enabled,
-        "endpoints": [_endpoint_to_dict(e) for e in obj.endpoints] if hasattr(obj, "endpoints") else [],
+        "endpoints": [_endpoint_to_dict(e) for e in endpoints],
     }
 
 

@@ -17,7 +17,7 @@ async def test_source_items_empty(auth_client):
     r = await auth_client.post("/api/v1/sources", json={
         "name": "Test",
         "adapter_type": "rtorrent",
-        "connection_secret_ref": "{}",
+        "connection_config": {},
     })
     source_id = r.json()["id"]
 
@@ -46,7 +46,7 @@ async def test_queue_requires_matching_label(auth_client, settings):
     r = await auth_client.post("/api/v1/sources", json={
         "name": "Test",
         "adapter_type": "rtorrent",
-        "connection_secret_ref": "{}",
+        "connection_config": {},
     })
     source_id = r.json()["id"]
 

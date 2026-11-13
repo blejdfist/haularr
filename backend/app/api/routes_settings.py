@@ -57,7 +57,31 @@ async def patch_settings_api(
     body: SettingsPatch, request: Request, user: RequireAuth
 ) -> SettingsResponse:
     settings = request.app.state.settings
-    # Apply non-None values
-    for field, value in body.model_dump(exclude_none=True).items():
+    updates = body.model_dump(exclude_none=True)
+
+    # Apply to in-memory settings
+    for field, value in updates.items():
         setattr(settings, field, value)
+
+    # Persist to DB (app_settings table)
+    from app.database.session import get_session_factory
+    from app.database.repositories import SettingsRepository
+
+    factory = get_session_factory(settings)
+    async with factory() as session:
+        repo = SettingsRepository(session)
+        for field, value in updates.items():
+            await repo.set(f"setting:{field}", value)
+        await session.commit()
+
+    # Apply concurrency limits to live scheduler
+    if hasattr(request.app.state, "scheduler") and any(
+        k in updates for k in [
+            "max_concurrent_download_jobs", "max_concurrent_verify_jobs",
+            "max_concurrent_extract_jobs", "max_concurrent_publish_jobs",
+            "max_concurrent_import_jobs",
+        ]
+    ):
+        request.app.state.scheduler.update_concurrency_limits()
+
     return await get_settings_api(request)

@@ -163,6 +163,31 @@ class RtorrentAdapter:
             timeout=httpx.Timeout(30.0),
         )
 
+    @classmethod
+    def from_config(cls, source_id: str, config: dict) -> "RtorrentAdapter":
+        """Build adapter from structured config dict.
+
+        Accepts either:
+          - xmlrpc_url: direct URL (legacy / advanced)
+          - host + port + url_path: assembled into xmlrpc_url
+        """
+        xmlrpc_url = config.get("xmlrpc_url", "")
+        if not xmlrpc_url:
+            host = config.get("host", "")
+            port = config.get("port", 443)
+            url_path = (config.get("url_path") or "rutorrent/plugins/rpc/rpc.php").lstrip("/")
+            tls_verify = config.get("tls_verify", True)
+            scheme = "https" if tls_verify else "http"
+            if host:
+                xmlrpc_url = f"{scheme}://{host}:{port}/{url_path}"
+        return cls(
+            source_id=source_id,
+            xmlrpc_url=xmlrpc_url,
+            username=config.get("username"),
+            password=config.get("password"),
+            tls_verify=config.get("tls_verify", True),
+        )
+
     async def _call(self, method: str, *params: Any) -> Any:
         body = _xmlrpc_call(method, *params)
         async with self._make_client() as client:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -11,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.repositories import LabelRuleRepository, SourceRepository
 from app.database.session import get_session_factory
 from app.security import RequireAuth
-from app.settings import Settings, get_settings
+from app.settings import Settings
 
 sources_router = APIRouter(tags=["sources"])
 
@@ -31,25 +32,16 @@ async def get_session(request: Request):
 class SourceCreate(BaseModel):
     name: str
     adapter_type: str  # "rtorrent" | "deluge"
-    connection_secret_ref: str  # JSON blob of connection config
+
+    # Non-secret: host/url, port, username, TLS settings
+    connection_config: dict[str, Any] = {}
+
+    # Secret: plaintext password/token — will be encrypted before storage
+    credential: str = ""
+
     default_transfer_id: str | None = None
     poll_interval: int = 30
     enabled: bool = True
-
-
-class SourceResponse(BaseModel):
-    id: str
-    name: str
-    adapter_type: str
-    enabled: bool
-    default_transfer_id: str | None
-    poll_interval: int
-    onboarding_state: str
-    initial_scan_at: str | None
-    last_scan_at: str | None
-
-    class Config:
-        from_attributes = True
 
 
 class SourceUpdate(BaseModel):
@@ -57,7 +49,15 @@ class SourceUpdate(BaseModel):
     enabled: bool | None = None
     default_transfer_id: str | None = None
     poll_interval: int | None = None
-    connection_secret_ref: str | None = None
+    connection_config: dict[str, Any] | None = None
+    credential: str | None = None  # plaintext; encrypted on save
+
+
+class SourceTestRequest(BaseModel):
+    """Test connection config before saving (no DB record required)."""
+    adapter_type: str
+    connection_config: dict[str, Any] = {}
+    credential: str = ""
 
 
 class LabelRuleCreate(BaseModel):
@@ -71,23 +71,6 @@ class LabelRuleCreate(BaseModel):
     transfer_override_id: str | None = None
     retention_days: int | None = None
     pipeline_options: dict[str, Any] | None = None
-
-
-class LabelRuleResponse(BaseModel):
-    id: str
-    source_id: str
-    label: str
-    priority: int
-    enabled: bool
-    automatic_processing: bool
-    temporary_directory: str
-    completed_directory: str
-    library_instance_id: str | None
-    transfer_override_id: str | None
-    retention_days: int | None
-
-    class Config:
-        from_attributes = True
 
 
 class LabelRuleUpdate(BaseModel):
@@ -116,14 +99,19 @@ async def list_sources(session: AsyncSession = Depends(get_session), user: Requi
 @sources_router.post("/sources", status_code=201)
 async def create_source(
     body: SourceCreate,
+    request: Request,
     session: AsyncSession = Depends(get_session),
     user: RequireAuth = None,
 ):
+    master_key = request.app.state.master_key
+    encrypted_cred = _encrypt_credential(body.credential, master_key) if body.credential else ""
+
     repo = SourceRepository(session)
     obj = await repo.create(
         name=body.name,
         adapter_type=body.adapter_type,
-        connection_secret_ref=body.connection_secret_ref,
+        connection_config_json=body.connection_config,
+        credential_ref=encrypted_cred,
         default_transfer_id=body.default_transfer_id,
         poll_interval=body.poll_interval,
         enabled=body.enabled,
@@ -151,11 +139,27 @@ async def get_source(
 async def update_source(
     source_id: str,
     body: SourceUpdate,
+    request: Request,
     session: AsyncSession = Depends(get_session),
     user: RequireAuth = None,
 ):
     repo = SourceRepository(session)
-    updates = body.model_dump(exclude_none=True)
+    updates: dict[str, Any] = {}
+
+    if body.name is not None:
+        updates["name"] = body.name
+    if body.enabled is not None:
+        updates["enabled"] = body.enabled
+    if body.default_transfer_id is not None:
+        updates["default_transfer_id"] = body.default_transfer_id
+    if body.poll_interval is not None:
+        updates["poll_interval"] = body.poll_interval
+    if body.connection_config is not None:
+        updates["connection_config_json"] = body.connection_config
+    if body.credential is not None:
+        master_key = request.app.state.master_key
+        updates["credential_ref"] = _encrypt_credential(body.credential, master_key)
+
     obj = await repo.update(source_id, **updates)
     if not obj:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -174,6 +178,27 @@ async def delete_source(
     await session.commit()
 
 
+@sources_router.post("/sources/test-config")
+async def test_source_config(
+    body: SourceTestRequest,
+    request: Request,
+    user: RequireAuth = None,
+):
+    """Test a source connection config before saving it.
+
+    Does not require an existing source record.
+    Returns adapter test_connection() result.
+    """
+    config = dict(body.connection_config)
+    if body.credential:
+        config["password"] = body.credential  # Pass plaintext directly for test
+
+    from app.adapters.sources import create_source_adapter
+    adapter = create_source_adapter("__test__", body.adapter_type, config)
+    result = await adapter.test_connection()
+    return result
+
+
 @sources_router.post("/sources/{source_id}/test")
 async def test_source(
     source_id: str,
@@ -185,24 +210,13 @@ async def test_source(
     obj = await repo.get(source_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Source not found")
-    # Decrypt connection config
-    import json
-    from app.security import decrypt_secret
 
     master_key = request.app.state.master_key
-    try:
-        config = json.loads(obj.connection_secret_ref)
-        # Decrypt password fields if present
-        for key in ("password",):
-            if key in config and isinstance(config[key], str) and config[key].startswith("enc:"):
-                config[key] = decrypt_secret(config[key][4:], master_key)
-    except Exception:
-        config = {}
+    config = _build_adapter_config(obj, master_key)
 
     from app.adapters.sources import create_source_adapter
     adapter = create_source_adapter(obj.id, obj.adapter_type, config)
-    result = await adapter.test_connection()
-    return result
+    return await adapter.test_connection()
 
 
 @sources_router.post("/sources/{source_id}/scan")
@@ -218,14 +232,14 @@ async def scan_source(
     if not obj:
         raise HTTPException(status_code=404, detail="Source not found")
 
-    from datetime import datetime, timezone
+    if hasattr(request.app.state, "supervisor"):
+        import asyncio
+        asyncio.create_task(request.app.state.supervisor.trigger_scan(source_id))
+    else:
+        from datetime import datetime, timezone
+        await repo.update(source_id, last_scan_at=datetime.now(timezone.utc))
+        await session.commit()
 
-    await repo.update(
-        source_id,
-        last_scan_at=datetime.now(timezone.utc),
-        onboarding_state="scanning" if obj.onboarding_state == "pending" else obj.onboarding_state,
-    )
-    await session.commit()
     return {"status": "scan_triggered", "source_id": source_id}
 
 
@@ -240,7 +254,6 @@ async def complete_onboarding(
     obj = await repo.update(source_id, onboarding_state="completed")
     if not obj:
         raise HTTPException(status_code=404, detail="Source not found")
-    # Enable automatic_processing on all label rules
     label_repo = LabelRuleRepository(session)
     rules = await label_repo.list_by_source(source_id)
     for rule in rules:
@@ -272,13 +285,11 @@ async def create_label(
     session: AsyncSession = Depends(get_session),
     user: RequireAuth = None,
 ):
-    # Verify source exists
     source_repo = SourceRepository(session)
     source = await source_repo.get(source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
 
-    # Check for duplicate label
     existing = await LabelRuleRepository(session).get_by_source_label(source_id, body.label)
     if existing:
         raise HTTPException(status_code=409, detail="Label rule already exists")
@@ -335,12 +346,53 @@ async def delete_label(
 # ---------------------------------------------------------------------------
 
 
+def _encrypt_credential(plaintext: str, master_key: bytes) -> str:
+    """Encrypt a plaintext credential with the master key."""
+    from app.security import encrypt_secret
+    return "enc:" + encrypt_secret(plaintext, master_key)
+
+
+def _build_adapter_config(obj: Any, master_key: bytes) -> dict[str, Any]:
+    """Build the full adapter config dict by merging non-secret config + decrypted credential."""
+    from app.security import decrypt_secret
+
+    config = dict(obj.connection_config_json or {})
+
+    cred_ref = obj.credential_ref or ""
+    if cred_ref.startswith("enc:"):
+        try:
+            plaintext = decrypt_secret(cred_ref[4:], master_key)
+            try:
+                creds = json.loads(plaintext)
+                if isinstance(creds, dict):
+                    config.update(creds)
+                else:
+                    config["password"] = plaintext
+            except json.JSONDecodeError:
+                config["password"] = plaintext
+        except Exception:
+            pass
+    elif cred_ref:
+        try:
+            creds = json.loads(cred_ref)
+            if isinstance(creds, dict):
+                config.update(creds)
+        except json.JSONDecodeError:
+            config["password"] = cred_ref
+
+    return config
+
+
 def _source_to_dict(obj: Any) -> dict:
+    """Serialize a SourceInstance — never expose credential_ref."""
     return {
         "id": obj.id,
         "name": obj.name,
         "adapter_type": obj.adapter_type,
         "enabled": obj.enabled,
+        "connection_config": obj.connection_config_json,  # Non-secret only
+        # credential_ref intentionally omitted — only indicate presence
+        "has_credential": bool(obj.credential_ref),
         "default_transfer_id": obj.default_transfer_id,
         "poll_interval": obj.poll_interval,
         "onboarding_state": obj.onboarding_state,

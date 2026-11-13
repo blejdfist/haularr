@@ -19,7 +19,7 @@ async def test_create_two_different_sources(auth_client):
     r = await auth_client.post("/api/v1/sources", json={
         "name": "Primary seedbox",
         "adapter_type": "rtorrent",
-        "connection_secret_ref": '{"xmlrpc_url": "https://seedbox.example/RPC2"}',
+        "connection_config": {"xmlrpc_url": "https://seedbox.example/RPC2"},
         "poll_interval": 30,
         "enabled": True,
     })
@@ -33,7 +33,7 @@ async def test_create_two_different_sources(auth_client):
     r = await auth_client.post("/api/v1/sources", json={
         "name": "Backup downloader",
         "adapter_type": "deluge",
-        "connection_secret_ref": '{"web_url": "http://deluge.example:8112"}',
+        "connection_config": {"web_url": "http://deluge.example:8112"},
         "poll_interval": 30,
         "enabled": True,
     })
@@ -105,7 +105,7 @@ async def test_two_same_type_sources_independent(auth_client):
     r1 = await auth_client.post("/api/v1/sources", json={
         "name": "Primary rTorrent",
         "adapter_type": "rtorrent",
-        "connection_secret_ref": '{"xmlrpc_url": "https://rt1.example/RPC2"}',
+        "connection_config": {"xmlrpc_url": "https://rt1.example/RPC2"},
     })
     assert r1.status_code == 201, r1.text
     src1 = r1.json()
@@ -113,7 +113,7 @@ async def test_two_same_type_sources_independent(auth_client):
     r2 = await auth_client.post("/api/v1/sources", json={
         "name": "Secondary rTorrent",
         "adapter_type": "rtorrent",
-        "connection_secret_ref": '{"xmlrpc_url": "https://rt2.example/RPC2"}',
+        "connection_config": {"xmlrpc_url": "https://rt2.example/RPC2"},
     })
     assert r2.status_code == 201, r2.text
     src2 = r2.json()
@@ -149,7 +149,7 @@ async def test_duplicate_label_rejected(auth_client):
     r = await auth_client.post("/api/v1/sources", json={
         "name": "Test Source",
         "adapter_type": "rtorrent",
-        "connection_secret_ref": '{"xmlrpc_url": "https://rt.example/RPC2"}',
+        "connection_config": {"xmlrpc_url": "https://rt.example/RPC2"},
     })
     source_id = r.json()["id"]
 
@@ -185,14 +185,14 @@ async def test_label_references_same_library(auth_client):
     r = await auth_client.post("/api/v1/sources", json={
         "name": "Source A",
         "adapter_type": "rtorrent",
-        "connection_secret_ref": '{"xmlrpc_url": "https://a.example/RPC2"}',
+        "connection_config": {"xmlrpc_url": "https://a.example/RPC2"},
     })
     source_a = r.json()
 
     r = await auth_client.post("/api/v1/sources", json={
         "name": "Source B",
         "adapter_type": "deluge",
-        "connection_secret_ref": '{"web_url": "http://deluge:8112"}',
+        "connection_config": {"web_url": "http://deluge:8112"},
     })
     source_b = r.json()
 

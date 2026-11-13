@@ -94,12 +94,21 @@ async def get_source_item(item_id: str, session: AsyncSession = Depends(get_sess
 
 
 @source_items_router.post("/source-items/{item_id}/recheck")
-async def recheck_item(item_id: str, session: AsyncSession = Depends(get_session)):
+async def recheck_item(item_id: str, request: Request, session: AsyncSession = Depends(get_session)):
     repo = SourceItemRepository(session)
-    obj = await repo.update(item_id, last_eligibility="classifying")
-    if not obj:
+    item = await repo.get(item_id)
+    if not item:
         raise HTTPException(status_code=404, detail="Source item not found")
+
+    await repo.update(item_id, last_eligibility="classifying")
     await session.commit()
+
+    # Trigger classification via discovery supervisor if available
+    # (async background, doesn't block response)
+    if hasattr(request.app.state, "supervisor"):
+        import asyncio
+        asyncio.create_task(request.app.state.supervisor.trigger_scan(item.source_id))
+
     return {"status": "rechecking", "item_id": item_id}
 
 
@@ -125,7 +134,7 @@ async def queue_item(
     if not item:
         raise HTTPException(status_code=404, detail="Source item not found")
 
-    # Check for existing active job
+    # Check for existing active job (duplicate protection)
     job_repo = JobRepository(session)
     existing = await job_repo.get_active_for_item(item_id)
     if existing:
@@ -133,6 +142,21 @@ async def queue_item(
             status_code=409,
             detail={"error": "duplicate_job", "job_id": existing.id, "status": existing.status},
         )
+
+    # Idempotency: check for a recently completed job with the same key
+    if body.idempotency_key:
+        from sqlalchemy import select as sa_select
+        from app.database.models import Job as JobModel
+        from sqlalchemy.ext.asyncio import AsyncSession as AsyncSessionType
+        idem_result = await session.execute(
+            sa_select(JobModel).where(
+                JobModel.source_item_id == item_id,
+                JobModel.idempotency_key == body.idempotency_key,
+            ).limit(1)
+        )
+        idem_job = idem_result.scalar_one_or_none()
+        if idem_job:
+            return {"job_id": idem_job.id, "status": idem_job.status, "stage": idem_job.stage}
 
     # Find matching label rule
     if not item.labels_json:

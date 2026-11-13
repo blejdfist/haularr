@@ -49,7 +49,12 @@ class SourceInstance(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     adapter_type: Mapped[str] = mapped_column(String(50), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    connection_secret_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    # Non-secret connection config: host/url, port, username, tls settings
+    connection_config_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    # Encrypted credential reference: Fernet-encrypted password/token, stored as "enc:<blob>"
+    credential_ref: Mapped[str] = mapped_column(Text, nullable=False, default="")
     default_transfer_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("transfer_instances.id"), nullable=True
     )

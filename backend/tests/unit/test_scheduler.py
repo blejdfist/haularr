@@ -53,7 +53,7 @@ async def test_concurrency_limit_three_download_jobs(app, settings, tmp_path):
         source = await source_repo.create(
             name="Test Source",
             adapter_type="rtorrent",
-            connection_secret_ref="{}",
+            connection_config_json={}, credential_ref="",
         )
 
         # Create label rule
@@ -159,7 +159,7 @@ async def test_lease_expiry_and_recovery(app, settings):
         source = await source_repo.create(
             name="Test",
             adapter_type="rtorrent",
-            connection_secret_ref="{}",
+            connection_config_json={}, credential_ref="",
         )
 
         label_repo = LabelRuleRepository(session)
@@ -239,7 +239,7 @@ async def test_job_claim_atomicity(app, settings):
         source = await source_repo.create(
             name="Test",
             adapter_type="rtorrent",
-            connection_secret_ref="{}",
+            connection_config_json={}, credential_ref="",
         )
         label_repo = LabelRuleRepository(session)
         rule = await label_repo.create(
@@ -299,7 +299,7 @@ async def test_duplicate_active_job_blocked(app, settings):
         source = await source_repo.create(
             name="Test",
             adapter_type="rtorrent",
-            connection_secret_ref="{}",
+            connection_config_json={}, credential_ref="",
         )
         label_repo = LabelRuleRepository(session)
         rule = await label_repo.create(

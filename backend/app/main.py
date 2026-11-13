@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -49,6 +51,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.master_key = get_or_create_master_key(settings.config_dir)
     logger.info("Master key initialized at %s/.master_key", settings.config_dir)
 
+    # Load persisted settings from DB (overrides env/file defaults)
+    await _load_persisted_settings(settings)
+
     # Initialize and start scheduler
     from app.jobs.scheduler import JobScheduler
     from app.jobs.recovery import Recovery
@@ -63,16 +68,58 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.scheduler = scheduler
     await scheduler.start()
 
+    # Start discovery supervisor
+    from app.jobs.supervisor import DiscoverySupervisor
+    supervisor = DiscoverySupervisor(settings, app.state.master_key)
+    app.state.supervisor = supervisor
+    await supervisor.start()
+
+    # Start retention background task
+    from app.jobs.retention import RetentionJob
+    retention = RetentionJob(settings)
+    app.state.retention_task = asyncio.create_task(retention.run_periodic(3600))
+
     logger.info("Haularr started on %s:%d", settings.host, settings.port)
 
     yield
 
-    # Shutdown — stop scheduler first
+    # Shutdown — stop supervisor, scheduler, and retention first
     logger.info("Shutting down...")
+    if hasattr(app.state, "retention_task"):
+        app.state.retention_task.cancel()
+        try:
+            await asyncio.wait_for(app.state.retention_task, timeout=5.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
+    if hasattr(app.state, "supervisor"):
+        await supervisor.stop()
     if hasattr(app.state, "scheduler"):
         await scheduler.stop()
     await close_engine()
     logger.info("Haularr stopped.")
+
+
+async def _load_persisted_settings(settings: Settings) -> None:
+    """Load settings previously saved to DB (overrides env/file defaults)."""
+    _SETTING_FIELDS = [
+        "max_concurrent_download_jobs", "max_concurrent_verify_jobs",
+        "max_concurrent_extract_jobs", "max_concurrent_publish_jobs",
+        "max_concurrent_import_jobs", "completed_history_days",
+        "discovery_interval_seconds", "retry_limit", "stage_lease_seconds",
+    ]
+    try:
+        from app.database.session import get_session_factory
+        from app.database.repositories import SettingsRepository
+
+        factory = get_session_factory(settings)
+        async with factory() as session:
+            repo = SettingsRepository(session)
+            for field in _SETTING_FIELDS:
+                value = await repo.get(f"setting:{field}")
+                if value is not None:
+                    setattr(settings, field, value)
+    except Exception as exc:
+        logger.debug("Could not load persisted settings (may be first run): %s", exc)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -101,6 +148,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         transfers_router,
     )
     from app.api.routes_sse import sse_router
+    from app.api.routes_export import export_router
 
     api_prefix = "/api/v1"
     app.include_router(health_router, prefix=api_prefix)
@@ -113,6 +161,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(jobs_router, prefix=api_prefix)
     app.include_router(dashboard_router, prefix=api_prefix)
     app.include_router(sse_router, prefix=api_prefix)
+    app.include_router(export_router, prefix=api_prefix)
 
     # Serve static frontend (SPA fallback)
     static_dir = settings.static_dir

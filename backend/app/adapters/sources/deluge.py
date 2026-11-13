@@ -66,7 +66,6 @@ class DelugeAdapter:
         self._password = password
         self._tls_verify = tls_verify
         self._session_cookie: str | None = None
-
     def _make_client(self) -> httpx.AsyncClient:
         cookies = {}
         if self._session_cookie:
