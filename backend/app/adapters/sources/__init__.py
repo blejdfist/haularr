@@ -24,15 +24,15 @@ def create_source_adapter(
         if not web_url:
             host = config.get("host", "")
             port = config.get("port", 8112)
-            tls = config.get("tls_verify", False)
-            scheme = "https" if tls else "http"
+            use_tls = config.get("use_tls", False)
+            scheme = "https" if use_tls else "http"
             if host:
                 web_url = f"{scheme}://{host}:{port}"
         return DelugeAdapter(
             source_id=source_id,
             web_url=web_url,
             password=config.get("password", ""),
-            tls_verify=config.get("tls_verify", False),
+            tls_verify=config.get("tls_verify", True),
         )
     else:
         raise ValueError(f"Unknown source adapter type: {adapter_type}")

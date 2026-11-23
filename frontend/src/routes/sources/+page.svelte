@@ -38,7 +38,7 @@
   let createForm = $state({
     name: '',
     adapter_type: 'rtorrent',
-    connection_config: { port: 443, tls_verify: true, url_path: 'rutorrent/plugins/rpc/rpc.php' } as Record<string, any>,
+    connection_config: { port: 443, use_tls: true, tls_verify: true, url_path: 'rutorrent/plugins/rpc/rpc.php' } as Record<string, any>,
     credential: '',
     poll_interval: 30,
     enabled: true,
@@ -103,8 +103,8 @@
   // Reset adapter-specific defaults when type changes
   function onAdapterTypeChange(type: string, isEdit = false) {
     const defaults: Record<string, Record<string, any>> = {
-      rtorrent: { port: 443, tls_verify: true, url_path: 'rutorrent/plugins/rpc/rpc.php' },
-      deluge:   { port: 8112, tls_verify: false },
+      rtorrent: { port: 443, use_tls: true, tls_verify: true, url_path: 'rutorrent/plugins/rpc/rpc.php' },
+      deluge:   { port: 8112, use_tls: false, tls_verify: false },
     };
     if (isEdit) {
       editForm.adapter_type = type;
@@ -134,7 +134,7 @@
       createForm = {
         name: '',
         adapter_type: 'rtorrent',
-        connection_config: { port: 443, tls_verify: true, url_path: 'rutorrent/plugins/rpc/rpc.php' },
+        connection_config: { port: 443, use_tls: true, tls_verify: true, url_path: 'rutorrent/plugins/rpc/rpc.php' },
         credential: '',
         poll_interval: 30,
         enabled: true,

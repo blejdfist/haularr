@@ -170,22 +170,29 @@ class RtorrentAdapter:
         Accepts either:
           - xmlrpc_url: direct URL (legacy / advanced)
           - host + port + url_path: assembled into xmlrpc_url
+
+        TLS controls:
+          - use_tls: use https (default True)
+          - tls_verify: verify certificate chain (default True, independent of use_tls)
         """
         xmlrpc_url = config.get("xmlrpc_url", "")
         if not xmlrpc_url:
             host = config.get("host", "")
             port = config.get("port", 443)
             url_path = (config.get("url_path") or "rutorrent/plugins/rpc/rpc.php").lstrip("/")
-            tls_verify = config.get("tls_verify", True)
-            scheme = "https" if tls_verify else "http"
+            use_tls = config.get("use_tls", True)
+            scheme = "https" if use_tls else "http"
             if host:
                 xmlrpc_url = f"{scheme}://{host}:{port}/{url_path}"
+
+        # tls_verify is independent of use_tls — you can use TLS without verifying
+        tls_verify = config.get("tls_verify", True)
         return cls(
             source_id=source_id,
             xmlrpc_url=xmlrpc_url,
             username=config.get("username"),
             password=config.get("password"),
-            tls_verify=config.get("tls_verify", True),
+            tls_verify=tls_verify,
         )
 
     async def _call(self, method: str, *params: Any) -> Any:
