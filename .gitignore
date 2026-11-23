@@ -75,3 +75,6 @@ logs/
 
 # Docker
 docker-compose.override.yml
+
+# Local planning docs (not committed)
+docs/superpowers/
