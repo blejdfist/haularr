@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Sequence
 
-from sqlalchemy import select, update, func, and_, or_, case, text
+from sqlalchemy import select, update, func, and_, exists, or_, case, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -266,6 +266,8 @@ class SourceItemRepository:
         label: str | None = None,
         eligibility: str | None = None,
         search: str | None = None,
+        has_job: bool | None = None,
+        include_ignored: bool = False,
         offset: int = 0,
         limit: int = 50,
     ) -> tuple[Sequence[SourceItem], int]:
@@ -282,6 +284,11 @@ class SourceItemRepository:
             conditions.append(SourceItem.last_eligibility == eligibility)
         if search:
             conditions.append(SourceItem.title.ilike(f"%{search}%"))
+        if has_job is not None:
+            job_exists = exists(select(Job.id).where(Job.source_item_id == SourceItem.id))
+            conditions.append(job_exists if has_job else ~job_exists)
+        if not include_ignored:
+            conditions.append(SourceItem.ignored_at.is_(None))
 
         if conditions:
             query = query.where(and_(*conditions))

@@ -75,3 +75,73 @@ async def test_queue_requires_matching_label(auth_client, settings):
     })
     assert r.status_code == 400
     assert "No matching label rule" in r.json()["detail"]
+
+
+async def _seed(auth_client, settings, specs):
+    """specs: (remote_id, eligibility, has_job, ignored). Returns {remote_id: item_id}."""
+    from datetime import datetime, timezone
+
+    from app.database.models import Job, SourceItem, SourceLabelRule
+    from app.database.session import get_session_factory
+
+    r = await auth_client.post("/api/v1/sources", json={
+        "name": "Test", "adapter_type": "rtorrent", "connection_config": {},
+    })
+    source_id = r.json()["id"]
+    ids = {}
+    async with get_session_factory(settings)() as session:
+        rule = SourceLabelRule(source_id=source_id, label="x",
+                               temporary_directory="/t", completed_directory="/c")
+        session.add(rule)
+        await session.flush()
+        for remote_id, elig, has_job, ignored in specs:
+            item = SourceItem(
+                source_id=source_id, remote_id=remote_id, title=remote_id,
+                labels_json=["x"], source_status="completed", remote_path="/d",
+                size_bytes=1, last_eligibility=elig,
+                ignored_at=datetime.now(timezone.utc) if ignored else None,
+            )
+            session.add(item)
+            await session.flush()
+            if has_job:
+                session.add(Job(source_item_id=item.id, rule_id=rule.id, config_snapshot_json={}))
+            ids[remote_id] = item.id
+        await session.commit()
+    return ids
+
+
+@pytest.mark.asyncio
+async def test_has_job_false_excludes_items_with_jobs(auth_client, settings):
+    ids = await _seed(auth_client, settings, [
+        ("a", "already_available", True, False),
+        ("b", "already_available", False, False),
+    ])
+    r = await auth_client.get("/api/v1/source-items?has_job=false")
+    assert [i["id"] for i in r.json()["items"]] == [ids["b"]]
+    r = await auth_client.get("/api/v1/source-items?has_job=true")
+    assert [i["id"] for i in r.json()["items"]] == [ids["a"]]
+
+
+@pytest.mark.asyncio
+async def test_ignored_items_excluded_by_default(auth_client, settings):
+    ids = await _seed(auth_client, settings, [
+        ("a", "ignored", False, True),
+        ("b", "already_available", False, False),
+    ])
+    r = await auth_client.get("/api/v1/source-items")
+    assert [i["id"] for i in r.json()["items"]] == [ids["b"]]
+    assert r.json()["total"] == 1
+    r = await auth_client.get("/api/v1/source-items?include_ignored=true")
+    assert r.json()["total"] == 2
+
+
+@pytest.mark.asyncio
+async def test_skipped_filter_only_already_available(auth_client, settings):
+    ids = await _seed(auth_client, settings, [
+        ("a", "already_available", False, False),
+        ("b", "not_registered", False, False),
+        ("c", "needs_review", False, False),
+        ("d", "unrouted", False, False),
+    ])
+    r = await auth_client.get("/api/v1/source-items?eligibility=already_available&has_job=false")
+    assert [i["id"] for i in r.json()["items"]] == [ids["a"]]

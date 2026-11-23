@@ -41,6 +41,8 @@ async def list_source_items(
     label: str | None = Query(None),
     eligibility: str | None = Query(None),
     search: str | None = Query(None),
+    has_job: bool | None = Query(None),
+    include_ignored: bool = Query(False),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
     session: AsyncSession = Depends(get_session),
@@ -51,6 +53,8 @@ async def list_source_items(
         label=label,
         eligibility=eligibility,
         search=search,
+        has_job=has_job,
+        include_ignored=include_ignored,
         offset=offset,
         limit=limit,
     )
