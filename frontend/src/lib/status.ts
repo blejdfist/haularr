@@ -40,3 +40,9 @@ export function ago(s: string | null): string {
   if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
   return `${Math.floor(sec / 86400)}d ago`;
 }
+
+/** Badge text for a job; explains why a job is parked on the seedbox. */
+export function statusLabel(j: { status: string; error_code?: string | null }): string {
+  if (j.status === 'waiting_source' && j.error_code === 'no_transfer_config') return 'Waiting for fetch config';
+  return j.status;
+}

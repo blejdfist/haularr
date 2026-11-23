@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { Button, ButtonGroup, Input, Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell, Badge, Progressbar, Alert } from 'flowbite-svelte';
   import { endpoints, type Job } from '$lib/api/client';
-  import { STATUS_GROUPS, groupOf, badgeColor, sourceHealth, ago } from '$lib/status';
+  import { STATUS_GROUPS, groupOf, badgeColor, sourceHealth, ago, statusLabel } from '$lib/status';
   import StatCards from '$lib/components/StatCards.svelte';
   import JobDrawer from '$lib/components/JobDrawer.svelte';
 
@@ -35,7 +35,7 @@
     STATUS_GROUPS[g].reduce((n, s) => n + (by[s] ?? 0), 0);
   const by = $derived(dash?.jobs?.by_status ?? {});
   const sources = $derived(
-    (dash?.source_health ?? []).map((s: any) => ({ name: s.name, health: sourceHealth(s) })),
+    (dash?.source_health ?? []).map((s: any) => ({ id: s.id, name: s.name, health: sourceHealth(s) })),
   );
   const q = $derived(search.trim().toLowerCase());
   const shownJobs = $derived(jobs.filter((j) => !q || (j.title ?? '').toLowerCase().includes(q)));
@@ -120,6 +120,7 @@
     failed={sum(by, 'failed')}
     done7d={dash?.jobs?.completed_7d ?? 0}
     {sources}
+    onscanned={load}
   />
 
   <div class="flex flex-wrap items-center justify-between gap-2">
@@ -172,7 +173,7 @@
               {j.config_snapshot?.source_name ?? '—'} · {j.config_snapshot?.label ?? '—'} → {j.library_name ?? '—'}
             </TableBodyCell>
             <TableBodyCell>
-              <Badge color={badgeColor(j.status)}>{j.status}</Badge>
+              <Badge color={badgeColor(j.status)}>{statusLabel(j)}</Badge>
               <span class="ml-1 text-xs text-gray-500">{j.stage}</span>
               {#if j.status === 'running' && progress[j.id] != null}
                 <Progressbar progress={progress[j.id]} size="h-1.5" class="mt-1" />
