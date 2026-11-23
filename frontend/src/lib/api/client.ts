@@ -85,6 +85,80 @@ export const api = {
   delete: <T>(path: string) => apiFetch<T>(path, { method: 'DELETE' }),
 };
 
+export interface PathMapping { source_prefix: string; remote_prefix: string }
+/** Fetch config as returned by the API (password never returned). */
+export interface Fetch {
+  host: string;
+  port: number;
+  username: string;
+  tls_verify: boolean;
+  path_mappings: PathMapping[];
+  has_password: boolean;
+}
+/** Fetch config as sent on POST/PATCH (password required). */
+export type FetchInput = Omit<Fetch, 'has_password'> & { password: string };
+
+export interface Source {
+  id: string;
+  name: string;
+  adapter_type: string;
+  enabled: boolean;
+  connection_config: Record<string, any>;
+  has_credential: boolean;
+  default_transfer_id: string | null;
+  poll_interval: number;
+  onboarding_state: string;
+  initial_scan_at: string | null;
+  last_scan_at: string | null;
+  last_scan_error: string | null;
+  created_at: string | null;
+  fetch: Fetch | null;
+}
+
+export interface LabelRule {
+  id: string;
+  source_id: string;
+  label: string;
+  priority: number;
+  enabled: boolean;
+  automatic_processing: boolean;
+  temporary_directory: string;
+  completed_directory: string;
+  library_instance_id: string | null;
+  transfer_override_id: string | null;
+  retention_days: number | null;
+}
+
+export interface Library {
+  id: string;
+  name: string;
+  adapter_type: string;
+  base_url: string;
+  api_key_secret_ref: string | null;
+  enabled: boolean;
+  options: Record<string, any>;
+}
+
+export interface Job {
+  id: string;
+  status: string;
+  stage: string;
+  title: string | null;
+  library_name: string | null;
+  config_snapshot: Record<string, any>;
+  created_at: string | null;
+  ended_at: string | null;
+}
+
+type Page<T> = { items: T[]; total: number; offset: number; limit: number };
+
+function qs(params: Record<string, string | number | undefined>): string {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') p.set(k, String(v));
+  const s = p.toString();
+  return s ? '?' + s : '';
+}
+
 // API endpoints
 export const endpoints = {
   health: () => api.get<{ status: string; database: string; version: string }>('/health'),
@@ -96,10 +170,11 @@ export const endpoints = {
     me: () => api.get<{ username: string }>('/auth/me'),
   },
   sources: {
-    list: () => api.get<any[]>('/sources'),
-    get: (id: string) => api.get<any>(`/sources/${id}`),
-    create: (data: any) => api.post<any>('/sources', data),
-    update: (id: string, data: any) => api.patch<any>(`/sources/${id}`, data),
+    list: () => api.get<Source[]>('/sources'),
+    get: (id: string) => api.get<Source>(`/sources/${id}`),
+    create: (data: Record<string, any> & { fetch?: FetchInput }) => api.post<Source>('/sources', data),
+    update: (id: string, data: Record<string, any> & { fetch?: FetchInput }) =>
+      api.patch<Source>(`/sources/${id}`, data),
     delete: (id: string) => api.delete(`/sources/${id}`),
     testConfig: (data: { adapter_type: string; connection_config: Record<string, any>; credential: string }) =>
       api.post<any>('/sources/test-config', data),
@@ -107,19 +182,22 @@ export const endpoints = {
     scan: (id: string) => api.post<any>(`/sources/${id}/scan`),
     completeOnboarding: (id: string) => api.post<any>(`/sources/${id}/complete-onboarding`),
     labels: {
-      list: (sourceId: string) => api.get<any[]>(`/sources/${sourceId}/labels`),
-      create: (sourceId: string, data: any) => api.post<any>(`/sources/${sourceId}/labels`, data),
-      update: (sourceId: string, ruleId: string, data: any) =>
-        api.patch<any>(`/sources/${sourceId}/labels/${ruleId}`, data),
+      list: (sourceId: string) => api.get<LabelRule[]>(`/sources/${sourceId}/labels`),
+      create: (sourceId: string, data: Partial<LabelRule>) =>
+        api.post<LabelRule>(`/sources/${sourceId}/labels`, data),
+      update: (sourceId: string, ruleId: string, data: Partial<LabelRule>) =>
+        api.patch<LabelRule>(`/sources/${sourceId}/labels/${ruleId}`, data),
       delete: (sourceId: string, ruleId: string) =>
         api.delete(`/sources/${sourceId}/labels/${ruleId}`),
     },
   },
   sourceItems: {
-    list: (params?: Record<string, string>) => {
-      const qs = params ? '?' + new URLSearchParams(params).toString() : '';
-      return api.get<{ items: any[]; total: number; offset: number; limit: number }>(`/source-items${qs}`);
-    },
+    list: (params?: Record<string, string>) =>
+      api.get<Page<any>>(`/source-items${qs(params ?? {})}`),
+    skipped: (p: { offset?: number; limit?: number } = {}) =>
+      api.get<Page<any>>(
+        `/source-items${qs({ eligibility: 'already_available', has_job: 'false', ...p })}`,
+      ),
     get: (id: string) => api.get<any>(`/source-items/${id}`),
     recheck: (id: string) => api.post<any>(`/source-items/${id}/recheck`),
     ignore: (id: string) => api.post<any>(`/source-items/${id}/ignore`),
@@ -129,11 +207,9 @@ export const endpoints = {
       api.post<any>('/source-items/bulk-queue', { source_item_ids: ids, force_transfer: force }),
   },
   jobs: {
-    list: (params?: Record<string, string>) => {
-      const qs = params ? '?' + new URLSearchParams(params).toString() : '';
-      return api.get<{ items: any[]; total: number; offset: number; limit: number }>(`/jobs${qs}`);
-    },
-    get: (id: string) => api.get<any>(`/jobs/${id}`),
+    list: (p: { status?: string[]; sort?: 'newest' | 'attention'; offset?: number; limit?: number } = {}) =>
+      api.get<Page<Job>>(`/jobs${qs({ ...p, status: p.status?.join(',') })}`),
+    get: (id: string) => api.get<Job>(`/jobs/${id}`),
     events: (id: string) => api.get<any[]>(`/jobs/${id}/events`),
     pause: (id: string) => api.post<any>(`/jobs/${id}/pause`),
     resume: (id: string) => api.post<any>(`/jobs/${id}/resume`),
@@ -151,16 +227,21 @@ export const endpoints = {
     addEndpoint: (id: string, data: any) => api.post<any>(`/transfers/${id}/endpoints`, data),
   },
   libraries: {
-    list: () => api.get<any[]>('/libraries'),
-    get: (id: string) => api.get<any>(`/libraries/${id}`),
-    create: (data: any) => api.post<any>('/libraries', data),
-    update: (id: string, data: any) => api.patch<any>(`/libraries/${id}`, data),
+    list: () => api.get<Library[]>('/libraries'),
+    get: (id: string) => api.get<Library>(`/libraries/${id}`),
+    create: (data: Omit<Library, 'id'>) => api.post<Library>('/libraries', data),
+    update: (id: string, data: Partial<Omit<Library, 'id' | 'adapter_type'>>) =>
+      api.patch<Library>(`/libraries/${id}`, data),
     delete: (id: string) => api.delete(`/libraries/${id}`),
     test: (id: string) => api.post<any>(`/libraries/${id}/test`),
   },
   settings: {
     get: () => api.get<any>('/settings'),
     patch: (data: any) => api.patch<any>('/settings', data),
+    update: (data: any) => api.patch<any>('/settings', data),
+  },
+  config: {
+    export: () => api.get<unknown>('/config/export'),
   },
   dashboard: {
     get: () => api.get<any>('/dashboard'),
