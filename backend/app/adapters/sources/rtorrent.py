@@ -23,7 +23,7 @@ from app.domain.models import RemoteFileDTO, SourceItemDTO, SourceStatus
 
 logger = logging.getLogger(__name__)
 
-# rTorrent XML-RPC multicall fields
+# rTorrent XML-RPC multicall fields (d.multicall2 args: target "", view "main", fields)
 _TORRENT_FIELDS = [
     "d.hash=",
     "d.name=",
@@ -214,12 +214,8 @@ class RtorrentAdapter:
             return {"ok": False, "error": str(exc), "adapter": "rtorrent"}
 
     async def list_items(self) -> list[SourceItemDTO]:
-        """List all torrents via d.multicall2."""
-        try:
-            rows = await self._call("d.multicall2", "", *_TORRENT_FIELDS)
-        except Exception as exc:
-            logger.warning("rTorrent list_items failed for %s: %s", self.source_id, exc)
-            return []
+        """List all torrents via d.multicall2. Errors propagate so the scan records them."""
+        rows = await self._call("d.multicall2", "", "main", *_TORRENT_FIELDS)
 
         items = []
         for row in rows:
@@ -280,7 +276,7 @@ class RtorrentAdapter:
         )
 
     async def get_item(self, item_key: str) -> SourceItemDTO:
-        rows = await self._call("d.multicall2", "", *_TORRENT_FIELDS)
+        rows = await self._call("d.multicall2", "", "main", *_TORRENT_FIELDS)
         for row in rows:
             if str(row[0]).lower() == item_key.lower():
                 return self._row_to_dto(row)

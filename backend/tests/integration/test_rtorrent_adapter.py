@@ -113,3 +113,24 @@ async def test_rtorrent_test_connection_failure():
     result = await adapter.test_connection()
     assert result["ok"] is False
     assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_list_items_uses_main_view():
+    """d.multicall2 takes (target, view, *fields); an empty view is rejected by rTorrent."""
+    adapter = RtorrentAdapter(source_id="test", xmlrpc_url="http://example.com/RPC2")
+    with patch.object(adapter, "_call", new_callable=AsyncMock, return_value=[]) as call:
+        await adapter.list_items()
+    method, target, view, *fields = call.call_args.args
+    assert (method, target, view) == ("d.multicall2", "", "main")
+    assert fields[0] == "d.hash="
+
+
+@pytest.mark.asyncio
+async def test_list_items_raises_on_fault():
+    """A failed listing must surface as a scan error, not as an empty source."""
+    adapter = RtorrentAdapter(source_id="test", xmlrpc_url="http://example.com/RPC2")
+    err = RuntimeError("XML-RPC fault: {'faultCode': -503, 'faultString': 'Could not find view.'}")
+    with patch.object(adapter, "_call", new_callable=AsyncMock, side_effect=err):
+        with pytest.raises(RuntimeError, match="Could not find view"):
+            await adapter.list_items()
