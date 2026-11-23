@@ -174,6 +174,8 @@ class MediaMatch(BaseModel):
     year: int | None = None
     episode_ids: list[int] = Field(default_factory=list)
     parse_data: dict[str, Any] = Field(default_factory=dict)
+    # Library records returned by /parse (Sonarr: {"episodes": [...]}, Radarr: {"movie": {...}})
+    library_record: dict[str, Any] = Field(default_factory=dict)
     confidence: float = 0.0
     ambiguous: bool = False
 

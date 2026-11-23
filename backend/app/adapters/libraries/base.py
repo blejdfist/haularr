@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Protocol
 
 from app.domain.models import (
-    EligibilityAssessment,
     ImportInspection,
     ImportOperation,
     ImportOutcome,
@@ -28,13 +27,7 @@ class LibraryAdapter(Protocol):
         ...
 
     async def inspect_library(self, match: MediaMatch) -> LibraryInventory:
-        """Check library presence, file existence and missing episodes."""
-        ...
-
-    async def evaluate_candidate(
-        self, match: MediaMatch, metadata: dict
-    ) -> EligibilityAssessment:
-        """Evaluate upgrade eligibility via supported side-effect-free API."""
+        """Derive library presence/file state from match.library_record (no HTTP)."""
         ...
 
     async def inspect_import(

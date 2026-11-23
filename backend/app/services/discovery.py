@@ -43,7 +43,6 @@ _AUTO_QUEUE_STATUSES = {
     EligibilityStatus.MISSING.value,
     EligibilityStatus.PARTIALLY_MISSING.value,
     EligibilityStatus.DOWNLOAD_NEEDED.value,
-    EligibilityStatus.UPGRADE_ELIGIBLE.value,
 }
 
 

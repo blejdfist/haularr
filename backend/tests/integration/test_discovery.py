@@ -70,10 +70,6 @@ class FakeLibraryAdapter:
             missing_episode_ids=[1, 2],
         )
 
-    async def evaluate_candidate(self, match, metadata) -> object:
-        from app.domain.models import EligibilityAssessment
-        return EligibilityAssessment(decision=EligibilityDecision.INCONCLUSIVE)
-
 
 @pytest.mark.asyncio
 async def test_classify_missing_media(app, settings):
@@ -240,7 +236,7 @@ async def test_classify_already_available(app, settings):
         rule = (await label_repo.list_by_source(source.id))[0]
         rule.library_instance_id = library.id
 
-        # Movie has file, upgrade is inconclusive → already_available / unconfirmed_upgrade
+        # Movie already has a file -> already_available (no upgrades)
         fake_adapter = FakeLibraryAdapter(
             match=MediaMatch(media_type=MediaType.MOVIE, catalog_id=10, title="Test Movie"),
             inventory=LibraryInventory(
@@ -256,8 +252,7 @@ async def test_classify_already_available(app, settings):
 
         await session.commit()
 
-    # Inconclusive upgrade → unconfirmed_upgrade
-    assert status == EligibilityStatus.UNCONFIRMED_UPGRADE.value
+    assert status == EligibilityStatus.ALREADY_AVAILABLE.value
 
 
 @pytest.mark.asyncio

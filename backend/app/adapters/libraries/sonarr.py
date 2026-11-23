@@ -6,8 +6,7 @@ Endpoints used: parse, series, episode, episodefile, manualimport, command, hist
 Important:
 - A parse response does NOT guarantee the series is registered. We always
   cross-check against /api/v5/series to confirm catalog existence.
-- Quality upgrade decisions require a supported side-effect-free API call;
-  if none is definitively available, return EligibilityDecision.INCONCLUSIVE.
+- Library state (hasFile) comes from the /parse episode records; no upgrades.
 - Never auto-register. Never invoke release-grabbing endpoints.
 """
 
@@ -20,8 +19,6 @@ from typing import Any
 import httpx
 
 from app.domain.models import (
-    EligibilityAssessment,
-    EligibilityDecision,
     ImportCandidate,
     ImportInspection,
     ImportOperation,
@@ -123,81 +120,24 @@ class SonarrAdapter:
             year=series_data.get("year"),
             episode_ids=episode_ids,
             parse_data=parsed_info,
+            library_record={"episodes": episodes},
             confidence=0.9 if episode_ids else 0.6,
             ambiguous=len(episode_ids) == 0 and bool(series_data.get("id")),
         )
 
     async def inspect_library(self, match: MediaMatch) -> LibraryInventory:
-        """Check if the parsed series/episodes are present in the library."""
-        if match.catalog_id is None:
-            return LibraryInventory(
-                catalog_id=0,
-                title=match.title,
-                registered=False,
-                has_file=False,
-            )
-
-        # Verify the series actually exists
-        try:
-            series = await self._get(f"/series/{match.catalog_id}")
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 404:
-                return LibraryInventory(
-                    catalog_id=match.catalog_id,
-                    title=match.title,
-                    registered=False,
-                    has_file=False,
-                )
-            raise
-
-        # Fetch episodes
-        episodes = await self._get("/episode", seriesId=match.catalog_id)
-        episode_files = await self._get("/episodefile", seriesId=match.catalog_id)
-        file_episode_ids = {ef["episodeId"] for ef in episode_files if ef.get("episodeId")}
-
-        # Determine which of the matched episode_ids are missing
-        all_episode_ids = {ep["id"] for ep in episodes}
-        missing = []
-        for ep_id in (match.episode_ids or []):
-            if ep_id not in file_episode_ids:
-                missing.append(ep_id)
-
-        # Season summary
-        season_counts: dict[str, int] = {}
-        for ep in episodes:
-            season = str(ep.get("seasonNumber", 0))
-            season_counts[season] = season_counts.get(season, 0) + (
-                1 if ep["id"] in file_episode_ids else 0
-            )
-
+        """Derive library state from the /parse episode records (no HTTP)."""
+        episodes = match.library_record.get("episodes", [])
+        missing = [
+            e["id"] for e in episodes
+            if e["id"] in match.episode_ids and not e.get("hasFile")
+        ]
         return LibraryInventory(
-            catalog_id=match.catalog_id,
-            title=series.get("title", match.title),
-            registered=True,
-            has_file=len(file_episode_ids) > 0,
-            episode_counts=season_counts,
+            catalog_id=match.catalog_id or 0,
+            title=match.title,
+            registered=match.catalog_id is not None,
+            has_file=any(e.get("hasFile") for e in episodes),
             missing_episode_ids=missing,
-            existing_quality=None,  # Would need per-episode quality data
-        )
-
-    async def evaluate_candidate(
-        self, match: MediaMatch, metadata: dict
-    ) -> EligibilityAssessment:
-        """
-        Evaluate if a candidate qualifies as an upgrade.
-
-        Sonarr v5 does not expose a documented side-effect-free pre-flight
-        upgrade check for arbitrary remote files. We return INCONCLUSIVE
-        to avoid auto-downloading based on our own heuristics.
-        Post-transfer inspection via ManualImport is authoritative.
-        """
-        return EligibilityAssessment(
-            decision=EligibilityDecision.INCONCLUSIVE,
-            evidence={
-                "reason": "No side-effect-free pre-flight upgrade check available in Sonarr v5",
-                "recommendation": "Use post-transfer ManualImport inspection",
-            },
-            capability_used="none",
         )
 
     async def inspect_import(

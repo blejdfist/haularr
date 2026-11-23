@@ -166,18 +166,11 @@ async def classify_item(
 
     # Determine eligibility based on inventory
     if match.media_type == MediaType.MOVIE:
-        if not inventory.has_file:
-            status = EligibilityStatus.MISSING.value
-        else:
-            # Movie exists — check upgrade potential
-            upgrade = await adapter.evaluate_candidate(match, {})
-            from app.domain.models import EligibilityDecision
-            if upgrade.decision == EligibilityDecision.ACCEPTED:
-                status = EligibilityStatus.UPGRADE_ELIGIBLE.value
-            elif upgrade.decision == EligibilityDecision.REJECTED:
-                status = EligibilityStatus.ALREADY_AVAILABLE.value
-            else:
-                status = EligibilityStatus.UNCONFIRMED_UPGRADE.value
+        status = (
+            EligibilityStatus.ALREADY_AVAILABLE.value
+            if inventory.has_file
+            else EligibilityStatus.MISSING.value
+        )
     else:
         # Series
         missing = inventory.missing_episode_ids
@@ -187,14 +180,7 @@ async def classify_item(
             else:
                 status = EligibilityStatus.MISSING.value
         else:
-            upgrade = await adapter.evaluate_candidate(match, {})
-            from app.domain.models import EligibilityDecision
-            if upgrade.decision == EligibilityDecision.ACCEPTED:
-                status = EligibilityStatus.UPGRADE_ELIGIBLE.value
-            elif upgrade.decision == EligibilityDecision.REJECTED:
-                status = EligibilityStatus.ALREADY_AVAILABLE.value
-            else:
-                status = EligibilityStatus.UNCONFIRMED_UPGRADE.value
+            status = EligibilityStatus.ALREADY_AVAILABLE.value
 
     await _persist_match(session, item.id, library.id, match)
     await _persist_check(

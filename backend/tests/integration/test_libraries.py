@@ -95,35 +95,49 @@ async def test_radarr_parse_registered():
 
 
 @pytest.mark.asyncio
-async def test_sonarr_evaluate_candidate_inconclusive():
-    """Sonarr upgrade evaluation is inconclusive (fail closed)."""
-    adapter = SonarrAdapter(
-        library_id="test",
-        base_url="http://sonarr:8989",
-        api_key="test-key",
+async def test_sonarr_inspect_library_uses_parse_hasfile():
+    """inspect_library derives missing episodes from parse data, no HTTP."""
+    from app.domain.models import MediaMatch
+
+    adapter = SonarrAdapter(library_id="test", base_url="http://sonarr:8989", api_key="k")
+    match = MediaMatch(
+        media_type=MediaType.SERIES,
+        catalog_id=42,
+        title="Test Show",
+        episode_ids=[1, 2],
+        library_record={"episodes": [{"id": 1, "hasFile": True}, {"id": 2, "hasFile": False}]},
     )
+    get = AsyncMock()
+    with patch("httpx.AsyncClient.get", get):
+        inv = await adapter.inspect_library(match)
 
-    from app.domain.models import MediaMatch, EligibilityDecision
-
-    match = MediaMatch(media_type=MediaType.SERIES, catalog_id=1, title="Test")
-    result = await adapter.evaluate_candidate(match, {})
-
-    assert result.decision == EligibilityDecision.INCONCLUSIVE
-    assert "No side-effect-free" in result.evidence["reason"]
+    assert inv.missing_episode_ids == [2]
+    assert inv.has_file is True
+    assert inv.registered is True
+    get.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_radarr_evaluate_candidate_inconclusive():
-    """Radarr upgrade evaluation is inconclusive (fail closed)."""
-    adapter = RadarrAdapter(
-        library_id="test",
-        base_url="http://radarr:7878",
-        api_key="test-key",
+async def test_radarr_inspect_library_uses_parse_movie():
+    from app.domain.models import MediaMatch
+
+    adapter = RadarrAdapter(library_id="test", base_url="http://radarr:7878", api_key="k")
+    match = MediaMatch(
+        media_type=MediaType.MOVIE,
+        catalog_id=5,
+        title="Test Movie",
+        library_record={
+            "movie": {
+                "id": 5,
+                "hasFile": True,
+                "movieFile": {"quality": {"quality": {"name": "Bluray-1080p"}}},
+            }
+        },
     )
+    get = AsyncMock()
+    with patch("httpx.AsyncClient.get", get):
+        inv = await adapter.inspect_library(match)
 
-    from app.domain.models import MediaMatch, EligibilityDecision
-
-    match = MediaMatch(media_type=MediaType.MOVIE, catalog_id=1, title="Test")
-    result = await adapter.evaluate_candidate(match, {})
-
-    assert result.decision == EligibilityDecision.INCONCLUSIVE
+    assert inv.has_file is True
+    assert inv.existing_quality == "Bluray-1080p"
+    get.assert_not_called()

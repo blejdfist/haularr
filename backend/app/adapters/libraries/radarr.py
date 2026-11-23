@@ -6,7 +6,7 @@ Endpoints used: parse, movie, moviefile, manualimport, command, history
 Same constraints as Sonarr:
 - Parse response does not guarantee registration; cross-check /api/v3/movie.
 - No auto-registration. No release-grabbing.
-- Upgrade eligibility is inconclusive without a supported pre-flight API.
+- Library state (hasFile) comes from the /parse movie record; no upgrades.
 """
 
 from __future__ import annotations
@@ -18,8 +18,6 @@ from typing import Any
 import httpx
 
 from app.domain.models import (
-    EligibilityAssessment,
-    EligibilityDecision,
     ImportCandidate,
     ImportInspection,
     ImportOperation,
@@ -113,66 +111,26 @@ class RadarrAdapter:
             title=movie_data.get("title", ""),
             year=movie_data.get("year"),
             parse_data=parsed_info,
+            library_record={"movie": movie_data},
             confidence=0.9,
             ambiguous=False,
         )
 
     async def inspect_library(self, match: MediaMatch) -> LibraryInventory:
-        """Check if the parsed movie is present in the library."""
-        if match.catalog_id is None:
-            return LibraryInventory(
-                catalog_id=0,
-                title=match.title,
-                registered=False,
-                has_file=False,
-            )
-
-        try:
-            movie = await self._get(f"/movie/{match.catalog_id}")
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 404:
-                return LibraryInventory(
-                    catalog_id=match.catalog_id,
-                    title=match.title,
-                    registered=False,
-                    has_file=False,
-                )
-            raise
-
-        has_file = bool(movie.get("hasFile", False))
+        """Derive library state from the /parse movie record (no HTTP)."""
+        movie = match.library_record.get("movie") or {}
+        has_file = bool(movie.get("hasFile"))
         existing_quality = None
-        if has_file and movie.get("movieFile"):
+        if has_file:
             existing_quality = (
-                movie["movieFile"]
-                .get("quality", {})
-                .get("quality", {})
-                .get("name")
+                (movie.get("movieFile") or {}).get("quality", {}).get("quality", {}).get("name")
             )
-
         return LibraryInventory(
-            catalog_id=match.catalog_id,
-            title=movie.get("title", match.title),
-            registered=True,
+            catalog_id=match.catalog_id or 0,
+            title=match.title,
+            registered=match.catalog_id is not None,
             has_file=has_file,
             existing_quality=existing_quality,
-        )
-
-    async def evaluate_candidate(
-        self, match: MediaMatch, metadata: dict
-    ) -> EligibilityAssessment:
-        """
-        Evaluate if a candidate qualifies as an upgrade.
-
-        Radarr v5 does not expose a documented side-effect-free pre-flight
-        upgrade check for arbitrary remote files. Return INCONCLUSIVE.
-        """
-        return EligibilityAssessment(
-            decision=EligibilityDecision.INCONCLUSIVE,
-            evidence={
-                "reason": "No side-effect-free pre-flight upgrade check available in Radarr v5",
-                "recommendation": "Use post-transfer ManualImport inspection",
-            },
-            capability_used="none",
         )
 
     async def inspect_import(
