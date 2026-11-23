@@ -2,10 +2,32 @@
 
 const API_BASE = '/api/v1';
 
-let authToken: string | null = null;
+import { goto } from '$app/navigation';
+
+const TOKEN_KEY = 'haularr_token';
+
+function loadToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+let authToken: string | null = loadToken();
+
+export function getAuthToken() {
+  return authToken;
+}
 
 export function setAuthToken(token: string | null) {
   authToken = token;
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* storage unavailable: token lives in memory only */
+  }
 }
 
 function getHeaders(): Record<string, string> {
@@ -27,8 +49,20 @@ async function apiFetch<T>(
     headers: { ...getHeaders(), ...options.headers },
   });
   if (!response.ok) {
+    if (response.status === 401 && !path.startsWith('/auth/')) {
+      setAuthToken(null);
+      goto('/login/');
+    }
     const error = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
+    const d = error.detail;
+    const msg = Array.isArray(d)
+      ? d.map((x: any) => x?.msg ?? JSON.stringify(x)).join('; ')
+      : typeof d === 'string'
+        ? d
+        : d
+          ? JSON.stringify(d)
+          : '';
+    throw new Error(msg || `HTTP ${response.status}`);
   }
   if (response.status === 204) {
     return {} as T;
