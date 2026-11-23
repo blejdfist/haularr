@@ -556,3 +556,35 @@ async def test_classify_series_by_resolved_episodes(app, settings, episode_ids, 
             status = await classify_item(session, item, rule, library, b"\x00" * 32)
 
     assert status == expected
+
+
+@pytest.mark.asyncio
+async def test_scan_failure_sets_last_scan_error(app, settings):
+    from app.database.session import get_session_factory
+    from app.services.discovery import DiscoveryService
+
+    factory = get_session_factory(settings)
+    async with factory() as session:
+        source = await SourceRepository(session).create(
+            name="S", adapter_type="rtorrent",
+            connection_config_json={"xmlrpc_url": "http://rt.example/RPC2"}, credential_ref="",
+        )
+        await session.commit()
+        source_id = source.id
+
+    async def last_error():
+        async with factory() as session:
+            return (await SourceRepository(session).get(source_id)).last_scan_error
+
+    with patch("app.adapters.sources.create_source_adapter") as mock_sa:
+        adapter = AsyncMock()
+        adapter.test_connection = AsyncMock(return_value={"ok": True})
+        adapter.list_items = AsyncMock(side_effect=ConnectionError("down"))
+        mock_sa.return_value = adapter
+        svc = DiscoveryService(settings, b"\x00" * 32)
+        await svc.run_discovery_for_source(source_id)
+        assert "down" in await last_error()
+
+        adapter.list_items = AsyncMock(return_value=[])
+        await svc.run_discovery_for_source(source_id)
+        assert await last_error() is None

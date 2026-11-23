@@ -71,6 +71,25 @@ async def get_dashboard(session: AsyncSession = Depends(get_session)):
     )
     completed_today = completed_today_result.scalar_one()
 
+    completed_7d = (
+        await session.execute(
+            select(func.count(Job.id)).where(
+                Job.status.in_(["completed", "completed_with_warnings"]),
+                Job.ended_at >= datetime.now(timezone.utc) - timedelta(days=7),
+            )
+        )
+    ).scalar_one()
+
+    source_health = [
+        {
+            "id": s.id,
+            "name": s.name,
+            "last_scan_at": s.last_scan_at.isoformat() if s.last_scan_at else None,
+            "last_scan_error": s.last_scan_error,
+        }
+        for s in (await session.execute(select(SourceInstance))).scalars().all()
+    ]
+
     # Recently completed/failed (last 10)
     recent_result = await session.execute(
         select(Job)
@@ -98,9 +117,12 @@ async def get_dashboard(session: AsyncSession = Depends(get_session)):
             "failed": status_counts.get("failed", 0),
             "completed": status_counts.get("completed", 0),
             "completed_today": completed_today,
+            "completed_7d": completed_7d,
+            "by_status": status_counts,
             "paused": status_counts.get("paused", 0),
             "cancelled": status_counts.get("cancelled", 0),
         },
+        "source_health": source_health,
         "sources": source_counts,
         "enabled_sources": enabled_sources,
         "source_items_total": total_items,

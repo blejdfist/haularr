@@ -117,10 +117,12 @@ class DiscoveryService:
                     "Source %s connection failed: %s", source_id_copy, conn_ok.get("error")
                 )
                 counts["errors"] += 1
+                await self._record_scan_error(source_id_copy, conn_ok.get("error") or "connection failed")
                 return counts
         except Exception as exc:
             logger.warning("Source %s adapter error: %s", source_id_copy, exc)
             counts["errors"] += 1
+            await self._record_scan_error(source_id_copy, exc)
             return counts
 
         # List all items from source
@@ -129,6 +131,7 @@ class DiscoveryService:
         except Exception as exc:
             logger.warning("Source %s list_items failed: %s", source_id_copy, exc)
             counts["errors"] += 1
+            await self._record_scan_error(source_id_copy, exc)
             return counts
 
         counts["discovered"] = len(items_dto)
@@ -157,7 +160,7 @@ class DiscoveryService:
         # Update source scan timestamps and onboarding
         async with factory() as session:
             source_repo = SourceRepository(session)
-            update_kwargs: dict[str, Any] = {"last_scan_at": _utcnow()}
+            update_kwargs: dict[str, Any] = {"last_scan_at": _utcnow(), "last_scan_error": None}
 
             if is_first_scan and len(items_dto) > 0:
                 # First scan done — transition to awaiting_review
@@ -181,6 +184,13 @@ class DiscoveryService:
             counts["classified"], counts["queued"], counts["errors"],
         )
         return counts
+
+    async def _record_scan_error(self, source_id: str, exc: object) -> None:
+        async with get_session_factory(self.settings)() as session:
+            await SourceRepository(session).update(
+                source_id, last_scan_at=_utcnow(), last_scan_error=str(exc)[:500]
+            )
+            await session.commit()
 
     async def _process_item(
         self,

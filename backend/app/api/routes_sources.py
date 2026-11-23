@@ -398,6 +398,7 @@ def _source_to_dict(obj: Any) -> dict:
         "onboarding_state": obj.onboarding_state,
         "initial_scan_at": obj.initial_scan_at.isoformat() if obj.initial_scan_at else None,
         "last_scan_at": obj.last_scan_at.isoformat() if obj.last_scan_at else None,
+        "last_scan_error": obj.last_scan_error,
         "created_at": obj.created_at.isoformat() if obj.created_at else None,
     }
 
