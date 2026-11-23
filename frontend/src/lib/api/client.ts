@@ -244,6 +244,8 @@ export const endpoints = {
       api.patch<Library>(`/libraries/${id}`, data),
     delete: (id: string) => api.delete(`/libraries/${id}`),
     test: (id: string) => api.post<any>(`/libraries/${id}/test`),
+    testConfig: (data: { adapter_type: string; base_url: string; api_key: string; library_id?: string }) =>
+      api.post<any>('/libraries/test-config', data),
   },
   settings: {
     get: () => api.get<any>('/settings'),

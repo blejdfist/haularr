@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -38,6 +38,41 @@ class LibraryUpdate(BaseModel):
     api_key_secret_ref: str | None = None
     enabled: bool | None = None
     options: dict[str, Any] | None = None
+
+
+class LibraryTestConfig(BaseModel):
+    """Test unsaved settings; empty api_key with library_id reuses the stored key."""
+    adapter_type: Literal["sonarr", "radarr"]
+    base_url: str
+    api_key: str = ""
+    library_id: str | None = None
+
+
+def _api_key(obj: Any, master_key: bytes) -> str:
+    from app.security import decrypt_secret
+
+    key = obj.api_key_secret_ref
+    return decrypt_secret(key[4:], master_key) if key.startswith("enc:") else key
+
+
+@libraries_router.post("/libraries/test-config")
+async def test_library_config(
+    body: LibraryTestConfig, request: Request, session: AsyncSession = Depends(get_session)
+):
+    from app.adapters.libraries import create_library_adapter
+
+    api_key = body.api_key
+    if not api_key and body.library_id:
+        obj = await LibraryRepository(session).get(body.library_id)
+        if not obj:
+            raise HTTPException(status_code=404, detail="Library not found")
+        api_key = _api_key(obj, request.app.state.master_key)
+    if not api_key:
+        raise HTTPException(status_code=422, detail="API key required")
+    adapter = create_library_adapter(
+        body.library_id or "test", body.adapter_type, body.base_url, api_key, {}
+    )
+    return await adapter.test_connection()
 
 
 @libraries_router.get("/libraries")
@@ -126,13 +161,8 @@ async def test_library(
         raise HTTPException(status_code=404, detail="Library not found")
 
     from app.adapters.libraries import create_library_adapter
-    from app.security import decrypt_secret
 
-    master_key = request.app.state.master_key
-    api_key = obj.api_key_secret_ref
-    if api_key.startswith("enc:"):
-        api_key = decrypt_secret(api_key[4:], master_key)
-
+    api_key = _api_key(obj, request.app.state.master_key)
     adapter = create_library_adapter(
         obj.id, obj.adapter_type, obj.base_url, api_key, obj.options_json
     )
