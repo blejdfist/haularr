@@ -31,9 +31,10 @@
   let fVerify = $state(true);
   let fMaps = $state<{ source_prefix: string; remote_prefix: string }[]>([]);
   let fetchTouched = $state(false);
+  let connTouched = $state(false);
 
   let error = $state('');
-  let testResult = $state<{ ok: boolean; text: string } | null>(null);
+  let testResult = $state<{ ok: boolean; text: string; pending?: boolean } | null>(null);
   let busy = $state(false);
   let confirmOpen = $state(false);
   let seenLabels = $state<string[]>([]);
@@ -65,6 +66,7 @@
     fVerify = f?.tls_verify ?? true;
     fMaps = f ? f.path_mappings.map((m) => ({ ...m })) : [];
     fetchTouched = false;
+    connTouched = false;
     error = '';
     testResult = null;
     seenLabels = [];
@@ -92,10 +94,14 @@
   });
 
   async function test() {
-    testResult = { ok: true, text: 'Testing...' };
+    if (current && connTouched && !password) {
+      testResult = { ok: false, text: 'Enter the password to test changed settings' };
+      return;
+    }
+    testResult = { ok: true, text: 'Testing...', pending: true };
     try {
       const r =
-        current && !password
+        current && !connTouched
           ? await endpoints.sources.test(current.id)
           : await endpoints.sources.testConfig({
               adapter_type: 'rtorrent',
@@ -175,7 +181,8 @@
     {#if error}<Alert color="red">{error}</Alert>{/if}
     {#if current?.last_scan_error}<Alert color="red">Last scan failed: {current.last_scan_error}</Alert>{/if}
 
-    <section class="grid gap-4 md:grid-cols-2">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <section class="grid gap-4 md:grid-cols-2" oninput={() => (connTouched = true)} onchange={() => (connTouched = true)}>
       <Heading tag="h3" class="text-lg md:col-span-2">Connection (rTorrent)</Heading>
       <div class="md:col-span-2">
         <Label for="s-name" class="mb-2">Name</Label>
@@ -273,7 +280,7 @@
     </section>
 
     {#if testResult}
-      <p class="text-sm {testResult.ok ? 'text-green-500' : 'text-red-500'}">{testResult.text}</p>
+      <p class="text-sm {testResult.pending ? 'text-gray-500' : testResult.ok ? 'text-green-500' : 'text-red-500'}">{testResult.text}</p>
     {/if}
     <div class="flex flex-wrap justify-between gap-2">
       <div class="flex gap-2">
@@ -292,7 +299,7 @@
     <Heading tag="h3" class="text-lg">Tag mappings</Heading>
     {#if current}
       {#key current.id}
-        <TagRulesTable sourceId={current.id} {libraries} {seenLabels} />
+        <TagRulesTable sourceId={current.id} {libraries} {seenLabels} onchange={onsaved} />
       {/key}
     {:else}
       <p class="text-sm text-gray-500 dark:text-gray-400">Save the source first to map tags to libraries.</p>

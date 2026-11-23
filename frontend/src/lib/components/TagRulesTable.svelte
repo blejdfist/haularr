@@ -3,7 +3,12 @@
   import { Button, Input, Select, Toggle, Alert } from 'flowbite-svelte';
   import { endpoints, type LabelRule, type Library } from '$lib/api/client';
 
-  let { sourceId, libraries, seenLabels }: { sourceId: string; libraries: Library[]; seenLabels: string[] } = $props();
+  let {
+    sourceId,
+    libraries,
+    seenLabels,
+    onchange,
+  }: { sourceId: string; libraries: Library[]; seenLabels: string[]; onchange?: () => void } = $props();
 
   type Row = { id: string | null; label: string; library: string; tmp: string; done: string; enabled: boolean };
   let rows = $state<Row[]>([]);
@@ -51,6 +56,7 @@
       } else {
         rows[i] = toRow(await endpoints.sources.labels.create(sourceId, body));
       }
+      onchange?.();
     } catch (e: any) {
       error = e.message;
     }
@@ -63,6 +69,7 @@
     try {
       if (r.id) await endpoints.sources.labels.delete(sourceId, r.id);
       rows.splice(i, 1);
+      onchange?.();
     } catch (e: any) {
       error = e.message;
     }

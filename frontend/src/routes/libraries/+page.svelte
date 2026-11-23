@@ -11,7 +11,7 @@
   let editing = $state<Library | null>(null);
   let deleting = $state<Library | null>(null);
   let confirmOpen = $state(false);
-  let results = $state<Record<string, { ok: boolean; text: string }>>({});
+  let results = $state<Record<string, { ok: boolean; text: string; pending?: boolean }>>({});
 
   async function load() {
     try {
@@ -30,7 +30,7 @@
   }
 
   async function test(l: Library) {
-    results[l.id] = { ok: true, text: 'Testing...' };
+    results[l.id] = { ok: true, text: 'Testing...', pending: true };
     try {
       const r = await endpoints.libraries.test(l.id);
       results[l.id] = r.ok
@@ -78,7 +78,7 @@
         </div>
         <p class="truncate text-sm text-gray-500 dark:text-gray-400">{l.base_url}</p>
         {#if results[l.id]}
-          <p class="text-sm {results[l.id].ok ? 'text-green-500' : 'text-red-500'}">{results[l.id].text}</p>
+          <p class="text-sm {results[l.id].pending ? 'text-gray-500' : results[l.id].ok ? 'text-green-500' : 'text-red-500'}">{results[l.id].text}</p>
         {/if}
         <div class="flex flex-wrap gap-2">
           <Button size="xs" color="alternative" href={l.base_url} target="_blank" rel="noopener">Open</Button>
