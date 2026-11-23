@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.repositories import LabelRuleRepository, SourceRepository
 from app.database.session import get_session_factory
 from app.security import OptionalAuth
+from app.services.source_fetch import fetch_to_dict, upsert_source_fetch
 from app.settings import Settings
 
 sources_router = APIRouter(tags=["sources"])
@@ -29,6 +30,20 @@ async def get_session(request: Request):
 # ---------------------------------------------------------------------------
 
 
+class PathMapping(BaseModel):
+    source_prefix: str
+    remote_prefix: str
+
+
+class FetchConfig(BaseModel):
+    host: str
+    port: int = 21
+    username: str
+    password: str  # required whenever fetch is sent
+    tls_verify: bool = True
+    path_mappings: list[PathMapping] = []
+
+
 class SourceCreate(BaseModel):
     name: str
     adapter_type: str  # "rtorrent"
@@ -42,6 +57,7 @@ class SourceCreate(BaseModel):
     default_transfer_id: str | None = None
     poll_interval: int = 30
     enabled: bool = True
+    fetch: FetchConfig | None = None
 
 
 class SourceUpdate(BaseModel):
@@ -51,6 +67,7 @@ class SourceUpdate(BaseModel):
     poll_interval: int | None = None
     connection_config: dict[str, Any] | None = None
     credential: str | None = None  # plaintext; encrypted on save
+    fetch: FetchConfig | None = None  # absent => transfer untouched
 
 
 class SourceTestRequest(BaseModel):
@@ -90,10 +107,11 @@ class LabelRuleUpdate(BaseModel):
 
 
 @sources_router.get("/sources")
-async def list_sources(session: AsyncSession = Depends(get_session), user: OptionalAuth = None):
+async def list_sources(request: Request, session: AsyncSession = Depends(get_session), user: OptionalAuth = None):
     repo = SourceRepository(session)
     sources = await repo.list_all()
-    return [_source_to_dict(s) for s in sources]
+    mk = request.app.state.master_key
+    return [await _source_full(session, s, mk) for s in sources]
 
 
 @sources_router.post("/sources", status_code=201)
@@ -116,13 +134,16 @@ async def create_source(
         poll_interval=body.poll_interval,
         enabled=body.enabled,
     )
+    if body.fetch:
+        await upsert_source_fetch(session, obj, body.fetch, master_key)
     await session.commit()
-    return _source_to_dict(obj)
+    return await _source_full(session, obj, master_key)
 
 
 @sources_router.get("/sources/{source_id}")
 async def get_source(
     source_id: str,
+    request: Request,
     session: AsyncSession = Depends(get_session),
     user: OptionalAuth = None,
 ):
@@ -130,7 +151,7 @@ async def get_source(
     obj = await repo.get(source_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Source not found")
-    result = _source_to_dict(obj)
+    result = await _source_full(session, obj, request.app.state.master_key)
     result["label_rules"] = [_label_to_dict(r) for r in obj.label_rules]
     return result
 
@@ -163,8 +184,10 @@ async def update_source(
     obj = await repo.update(source_id, **updates)
     if not obj:
         raise HTTPException(status_code=404, detail="Source not found")
+    if body.fetch:
+        await upsert_source_fetch(session, obj, body.fetch, request.app.state.master_key)
     await session.commit()
-    return _source_to_dict(obj)
+    return await _source_full(session, obj, request.app.state.master_key)
 
 
 @sources_router.delete("/sources/{source_id}", status_code=204)
@@ -381,6 +404,12 @@ def _build_adapter_config(obj: Any, master_key: bytes) -> dict[str, Any]:
             config["password"] = cred_ref
 
     return config
+
+
+async def _source_full(session: AsyncSession, obj: Any, master_key: bytes) -> dict:
+    result = _source_to_dict(obj)
+    result["fetch"] = await fetch_to_dict(session, obj.default_transfer_id, master_key)
+    return result
 
 
 def _source_to_dict(obj: Any) -> dict:
