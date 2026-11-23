@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Button, Card, Badge, Alert, Modal } from 'flowbite-svelte';
+  import { Button, Card, Badge, Alert, Modal, Spinner } from 'flowbite-svelte';
   import { endpoints, type Library } from '$lib/api/client';
   import LibraryModal from '$lib/components/LibraryModal.svelte';
 
@@ -85,7 +85,9 @@
           {#if /^https?:\/\//i.test(l.base_url)}
             <Button size="xs" color="alternative" href={l.base_url} target="_blank" rel="noopener noreferrer">Open</Button>
           {/if}
-          <Button size="xs" color="alternative" onclick={() => test(l)}>Test</Button>
+          <Button size="xs" color="alternative" disabled={results[l.id]?.pending} onclick={() => test(l)}>
+            {#if results[l.id]?.pending}<Spinner size="4" class="me-1" />{/if}Test
+          </Button>
           <Button size="xs" color="alternative" onclick={() => edit(l)}>Edit</Button>
           <Button
             size="xs"

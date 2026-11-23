@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Modal, Button, Input, Label, Select, Alert } from 'flowbite-svelte';
+  import { Modal, Button, Input, Label, Select, Alert, Spinner } from 'flowbite-svelte';
   import { endpoints, type Library } from '$lib/api/client';
 
   let { open = $bindable(false), library, onsaved }: { open: boolean; library: Library | null; onsaved: () => void } = $props();
@@ -15,6 +15,8 @@
   let apiKey = $state('');
   let error = $state('');
   let saving = $state(false);
+  let testing = $state(false);
+  let testResult = $state<{ ok: boolean; text: string } | null>(null);
 
   // Reset the form each time the modal opens.
   $effect(() => {
@@ -25,6 +27,34 @@
     apiKey = '';
     error = '';
   });
+
+  // A test result only describes the values it was run with.
+  $effect(() => {
+    adapterType;
+    baseUrl;
+    apiKey;
+    testResult = null;
+  });
+
+  async function test() {
+    testing = true;
+    try {
+      // Blank key while editing = test with the stored key.
+      const r = await endpoints.libraries.testConfig({
+        adapter_type: adapterType,
+        base_url: baseUrl,
+        api_key: apiKey,
+        ...(library && !apiKey ? { library_id: library.id } : {}),
+      });
+      testResult = r.ok
+        ? { ok: true, text: `Connected${r.version ? ' (v' + r.version + ')' : ''}` }
+        : { ok: false, text: r.error ?? 'Connection failed' };
+    } catch (err: any) {
+      testResult = { ok: false, text: err.message };
+    } finally {
+      testing = false;
+    }
+  }
 
   async function save(e: SubmitEvent) {
     e.preventDefault();
@@ -82,9 +112,20 @@
         placeholder={library ? 'Leave blank to keep the current key' : ''}
       />
     </div>
+    {#if testResult}<Alert color={testResult.ok ? 'green' : 'red'}>{testResult.text}</Alert>{/if}
     <div class="flex justify-end gap-2">
+      <Button
+        color="alternative"
+        class="me-auto"
+        disabled={testing || !baseUrl || (!library && !apiKey)}
+        onclick={test}
+      >
+        {#if testing}<Spinner size="4" class="me-2" />{/if}Test connection
+      </Button>
       <Button color="alternative" onclick={() => (open = false)}>Cancel</Button>
-      <Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>
+      <Button type="submit" color="primary" disabled={saving}>
+        {#if saving}<Spinner size="4" class="me-2" />{/if}Save
+      </Button>
     </div>
   </form>
 </Modal>
