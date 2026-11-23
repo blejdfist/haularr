@@ -78,3 +78,6 @@ docker-compose.override.yml
 
 # Local planning docs (not committed)
 docs/superpowers/
+
+# frontend source lib is not a Python lib dir
+!frontend/src/lib/

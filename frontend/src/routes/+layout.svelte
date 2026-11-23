@@ -1,48 +1,36 @@
 <script lang="ts">
   import '../app.css';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
+  import { Navbar, NavBrand, NavUl, NavLi, NavHamburger } from 'flowbite-svelte';
+  import { CogOutline } from 'flowbite-svelte-icons';
 
   let { children } = $props();
 
-  const navItems = [
-    { href: '/', label: 'Dashboard', icon: '📊' },
-    { href: '/sources', label: 'Sources', icon: '📥' },
-    { href: '/inventory', label: 'Inventory', icon: '📦' },
-    { href: '/jobs', label: 'Jobs', icon: '⚙️' },
-    { href: '/attention', label: 'Attention', icon: '⚠️' },
-    { href: '/history', label: 'History', icon: '📜' },
-    { href: '/config', label: 'Config', icon: '🔧' },
+  const links = [
+    { href: '/', label: 'Dashboard' },
+    { href: '/sources/', label: 'Sources' },
+    { href: '/libraries/', label: 'Libraries' },
   ];
 
-  function isActive(href: string): boolean {
-    if (href === '/') return $page.url.pathname === '/';
-    return $page.url.pathname.startsWith(href);
-  }
+  const path = $derived(page.url.pathname);
+  const isActive = (href: string) => (href === '/' ? path === '/' : path.startsWith(href));
 </script>
 
-<div class="flex h-screen">
-  <!-- Sidebar -->
-  <aside class="w-64 bg-slate-900 border-r border-slate-700 flex flex-col">
-    <div class="px-4 py-5 border-b border-slate-700">
-      <h1 class="text-xl font-bold text-blue-400">Haularr</h1>
-      <p class="text-xs text-slate-500">Download Orchestrator</p>
-    </div>
-    <nav class="flex-1 py-2">
-      {#each navItems as item}
-        <a
-          href={item.href}
-          class="flex items-center gap-3 px-4 py-2.5 text-sm transition-colors
-            {isActive(item.href) ? 'bg-slate-700 text-blue-400 border-l-2 border-blue-400' : 'text-slate-300 hover:bg-slate-800 hover:text-slate-100'}"
-        >
-          <span class="text-lg">{item.icon}</span>
-          <span>{item.label}</span>
-        </a>
-      {/each}
-    </nav>
-  </aside>
+<Navbar class="border-b border-gray-200 dark:border-gray-700">
+  <NavBrand href="/">
+    <span class="self-center text-xl font-semibold whitespace-nowrap">Haularr</span>
+  </NavBrand>
+  <NavHamburger />
+  <NavUl>
+    {#each links as l}
+      <NavLi href={l.href}  aria-current={isActive(l.href) ? "page" : undefined} class={isActive(l.href) ? "font-semibold text-primary-700 dark:text-primary-500" : ""}>{l.label}</NavLi>
+    {/each}
+    <NavLi href="/settings/"  aria-current={isActive('/settings/') ? "page" : undefined} class={isActive('/settings/') ? "font-semibold text-primary-700 dark:text-primary-500" : ""} aria-label="Settings">
+      <CogOutline class="h-5 w-5" />
+    </NavLi>
+  </NavUl>
+</Navbar>
 
-  <!-- Main content -->
-  <main class="flex-1 overflow-auto bg-slate-950">
-    {@render children()}
-  </main>
-</div>
+<main class="mx-auto max-w-7xl p-4">
+  {@render children()}
+</main>
