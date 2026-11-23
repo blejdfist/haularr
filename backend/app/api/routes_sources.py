@@ -92,6 +92,7 @@ class LabelRuleCreate(BaseModel):
 
 
 class LabelRuleUpdate(BaseModel):
+    label: str | None = None
     priority: int | None = None
     enabled: bool | None = None
     automatic_processing: bool | None = None
@@ -359,6 +360,10 @@ async def update_label(
 ):
     repo = LabelRuleRepository(session)
     updates = body.model_dump(exclude_none=True)
+    if "label" in updates:
+        other = await repo.get_by_source_label(source_id, updates["label"])
+        if other and other.id != rule_id:
+            raise HTTPException(status_code=409, detail="Label rule already exists")
     obj = await repo.update(rule_id, **updates)
     if not obj:
         raise HTTPException(status_code=404, detail="Label rule not found")

@@ -225,3 +225,20 @@ def test_create_source_adapter_rejects_deluge():
 def test_adapter_type_has_no_deluge():
     from app.domain.models import AdapterType
     assert "deluge" not in {a.value for a in AdapterType}
+
+
+@pytest.mark.asyncio
+async def test_label_can_be_renamed(auth_client):
+    sid = (await auth_client.post("/api/v1/sources", json={
+        "name": "R", "adapter_type": "rtorrent", "connection_config": {}, "credential": "",
+    })).json()["id"]
+    base = {"temporary_directory": "/t", "completed_directory": "/c"}
+    rule = (await auth_client.post(f"/api/v1/sources/{sid}/labels", json={"label": "tv", **base})).json()
+    await auth_client.post(f"/api/v1/sources/{sid}/labels", json={"label": "movies", **base})
+
+    r = await auth_client.patch(f"/api/v1/sources/{sid}/labels/{rule['id']}", json={"label": "shows"})
+    assert r.status_code == 200, r.text
+    assert r.json()["label"] == "shows"
+
+    dup = await auth_client.patch(f"/api/v1/sources/{sid}/labels/{rule['id']}", json={"label": "movies"})
+    assert dup.status_code == 409

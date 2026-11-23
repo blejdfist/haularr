@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Modal, Button, Input, Label, Toggle, Alert, Heading } from 'flowbite-svelte';
+  import { Modal, Button, Input, Label, Toggle, Alert, Spinner } from 'flowbite-svelte';
   import { endpoints, type Source, type Library, type FetchInput } from '$lib/api/client';
   import TagRulesTable from './TagRulesTable.svelte';
 
@@ -42,10 +42,21 @@
   let busy = $state(false);
   let confirmOpen = $state(false);
   let seenLabels = $state<string[]>([]);
+  let tab = $state<'conn' | 'tags' | 'fetch'>('conn');
+  let tagCount = $state(0);
+  let testing = $state(false);
+
+  // Required fields per tab; a tab with gaps shows a red dot and blocks save.
+  const connMissing = $derived(!name.trim() || !host.trim());
+  const fetchUsed = $derived(!!(fHost || fUser || fPass));
+  const fetchMissing = $derived(
+    fetchUsed && (!fHost.trim() || !fUser.trim() || (!fPass && (fetchTouched || !current?.fetch))),
+  );
 
   // Reset the form each time the editor opens.
   $effect(() => {
     if (!open) return;
+    tab = 'conn';
     load(source);
   });
 
@@ -74,6 +85,7 @@
     error = '';
     testResult = null;
     seenLabels = [];
+    if (!s) tagCount = 0; // existing sources: TagRulesTable reports the count
     if (s) loadSeen(s.id);
   }
 
@@ -102,7 +114,8 @@
       testResult = { ok: false, text: 'Enter the password to test changed settings' };
       return;
     }
-    testResult = { ok: true, text: 'Testing...', pending: true };
+    testResult = null;
+    testing = true;
     try {
       const r =
         current && !connTouched
@@ -117,22 +130,18 @@
         : { ok: false, text: r.error ?? r.message ?? 'Connection failed' };
     } catch (e: any) {
       testResult = { ok: false, text: e.message };
-    }
-  }
-
-  async function scan() {
-    if (!current) return;
-    error = '';
-    try {
-      await endpoints.sources.scan(current.id);
-      setTimeout(onsaved, 1500); // scan runs in the background; refresh last-scan afterwards
-    } catch (e: any) {
-      error = e.message;
+    } finally {
+      testing = false;
     }
   }
 
   async function save(e: SubmitEvent) {
     e.preventDefault();
+    if (connMissing || fetchMissing) {
+      tab = connMissing ? 'conn' : 'fetch';
+      error = 'Fill in the required fields marked *';
+      return;
+    }
     busy = true;
     error = '';
     try {
@@ -180,134 +189,168 @@
   }
 </script>
 
-<Modal bind:open title={current ? 'Edit source' : 'Add source'} size="xl">
-  <form onsubmit={save} class="flex flex-col gap-6">
+{#snippet tabButton(id: 'conn' | 'tags' | 'fetch', label: string, missing: boolean)}
+  <button
+    type="button"
+    role="tab"
+    aria-selected={tab === id}
+    class="-mb-px flex items-center border-b-2 px-4 py-2 text-sm font-medium {tab === id
+      ? 'border-primary-500 text-primary-500'
+      : 'border-transparent text-gray-500 hover:text-gray-300 dark:text-gray-400'}"
+    onclick={() => (tab = id)}
+  >
+    {label}
+    {#if missing}<span class="ms-1.5 inline-block h-2 w-2 rounded-full bg-red-500" title="Required fields missing"></span>{/if}
+  </button>
+{/snippet}
+
+<Modal bind:open title={current ? `Edit source: ${current.name}` : 'Add source'} size="lg">
+  <div class="flex flex-col gap-4">
     {#if error}<Alert color="red">{error}</Alert>{/if}
     {#if current?.last_scan_error}<Alert color="red">Last scan failed: {current.last_scan_error}</Alert>{/if}
 
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <section class="grid gap-4 md:grid-cols-2" oninput={touch} onchange={touch}>
-      <Heading tag="h3" class="text-lg md:col-span-2">Connection (rTorrent)</Heading>
-      <div class="md:col-span-2">
-        <Label for="s-name" class="mb-2">Name</Label>
-        <Input id="s-name" bind:value={name} required />
-      </div>
-      <div>
-        <Label for="s-host" class="mb-2">Host</Label>
-        <Input id="s-host" bind:value={host} required />
-      </div>
-      <div>
-        <Label for="s-port" class="mb-2">Port</Label>
-        <Input id="s-port" type="number" bind:value={port} required />
-      </div>
-      <div class="md:col-span-2">
-        <Label for="s-path" class="mb-2">RPC path</Label>
-        <Input id="s-path" bind:value={urlPath} placeholder="rutorrent/plugins/rpc/rpc.php" />
-      </div>
-      <div>
-        <Label for="s-user" class="mb-2">Username</Label>
-        <Input id="s-user" bind:value={username} autocomplete="off" />
-      </div>
-      <div>
-        <Label for="s-pass" class="mb-2">Password</Label>
-        <Input
-          id="s-pass"
-          type="password"
-          autocomplete="new-password"
-          bind:value={password}
-          placeholder={current?.has_credential ? 'Leave blank to keep the current password' : ''}
-        />
-      </div>
-      <div>
-        <Label for="s-poll" class="mb-2">Poll interval (seconds)</Label>
-        <Input id="s-poll" type="number" min="5" bind:value={pollInterval} required />
-      </div>
-      <div class="flex flex-wrap items-end gap-4">
-        <Toggle bind:checked={useTls}>TLS</Toggle>
-        <Toggle bind:checked={tlsVerify}>Verify certificate</Toggle>
-        <Toggle bind:checked={enabled}>Enabled</Toggle>
-      </div>
-    </section>
-
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <section class="grid gap-4 md:grid-cols-2" oninput={() => (fetchTouched = true)} onchange={() => (fetchTouched = true)}>
-      <Heading tag="h3" class="text-lg md:col-span-2">Fetch (FTP, explicit TLS)</Heading>
-      <div>
-        <Label for="f-host" class="mb-2">Host</Label>
-        <Input id="f-host" bind:value={fHost} />
-      </div>
-      <div>
-        <Label for="f-port" class="mb-2">Port</Label>
-        <Input id="f-port" type="number" bind:value={fPort} />
-      </div>
-      <div>
-        <Label for="f-user" class="mb-2">Username</Label>
-        <Input id="f-user" bind:value={fUser} autocomplete="off" required={!!fHost} />
-      </div>
-      <div>
-        <Label for="f-pass" class="mb-2">Password</Label>
-        <Input
-          id="f-pass"
-          type="password"
-          autocomplete="new-password"
-          bind:value={fPass}
-          required={!!fHost && (fetchTouched || !current)}
-          placeholder={current?.fetch?.has_password && !fetchTouched ? '••••• saved' : ''}
-        />
-      </div>
-      <div class="md:col-span-2"><Toggle bind:checked={fVerify}>Verify certificate</Toggle></div>
-      <div class="space-y-2 md:col-span-2">
-        <Label>Path mappings (rTorrent path to FTP path)</Label>
-        {#each fMaps as m, i}
-          <div class="flex gap-2">
-            <Input placeholder="/downloads/rtorrent" bind:value={m.source_prefix} />
-            <Input placeholder="/files" bind:value={m.remote_prefix} />
-            <Button
-              size="xs"
-              color="red"
-              onclick={() => {
-                fMaps.splice(i, 1);
-                fetchTouched = true;
-              }}>Remove</Button
-            >
-          </div>
-        {/each}
-        <Button
-          size="xs"
-          color="alternative"
-          onclick={() => {
-            fMaps.push({ source_prefix: '', remote_prefix: '' });
-            fetchTouched = true;
-          }}>Add mapping</Button
-        >
-      </div>
-    </section>
-
-    {#if testResult}
-      <p class="text-sm {testResult.pending ? 'text-gray-500' : testResult.ok ? 'text-green-500' : 'text-red-500'}">{testResult.text}</p>
-    {/if}
-    <div class="flex flex-wrap justify-between gap-2">
-      <div class="flex gap-2">
-        <Button color="alternative" onclick={test}>Test connection</Button>
-        {#if current}<Button color="alternative" onclick={scan}>Scan now</Button>{/if}
-        {#if current}<Button color="red" outline onclick={() => (confirmOpen = true)}>Delete</Button>{/if}
-      </div>
-      <div class="flex gap-2">
-        <Button color="alternative" onclick={() => (open = false)}>Close</Button>
-        <Button type="submit" disabled={busy}>{busy ? 'Saving...' : 'Save'}</Button>
-      </div>
+    <div role="tablist" class="flex border-b border-gray-200 dark:border-gray-700">
+      {@render tabButton('conn', 'Connection', connMissing)}
+      {@render tabButton('tags', `Tags (${tagCount})`, false)}
+      {@render tabButton('fetch', 'Fetch (FTP)', fetchMissing)}
     </div>
-  </form>
 
-  <div class="mt-6 space-y-3">
-    <Heading tag="h3" class="text-lg">Tag mappings</Heading>
-    {#if current}
-      {#key current.id}
-        <TagRulesTable sourceId={current.id} {libraries} {seenLabels} onchange={onsaved} />
-      {/key}
-    {:else}
-      <p class="text-sm text-gray-500 dark:text-gray-400">Save the source first to map tags to libraries.</p>
-    {/if}
+    <form id="source-form" onsubmit={save} novalidate>
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <section class="grid gap-4 md:grid-cols-2" class:hidden={tab !== 'conn'} oninput={touch} onchange={touch}>
+        <div class="md:col-span-2">
+          <Label for="s-name" class="mb-2">Name *</Label>
+          <Input id="s-name" bind:value={name} placeholder="Seedbox" />
+        </div>
+        <div class="md:col-span-2">
+          <Label for="s-host" class="mb-2">rTorrent host *</Label>
+          <Input id="s-host" bind:value={host} placeholder="box.example.com" />
+        </div>
+        <div>
+          <Label for="s-user" class="mb-2">Username</Label>
+          <Input id="s-user" bind:value={username} autocomplete="off" />
+        </div>
+        <div>
+          <Label for="s-pass" class="mb-2">Password</Label>
+          <Input
+            id="s-pass"
+            type="password"
+            autocomplete="new-password"
+            bind:value={password}
+            placeholder={current?.has_credential ? '••••• saved' : ''}
+          />
+        </div>
+        <div class="md:col-span-2"><Toggle bind:checked={enabled}>Enabled</Toggle></div>
+        <details class="rounded-lg border border-gray-200 p-3 md:col-span-2 dark:border-gray-700">
+          <summary class="cursor-pointer text-sm font-medium text-gray-500 dark:text-gray-400">Advanced</summary>
+          <div class="mt-3 grid gap-4 md:grid-cols-2">
+            <div>
+              <Label for="s-port" class="mb-2">Port</Label>
+              <Input id="s-port" type="number" bind:value={port} />
+            </div>
+            <div>
+              <Label for="s-poll" class="mb-2">Poll interval (seconds)</Label>
+              <Input id="s-poll" type="number" min="5" bind:value={pollInterval} />
+            </div>
+            <div class="md:col-span-2">
+              <Label for="s-path" class="mb-2">RPC path</Label>
+              <Input id="s-path" bind:value={urlPath} placeholder="rutorrent/plugins/rpc/rpc.php" />
+            </div>
+            <div class="flex flex-wrap gap-4 md:col-span-2">
+              <Toggle bind:checked={useTls}>TLS</Toggle>
+              <Toggle bind:checked={tlsVerify}>Verify certificate</Toggle>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <section
+        class="grid gap-4 md:grid-cols-2"
+        class:hidden={tab !== 'fetch'}
+        oninput={() => (fetchTouched = true)}
+        onchange={() => (fetchTouched = true)}
+      >
+        <p class="text-sm text-gray-500 md:col-span-2 dark:text-gray-400">
+          How finished downloads are fetched (FTP, explicit TLS). Optional: without it, jobs wait on the seedbox.
+        </p>
+        <div class="md:col-span-2">
+          <Label for="f-host" class="mb-2">FTP host{fetchUsed ? ' *' : ''}</Label>
+          <Input id="f-host" bind:value={fHost} placeholder="ftp.example.com" />
+        </div>
+        <div>
+          <Label for="f-user" class="mb-2">Username{fetchUsed ? ' *' : ''}</Label>
+          <Input id="f-user" bind:value={fUser} autocomplete="off" />
+        </div>
+        <div>
+          <Label for="f-pass" class="mb-2">Password{fetchUsed && (fetchTouched || !current?.fetch) ? ' *' : ''}</Label>
+          <Input
+            id="f-pass"
+            type="password"
+            autocomplete="new-password"
+            bind:value={fPass}
+            placeholder={current?.fetch?.has_password && !fetchTouched ? '••••• saved' : ''}
+          />
+        </div>
+        <div class="space-y-2 md:col-span-2">
+          <Label>Path mappings (rTorrent path → FTP path)</Label>
+          {#each fMaps as m, i}
+            <div class="flex gap-2">
+              <Input placeholder="/downloads/rtorrent" bind:value={m.source_prefix} />
+              <Input placeholder="/files" bind:value={m.remote_prefix} />
+              <Button
+                size="xs"
+                color="alternative"
+                onclick={() => {
+                  fMaps.splice(i, 1);
+                  fetchTouched = true;
+                }}>Remove</Button
+              >
+            </div>
+          {/each}
+          <Button
+            size="xs"
+            color="alternative"
+            onclick={() => {
+              fMaps.push({ source_prefix: '', remote_prefix: '' });
+              fetchTouched = true;
+            }}>Add mapping</Button
+          >
+        </div>
+        <details class="rounded-lg border border-gray-200 p-3 md:col-span-2 dark:border-gray-700">
+          <summary class="cursor-pointer text-sm font-medium text-gray-500 dark:text-gray-400">Advanced</summary>
+          <div class="mt-3 grid gap-4 md:grid-cols-2">
+            <div>
+              <Label for="f-port" class="mb-2">Port</Label>
+              <Input id="f-port" type="number" bind:value={fPort} />
+            </div>
+            <div class="flex items-end"><Toggle bind:checked={fVerify}>Verify certificate</Toggle></div>
+          </div>
+        </details>
+      </section>
+    </form>
+
+    <div class:hidden={tab !== 'tags'}>
+      {#if current}
+        {#key current.id}
+          <TagRulesTable sourceId={current.id} {libraries} {seenLabels} onchange={onsaved} bind:count={tagCount} />
+        {/key}
+      {:else}
+        <p class="text-sm text-gray-500 dark:text-gray-400">Save the source first to map tags to libraries.</p>
+      {/if}
+    </div>
+
+    {#if testResult}<Alert color={testResult.ok ? 'green' : 'red'}>{testResult.text}</Alert>{/if}
+    <div class="flex flex-wrap items-center gap-2 border-t border-gray-200 pt-4 dark:border-gray-700">
+      {#if current}<Button color="red" outline onclick={() => (confirmOpen = true)}>Delete</Button>{/if}
+      <Button color="alternative" class="ms-auto" disabled={testing} onclick={test}>
+        {#if testing}<Spinner size="4" class="me-2" />{/if}Test connection
+      </Button>
+      <Button color="alternative" onclick={() => (open = false)}>Close</Button>
+      <Button type="submit" form="source-form" disabled={busy}>
+        {#if busy}<Spinner size="4" class="me-2" />{/if}Save
+      </Button>
+    </div>
   </div>
 </Modal>
 
