@@ -15,8 +15,8 @@
 
   type Row = { id: string | null; label: string; library: string; tmp: string; done: string; enabled: boolean };
   let rules = $state<LabelRule[]>([]);
-  // Row being edited: index into rules, or -1 for a new tag; null = none
-  let editing = $state<number | null>(null);
+  // Rule id being edited, 'new' for a new tag, null = none (id, not index: rows can be deleted while editing)
+  let editing = $state<string | null>(null);
   let draft = $state<Row>({ id: null, label: '', library: '', tmp: '', done: '', enabled: true });
   let error = $state('');
   let busy = $state(false);
@@ -45,13 +45,13 @@
       done: r.completed_directory,
       enabled: r.enabled,
     };
-    editing = i;
+    editing = r.id;
     error = '';
   }
 
   function add() {
     draft = { id: null, label: '', library: '', tmp: '', done: '', enabled: true };
-    editing = -1;
+    editing = 'new';
     error = '';
   }
 
@@ -67,8 +67,9 @@
         enabled: draft.enabled,
         automatic_processing: true,
       };
-      if (draft.id && editing !== null && editing >= 0) {
-        rules[editing] = await endpoints.sources.labels.update(sourceId, draft.id, body);
+      if (draft.id) {
+        const updated = await endpoints.sources.labels.update(sourceId, draft.id, body);
+        rules = rules.map((r) => (r.id === updated.id ? updated : r));
       } else {
         rules.push(await endpoints.sources.labels.create(sourceId, body));
       }
@@ -84,9 +85,10 @@
   async function remove(i: number) {
     error = '';
     try {
-      await endpoints.sources.labels.delete(sourceId, rules[i].id);
-      rules.splice(i, 1);
-      if (editing === i) editing = null;
+      const id = rules[i].id;
+      await endpoints.sources.labels.delete(sourceId, id);
+      rules = rules.filter((r) => r.id !== id);
+      if (editing === id) editing = null;
       onchange?.();
     } catch (e: any) {
       error = e.message;
@@ -137,7 +139,7 @@
   {#if error}<Alert color="red">{error}</Alert>{/if}
 
   {#each rules as r, i (r.id)}
-    {#if editing === i}
+    {#if editing === r.id}
       {@render form()}
     {:else}
       <div class="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2 dark:border-gray-700">
@@ -162,7 +164,7 @@
     {/if}
   {/each}
 
-  {#if editing === -1}
+  {#if editing === 'new'}
     {@render form()}
   {:else if !rules.length}
     <p class="text-sm text-gray-500 dark:text-gray-400">No tags mapped yet.</p>

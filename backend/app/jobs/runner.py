@@ -288,11 +288,25 @@ class JobRunner:
             })
             return StageResult(StageRunStatus.SUCCEEDED)
 
+    async def _live_transfer_id(self, job: Any) -> str | None:
+        from app.database.models import SourceInstance, SourceLabelRule
+
+        async with get_session_factory(self.settings)() as session:
+            rule = await session.get(SourceLabelRule, job.rule_id) if job.rule_id else None
+            if rule and rule.transfer_override_id:
+                return rule.transfer_override_id
+            source_id = job.config_snapshot_json.get("source_id")
+            source = await session.get(SourceInstance, source_id) if source_id else None
+            return source.default_transfer_id if source else None
+
     async def _stage_download(self, job: Any, stage_run_id: str) -> StageResult:
         """Transfer files from the remote endpoint to Path A."""
         config = job.config_snapshot_json
         transfer_id = config.get("transfer_id")
         temp_dir = config.get("temporary_directory", "/tmp")
+        if not transfer_id:
+            # Snapshot may predate the fetch config; resolve it live like discovery does
+            transfer_id = await self._live_transfer_id(job)
         if not transfer_id:
             # Scheduler parks this as waiting_source until fetch is configured
             return StageResult(

@@ -60,3 +60,11 @@ async def test_test_config_rejects_unknown_type(auth_client, fake_adapter):
         "adapter_type": "lidarr", "base_url": "http://s", "api_key": "k",
     })
     assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_test_config_requires_login(client, fake_adapter):
+    r = await client.post("/api/v1/libraries/test-config", json={
+        "adapter_type": "sonarr", "base_url": "http://x", "api_key": "k",
+    })
+    assert r.status_code == 401

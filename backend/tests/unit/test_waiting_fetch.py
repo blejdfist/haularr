@@ -70,3 +70,22 @@ async def test_saving_fetch_resumes_waiting_jobs(auth_client, settings):
     assert ja.error_code is None
     assert jb.status == "waiting_source"
     assert jb.config_snapshot_json["transfer_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_download_uses_fetch_saved_after_job_was_created(auth_client, settings):
+    """Snapshot taken before fetch existed must not park once the source has fetch."""
+    from app.jobs.scheduler import JobScheduler, StageSemaphore
+
+    source_id, job_id = await _job(settings)
+    r = await auth_client.patch(f"/api/v1/sources/{source_id}", json={"fetch": FETCH})
+    assert r.status_code == 200, r.text
+
+    sched = JobScheduler(settings)
+    sem = StageSemaphore(1)
+    await sem.acquire()
+    await sched._run_job(job_id, "download", "tok", sem)
+
+    job = await _get(settings, job_id)
+    assert job.error_code != "no_transfer_config"
+    assert job.status != "waiting_source"

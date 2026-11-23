@@ -57,7 +57,10 @@ def _api_key(obj: Any, master_key: bytes) -> str:
 
 @libraries_router.post("/libraries/test-config")
 async def test_library_config(
-    body: LibraryTestConfig, request: Request, session: AsyncSession = Depends(get_session)
+    body: LibraryTestConfig,
+    request: Request,
+    user: RequireAuth,
+    session: AsyncSession = Depends(get_session),
 ):
     from app.adapters.libraries import create_library_adapter
 
