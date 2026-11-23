@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.repositories import LabelRuleRepository, SourceRepository
 from app.database.session import get_session_factory
-from app.security import RequireAuth
+from app.security import OptionalAuth
 from app.settings import Settings
 
 sources_router = APIRouter(tags=["sources"])
@@ -90,7 +90,7 @@ class LabelRuleUpdate(BaseModel):
 
 
 @sources_router.get("/sources")
-async def list_sources(session: AsyncSession = Depends(get_session), user: RequireAuth = None):
+async def list_sources(session: AsyncSession = Depends(get_session), user: OptionalAuth = None):
     repo = SourceRepository(session)
     sources = await repo.list_all()
     return [_source_to_dict(s) for s in sources]
@@ -101,7 +101,7 @@ async def create_source(
     body: SourceCreate,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: RequireAuth = None,
+    user: OptionalAuth = None,
 ):
     master_key = request.app.state.master_key
     encrypted_cred = _encrypt_credential(body.credential, master_key) if body.credential else ""
@@ -124,7 +124,7 @@ async def create_source(
 async def get_source(
     source_id: str,
     session: AsyncSession = Depends(get_session),
-    user: RequireAuth = None,
+    user: OptionalAuth = None,
 ):
     repo = SourceRepository(session)
     obj = await repo.get(source_id)
@@ -141,7 +141,7 @@ async def update_source(
     body: SourceUpdate,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: RequireAuth = None,
+    user: OptionalAuth = None,
 ):
     repo = SourceRepository(session)
     updates: dict[str, Any] = {}
@@ -171,7 +171,7 @@ async def update_source(
 async def delete_source(
     source_id: str,
     session: AsyncSession = Depends(get_session),
-    user: RequireAuth = None,
+    user: OptionalAuth = None,
 ):
     repo = SourceRepository(session)
     await repo.delete(source_id)
@@ -182,7 +182,7 @@ async def delete_source(
 async def test_source_config(
     body: SourceTestRequest,
     request: Request,
-    user: RequireAuth = None,
+    user: OptionalAuth = None,
 ):
     """Test a source connection config before saving it.
 
@@ -204,7 +204,7 @@ async def test_source(
     source_id: str,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: RequireAuth = None,
+    user: OptionalAuth = None,
 ):
     repo = SourceRepository(session)
     obj = await repo.get(source_id)
@@ -224,7 +224,7 @@ async def scan_source(
     source_id: str,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: RequireAuth = None,
+    user: OptionalAuth = None,
 ):
     """Trigger discovery/reconciliation for a source."""
     repo = SourceRepository(session)
@@ -247,7 +247,7 @@ async def scan_source(
 async def complete_onboarding(
     source_id: str,
     session: AsyncSession = Depends(get_session),
-    user: RequireAuth = None,
+    user: OptionalAuth = None,
 ):
     """Activate automatic processing for new items after admin acknowledges baseline."""
     repo = SourceRepository(session)
@@ -271,7 +271,7 @@ async def complete_onboarding(
 async def list_labels(
     source_id: str,
     session: AsyncSession = Depends(get_session),
-    user: RequireAuth = None,
+    user: OptionalAuth = None,
 ):
     repo = LabelRuleRepository(session)
     rules = await repo.list_by_source(source_id)
@@ -283,7 +283,7 @@ async def create_label(
     source_id: str,
     body: LabelRuleCreate,
     session: AsyncSession = Depends(get_session),
-    user: RequireAuth = None,
+    user: OptionalAuth = None,
 ):
     source_repo = SourceRepository(session)
     source = await source_repo.get(source_id)
@@ -318,7 +318,7 @@ async def update_label(
     rule_id: str,
     body: LabelRuleUpdate,
     session: AsyncSession = Depends(get_session),
-    user: RequireAuth = None,
+    user: OptionalAuth = None,
 ):
     repo = LabelRuleRepository(session)
     updates = body.model_dump(exclude_none=True)
@@ -334,7 +334,7 @@ async def delete_label(
     source_id: str,
     rule_id: str,
     session: AsyncSession = Depends(get_session),
-    user: RequireAuth = None,
+    user: OptionalAuth = None,
 ):
     repo = LabelRuleRepository(session)
     await repo.delete(rule_id)
@@ -416,3 +416,4 @@ def _label_to_dict(obj: Any) -> dict:
         "transfer_override_id": obj.transfer_override_id,
         "retention_days": obj.retention_days,
     }
+

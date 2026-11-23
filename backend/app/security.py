@@ -136,4 +136,27 @@ async def get_current_user(
     return AuthUser(username=username)
 
 
+async def get_optional_user(
+    request: Request,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(http_bearer)],
+) -> AuthUser | None:
+    """Like get_current_user but returns None instead of raising 401.
+
+    Used for endpoints that should work without authentication (e.g. configuring
+    the very first source before an admin account exists).
+    """
+    if credentials is None:
+        return None
+    try:
+        settings: Settings = request.app.state.settings
+        payload = decode_access_token(credentials.credentials, settings)
+        username: str = payload.get("sub", "")
+        if not username:
+            return None
+        return AuthUser(username=username)
+    except Exception:
+        return None
+
+
 RequireAuth = Annotated[AuthUser, Depends(get_current_user)]
+OptionalAuth = Annotated[AuthUser | None, Depends(get_optional_user)]
