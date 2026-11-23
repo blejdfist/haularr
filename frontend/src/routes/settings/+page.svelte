@@ -76,7 +76,7 @@
     {#each fields as [key, label]}
       <div>
         <Label for={key} class="mb-1">{label}</Label>
-        <Input id={key} type="number" min="0" bind:value={values[key]} />
+        <Input id={key} type="number" min={key === 'completed_history_days' ? 0 : 1} bind:value={values[key]} />
       </div>
     {/each}
     <div class="flex gap-2">

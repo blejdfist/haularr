@@ -58,7 +58,7 @@
           <Badge color={h.color}>{h.text}</Badge>
         </div>
         <p class="text-sm text-gray-500 dark:text-gray-400">
-          Last scan: {s.last_scan_at ? ago(s.last_scan_at) : 'never'} · {tagCounts[s.id] ?? 0} tags
+          Last scan: {s.last_scan_at ? ago(s.last_scan_at) : 'never'} · {tagCounts[s.id] ?? 0} {tagCounts[s.id] === 1 ? 'tag' : 'tags'}
           {#if !s.enabled}· disabled{/if}
         </p>
       </Card>

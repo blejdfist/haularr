@@ -45,6 +45,7 @@
     if (!deleting) return;
     try {
       await endpoints.libraries.delete(deleting.id);
+      delete results[deleting.id];
       error = '';
     } catch (e: any) {
       error = e.message;
@@ -81,7 +82,9 @@
           <p class="text-sm {results[l.id].pending ? 'text-gray-500' : results[l.id].ok ? 'text-green-500' : 'text-red-500'}">{results[l.id].text}</p>
         {/if}
         <div class="flex flex-wrap gap-2">
-          <Button size="xs" color="alternative" href={l.base_url} target="_blank" rel="noopener">Open</Button>
+          {#if /^https?:\/\//i.test(l.base_url)}
+            <Button size="xs" color="alternative" href={l.base_url} target="_blank" rel="noopener noreferrer">Open</Button>
+          {/if}
           <Button size="xs" color="alternative" onclick={() => test(l)}>Test</Button>
           <Button size="xs" color="alternative" onclick={() => edit(l)}>Edit</Button>
           <Button
@@ -98,7 +101,7 @@
   </div>
 </div>
 
-<LibraryModal bind:open={modalOpen} library={editing} onsaved={load} />
+<LibraryModal bind:open={modalOpen} library={editing} onsaved={() => { if (editing) delete results[editing.id]; load(); }} />
 
 <Modal bind:open={confirmOpen} title="Delete library" size="xs">
   <p>Delete <strong>{deleting?.name}</strong>? This cannot be undone.</p>

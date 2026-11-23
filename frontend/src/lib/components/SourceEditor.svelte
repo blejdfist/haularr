@@ -32,6 +32,10 @@
   let fMaps = $state<{ source_prefix: string; remote_prefix: string }[]>([]);
   let fetchTouched = $state(false);
   let connTouched = $state(false);
+  // Renaming alone must not count as a connection edit
+  const touch = (e: Event) => {
+    if ((e.target as HTMLElement).id !== 's-name') connTouched = true;
+  };
 
   let error = $state('');
   let testResult = $state<{ ok: boolean; text: string; pending?: boolean } | null>(null);
@@ -182,7 +186,7 @@
     {#if current?.last_scan_error}<Alert color="red">Last scan failed: {current.last_scan_error}</Alert>{/if}
 
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <section class="grid gap-4 md:grid-cols-2" oninput={() => (connTouched = true)} onchange={() => (connTouched = true)}>
+    <section class="grid gap-4 md:grid-cols-2" oninput={touch} onchange={touch}>
       <Heading tag="h3" class="text-lg md:col-span-2">Connection (rTorrent)</Heading>
       <div class="md:col-span-2">
         <Label for="s-name" class="mb-2">Name</Label>

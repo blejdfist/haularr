@@ -37,3 +37,14 @@ describe('status', () => {
     expect(sourceHealth({ last_scan_at: '2026-11-23T00:00:00Z', last_scan_error: null })).toBe('ok');
   });
 });
+
+import { parseUtc } from '../src/lib/status';
+describe('parseUtc', () => {
+  it('treats naive strings as UTC', () => {
+    expect(parseUtc('2026-01-01T10:00:00').toISOString()).toBe('2026-01-01T10:00:00.000Z');
+  });
+  it('leaves Z and offsets alone', () => {
+    expect(parseUtc('2026-01-01T10:00:00Z').toISOString()).toBe('2026-01-01T10:00:00.000Z');
+    expect(parseUtc('2026-01-01T10:00:00+02:00').toISOString()).toBe('2026-01-01T08:00:00.000Z');
+  });
+});

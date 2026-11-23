@@ -27,9 +27,14 @@ export function sourceHealth(s: { last_scan_at: string | null; last_scan_error: 
   return s.last_scan_at ? 'ok' : 'never';
 }
 
+/** Backend emits naive ISO strings that are UTC; treat them as such. */
+export function parseUtc(s: string): Date {
+  return new Date(/(Z|[+-]\d{2}:?\d{2})$/i.test(s) ? s : s + 'Z');
+}
+
 export function ago(s: string | null): string {
   if (!s) return '';
-  const sec = Math.max(0, (Date.now() - new Date(s).getTime()) / 1000);
+  const sec = Math.max(0, (Date.now() - parseUtc(s).getTime()) / 1000);
   if (sec < 60) return 'just now';
   if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
   if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;

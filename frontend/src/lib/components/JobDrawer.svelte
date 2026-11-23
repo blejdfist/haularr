@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Drawer, Button, Badge, Timeline, TimelineItem, Alert } from 'flowbite-svelte';
   import { endpoints } from '$lib/api/client';
-  import { groupOf, badgeColor } from '$lib/status';
+  import { groupOf, badgeColor, parseUtc } from '$lib/status';
 
   let { jobId, open = $bindable(false), onchanged }: {
     jobId: string | null;
@@ -47,7 +47,7 @@
   }
 
   const group = $derived(job ? groupOf(job.status) : null);
-  const fmt = (s: string | null) => (s ? new Date(s).toLocaleString() : '');
+  const fmt = (s: string | null) => (s ? parseUtc(s).toLocaleString() : '');
   const size = (n: number | null) => (n == null ? '' : `${(n / 1048576).toFixed(1)} MB`);
 </script>
 

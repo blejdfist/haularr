@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { Button, ButtonGroup, Input, Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell, Badge, Progressbar, Alert } from 'flowbite-svelte';
   import { endpoints, type Job } from '$lib/api/client';
-  import { STATUS_GROUPS, groupOf, badgeColor, sourceHealth } from '$lib/status';
+  import { STATUS_GROUPS, groupOf, badgeColor, sourceHealth, ago } from '$lib/status';
   import StatCards from '$lib/components/StatCards.svelte';
   import JobDrawer from '$lib/components/JobDrawer.svelte';
 
@@ -109,15 +109,6 @@
     } catch (e: any) {
       error = e.message;
     }
-  }
-
-  function ago(s: string | null) {
-    if (!s) return '';
-    const sec = Math.max(0, (Date.now() - new Date(s).getTime()) / 1000);
-    if (sec < 60) return 'just now';
-    if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
-    if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
-    return `${Math.floor(sec / 86400)}d ago`;
   }
 
   const icon = { active: '⟳', failed: '✕', done: '✓' } as const;
