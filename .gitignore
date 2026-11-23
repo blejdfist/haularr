@@ -81,3 +81,5 @@ docs/superpowers/
 
 # frontend source lib is not a Python lib dir
 !frontend/src/lib/
+# frontend logs route is not a log output dir
+!frontend/src/routes/logs/

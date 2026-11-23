@@ -25,6 +25,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings: Settings = app.state.settings
     logging.basicConfig(level=getattr(logging, settings.log_level))
 
+    # Capture recent log records in memory so they can be shown in the UI.
+    from app.logging_buffer import install_log_handler, remove_log_handler
+    install_log_handler()
+
     # Ensure config dir exists
     settings.config_dir.mkdir(parents=True, exist_ok=True)
 
@@ -99,6 +103,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if hasattr(app.state, "scheduler"):
         await scheduler.stop()
     await close_engine()
+    remove_log_handler()
     logger.info("Haularr stopped.")
 
 
@@ -145,6 +150,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         health_router,
         jobs_router,
         libraries_router,
+        logs_router,
         settings_router,
         source_items_router,
         sources_router,
@@ -163,6 +169,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(libraries_router, prefix=api_prefix)
     app.include_router(jobs_router, prefix=api_prefix)
     app.include_router(dashboard_router, prefix=api_prefix)
+    app.include_router(logs_router, prefix=api_prefix)
     app.include_router(sse_router, prefix=api_prefix)
     app.include_router(export_router, prefix=api_prefix)
 

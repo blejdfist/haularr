@@ -9,6 +9,7 @@
     ChartPieOutline,
     CogOutline,
     DatabaseOutline,
+    FileLinesOutline,
     ServerOutline,
     ArrowRightToBracketOutline,
   } from 'flowbite-svelte-icons';
@@ -19,6 +20,7 @@
     { href: '/', label: 'Dashboard', icon: ChartPieOutline },
     { href: '/sources/', label: 'Sources', icon: ServerOutline },
     { href: '/libraries/', label: 'Libraries', icon: DatabaseOutline },
+    { href: '/logs/', label: 'Logs', icon: FileLinesOutline },
     { href: '/settings/', label: 'Settings', icon: CogOutline },
   ];
 

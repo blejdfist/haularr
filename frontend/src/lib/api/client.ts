@@ -161,6 +161,20 @@ export interface Job {
   ended_at: string | null;
 }
 
+export interface LogEntry {
+  timestamp: string;
+  level: string;
+  logger: string;
+  message: string;
+  exception?: string | null;
+}
+
+export interface LogsResponse {
+  entries: LogEntry[];
+  total: number;
+  capacity: number;
+}
+
 type Page<T> = { items: T[]; total: number; offset: number; limit: number };
 
 function qs(params: Record<string, string | number | undefined>): string {
@@ -258,5 +272,9 @@ export const endpoints = {
   },
   dashboard: {
     get: () => api.get<any>('/dashboard'),
+  },
+  logs: {
+    list: (p: { level?: string; search?: string; limit?: number } = {}) =>
+      api.get<LogsResponse>(`/logs${qs(p)}`),
   },
 };
