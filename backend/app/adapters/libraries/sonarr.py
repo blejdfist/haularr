@@ -130,7 +130,7 @@ class SonarrAdapter:
         episodes = match.library_record.get("episodes", [])
         missing = [
             e["id"] for e in episodes
-            if e["id"] in match.episode_ids and not e.get("hasFile")
+            if e.get("id") is not None and e["id"] in match.episode_ids and not e.get("hasFile")
         ]
         return LibraryInventory(
             catalog_id=match.catalog_id or 0,

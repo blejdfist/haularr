@@ -510,3 +510,58 @@ async def test_unrouted_items_not_queued(app, settings):
         assert len(items) == 1
         assert items[0].last_eligibility == EligibilityStatus.UNROUTED.value
 
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "episode_ids,expected",
+    [
+        ([], EligibilityStatus.NEEDS_REVIEW.value),
+        ([1, 2], EligibilityStatus.ALREADY_AVAILABLE.value),
+    ],
+)
+async def test_classify_series_by_resolved_episodes(app, settings, episode_ids, expected):
+    """Series with no resolved episodes needs review; fully downloaded is already_available."""
+    from app.database.session import get_session_factory
+    from app.database.models import LibraryInstance
+
+    factory = get_session_factory(settings)
+    async with factory() as session:
+        source = await SourceRepository(session).create(
+            name="Test", adapter_type="rtorrent",
+            connection_config_json={}, credential_ref="",
+        )
+        label_repo = LabelRuleRepository(session)
+        rule = await label_repo.create(
+            source_id=source.id, label="tv",
+            temporary_directory="/tmp", completed_directory="/tmp",
+        )
+        library = LibraryInstance(
+            name="Sonarr", adapter_type="sonarr",
+            base_url="http://sonarr:8989", api_key_secret_ref="k",
+        )
+        session.add(library)
+        await session.flush()
+        rule.library_instance_id = library.id
+        item_repo = SourceItemRepository(session)
+        item, _ = await item_repo.upsert(
+            source_id=source.id, remote_id="h", title="Test.Show.S01E01.1080p",
+            labels_json=["tv"], source_status="completed",
+        )
+        await session.commit()
+        item = await item_repo.get(item.id)
+
+        fake = FakeLibraryAdapter(
+            match=MediaMatch(
+                media_type=MediaType.SERIES, catalog_id=1, title="Test Show",
+                episode_ids=episode_ids,
+            ),
+            inventory=LibraryInventory(
+                catalog_id=1, title="Test Show", registered=True,
+                has_file=bool(episode_ids), missing_episode_ids=[],
+            ),
+        )
+        with patch("app.services.classification.create_library_adapter", return_value=fake):
+            status = await classify_item(session, item, rule, library, b"\x00" * 32)
+
+    assert status == expected

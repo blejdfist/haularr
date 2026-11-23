@@ -174,7 +174,9 @@ async def classify_item(
     else:
         # Series
         missing = inventory.missing_episode_ids
-        if missing:
+        if not match.episode_ids:
+            status = EligibilityStatus.NEEDS_REVIEW.value
+        elif missing:
             if len(missing) < len(match.episode_ids) and match.episode_ids:
                 status = EligibilityStatus.PARTIALLY_MISSING.value
             else:
