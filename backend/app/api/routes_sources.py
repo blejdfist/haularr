@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.database.models import TransferInstance
 from app.database.repositories import LabelRuleRepository, SourceRepository
 from app.database.session import get_session_factory
 from app.security import OptionalAuth
@@ -197,7 +198,14 @@ async def delete_source(
     user: OptionalAuth = None,
 ):
     repo = SourceRepository(session)
+    obj = await repo.get(source_id)
+    transfer_id = obj.default_transfer_id if obj else None
     await repo.delete(source_id)
+    await session.flush()
+    if transfer_id:
+        transfer = await session.get(TransferInstance, transfer_id)
+        if transfer:
+            await session.delete(transfer)  # endpoints cascade
     await session.commit()
 
 

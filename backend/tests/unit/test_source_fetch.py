@@ -96,3 +96,11 @@ async def test_update_without_credential_keeps_source_credential(auth_client, ap
     r = await auth_client.patch(f"/api/v1/sources/{sid}", json={"name": "Renamed"})
     assert r.json()["has_credential"] is True
     assert await ref() == before
+
+
+@pytest.mark.asyncio
+async def test_delete_source_removes_owned_transfer(auth_client, app):
+    sid = (await auth_client.post("/api/v1/sources", json=_src(fetch=FETCH))).json()["id"]
+    assert (await auth_client.delete(f"/api/v1/sources/{sid}")).status_code == 204
+    t, e = await _rows(app)
+    assert t == [] and e == []

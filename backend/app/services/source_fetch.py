@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
@@ -10,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import SourceInstance, TransferEndpoint, TransferInstance
 from app.security import decrypt_secret, encrypt_secret
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from app.api.routes_sources import FetchConfig
@@ -81,7 +84,7 @@ async def fetch_to_dict(
                 "username", ""
             )
         except Exception:
-            pass
+            log.warning("Could not decrypt fetch credentials for transfer %s", transfer_id)
     return {
         "host": ep.host,
         "port": ep.port,
