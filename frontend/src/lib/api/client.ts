@@ -139,6 +139,16 @@ export interface Library {
   options: Record<string, any>;
 }
 
+/** Library as sent on POST/PATCH; api_key_secret_ref carries the raw key (omit on PATCH to keep). */
+export interface LibraryInput {
+  name: string;
+  adapter_type: 'sonarr' | 'radarr';
+  base_url: string;
+  api_key_secret_ref: string;
+  enabled?: boolean;
+  options?: Record<string, any>;
+}
+
 export interface Job {
   id: string;
   status: string;
@@ -229,8 +239,8 @@ export const endpoints = {
   libraries: {
     list: () => api.get<Library[]>('/libraries'),
     get: (id: string) => api.get<Library>(`/libraries/${id}`),
-    create: (data: Omit<Library, 'id'>) => api.post<Library>('/libraries', data),
-    update: (id: string, data: Partial<Omit<Library, 'id' | 'adapter_type'>>) =>
+    create: (data: LibraryInput) => api.post<Library>('/libraries', data),
+    update: (id: string, data: Partial<Omit<LibraryInput, 'adapter_type'>>) =>
       api.patch<Library>(`/libraries/${id}`, data),
     delete: (id: string) => api.delete(`/libraries/${id}`),
     test: (id: string) => api.post<any>(`/libraries/${id}/test`),
