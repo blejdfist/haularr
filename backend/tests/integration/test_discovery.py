@@ -588,3 +588,51 @@ async def test_scan_failure_sets_last_scan_error(app, settings):
         adapter.list_items = AsyncMock(return_value=[])
         await svc.run_discovery_for_source(source_id)
         assert await last_error() is None
+
+
+@pytest.mark.asyncio
+async def test_cancelled_job_not_requeued_on_rescan(app, settings):
+    """A cancelled job is a user decision: the next scan must not auto-queue again."""
+    from app.database.session import get_session_factory
+    from app.services.discovery import DiscoveryService
+
+    factory = get_session_factory(settings)
+    async with factory() as session:
+        source = await SourceRepository(session).create(
+            name="Test Source",
+            adapter_type="rtorrent",
+            connection_config_json={'xmlrpc_url': 'http://rt.example/RPC2'}, credential_ref='',
+            onboarding_state=OnboardingState.COMPLETED.value,
+        )
+        await LabelRuleRepository(session).create(
+            source_id=source.id, label="tv", temporary_directory="/tmp",
+            completed_directory="/tmp", automatic_processing=True,
+        )
+        await session.commit()
+        source_id = source.id
+
+    fake_items = [SourceItemDTO(
+        remote_id="hash1", name="Test.Show.S01E01.1080p", labels=["tv"],
+        status=SourceStatus.COMPLETED, total_bytes=1000,
+    )]
+    with (
+        patch("app.adapters.sources.create_source_adapter") as mock_sa,
+        patch("app.services.classification.create_library_adapter", return_value=FakeLibraryAdapter()),
+    ):
+        mock_adapter = AsyncMock()
+        mock_adapter.test_connection = AsyncMock(return_value={"ok": True})
+        mock_adapter.list_items = AsyncMock(return_value=fake_items)
+        mock_sa.return_value = mock_adapter
+        svc = DiscoveryService(settings, b"\x00" * 32)
+        assert (await svc.run_discovery_for_source(source_id))["queued"] == 1
+
+        async with factory() as session:
+            job = (await session.execute(select(Job))).scalars().one()
+            job.status = "cancelled"
+            job.ended_at = datetime.now(timezone.utc)
+            await session.commit()
+
+        assert (await svc.run_discovery_for_source(source_id))["queued"] == 0
+
+    async with factory() as session:
+        assert len((await session.execute(select(Job))).scalars().all()) == 1

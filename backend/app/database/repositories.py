@@ -386,6 +386,14 @@ class JobRepository:
         )
         return result.scalar_one_or_none()
 
+    async def has_cancelled_for_item(self, source_item_id: str) -> bool:
+        result = await self.session.execute(
+            select(Job.id)
+            .where(Job.source_item_id == source_item_id, Job.status == "cancelled")
+            .limit(1)
+        )
+        return result.first() is not None
+
     async def list_filtered(
         self,
         status: list[str] | None = None,

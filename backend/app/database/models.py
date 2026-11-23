@@ -229,7 +229,9 @@ class SourceItem(Base):
     )
 
     source: Mapped[SourceInstance] = relationship("SourceInstance", back_populates="source_items")
-    jobs: Mapped[list[Job]] = relationship("Job", back_populates="source_item")
+    jobs: Mapped[list[Job]] = relationship(
+        "Job", back_populates="source_item", cascade="all, delete-orphan"
+    )
     media_matches: Mapped[list[MediaMatch]] = relationship(
         "MediaMatch", back_populates="source_item", cascade="all, delete-orphan"
     )
@@ -339,6 +341,9 @@ class Job(Base):
     )
     events: Mapped[list[JobEvent]] = relationship(
         "JobEvent", back_populates="job", cascade="all, delete-orphan"
+    )
+    notification_deliveries: Mapped[list[NotificationDelivery]] = relationship(
+        "NotificationDelivery", cascade="all, delete-orphan"
     )
 
 

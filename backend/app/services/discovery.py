@@ -265,7 +265,9 @@ class DiscoveryService:
             if should_auto_queue:
                 # Check no active job exists
                 existing = await job_repo.get_active_for_item(item.id)
-                if not existing:
+                # A cancelled job means the user said no; only manual queue overrides
+                cancelled = await job_repo.has_cancelled_for_item(item.id)
+                if not existing and not cancelled:
                     await self._create_job(
                         session, item, matched_rule, source_id
                     )

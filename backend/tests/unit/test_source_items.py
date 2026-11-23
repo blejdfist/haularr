@@ -145,3 +145,31 @@ async def test_skipped_filter_only_already_available(auth_client, settings):
     ])
     r = await auth_client.get("/api/v1/source-items?eligibility=already_available&has_job=false")
     assert [i["id"] for i in r.json()["items"]] == [ids["a"]]
+
+
+@pytest.mark.asyncio
+async def test_queue_snapshot_has_title_and_list_has_source_name(auth_client, settings):
+    ids = await _seed(auth_client, settings, [("a", "missing", False, False)])
+    r = await auth_client.get("/api/v1/source-items")
+    assert r.json()["items"][0]["source_name"] == "Test"
+    r = await auth_client.post(f"/api/v1/source-items/{ids['a']}/queue", json={"force_transfer": True})
+    assert r.status_code == 200
+    from app.database.models import Job
+    from app.database.session import get_session_factory
+    async with get_session_factory(settings)() as s:
+        job = await s.get(Job, r.json()["job_id"])
+        assert job.config_snapshot_json["title"] == "a"
+        assert job.config_snapshot_json["source_name"] == "Test"
+
+
+@pytest.mark.asyncio
+async def test_delete_source_with_items_and_jobs(auth_client, settings):
+    from sqlalchemy import select
+    from app.database.models import Job, SourceItem, SourceLabelRule
+    from app.database.session import get_session_factory
+    await _seed(auth_client, settings, [("a", "missing", True, False)])
+    sid = (await auth_client.get("/api/v1/sources")).json()[0]["id"]
+    assert (await auth_client.delete(f"/api/v1/sources/{sid}")).status_code == 204
+    async with get_session_factory(settings)() as s:
+        for m in (Job, SourceItem, SourceLabelRule):
+            assert (await s.execute(select(m))).scalars().all() == []

@@ -200,6 +200,12 @@ async def delete_source(
     repo = SourceRepository(session)
     obj = await repo.get(source_id)
     transfer_id = obj.default_transfer_id if obj else None
+    # Items (and their jobs) reference label rules, so they must go first
+    from sqlalchemy import select
+    from app.database.models import SourceItem
+    for item in (await session.scalars(select(SourceItem).where(SourceItem.source_id == source_id))).all():
+        await session.delete(item)
+    await session.flush()
     await repo.delete(source_id)
     await session.flush()
     if transfer_id:

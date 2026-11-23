@@ -104,3 +104,49 @@ async def test_delete_source_removes_owned_transfer(auth_client, app):
     assert (await auth_client.delete(f"/api/v1/sources/{sid}")).status_code == 204
     t, e = await _rows(app)
     assert t == [] and e == []
+
+
+async def _lib_with_history(auth_client, app, with_rule):
+    from app.database.models import (
+        FileImport, Job, LibraryInstance, MediaMatch, SourceItem, SourceLabelRule,
+    )
+    sid = (await auth_client.post("/api/v1/sources", json=_src())).json()["id"]
+    async with get_session_factory(app.state.settings)() as s:
+        lib = LibraryInstance(name="L", adapter_type="sonarr", base_url="http://x", api_key_secret_ref="k")
+        s.add(lib)
+        await s.flush()
+        rule = SourceLabelRule(source_id=sid, label="x", temporary_directory="/t",
+                               completed_directory="/c",
+                               library_instance_id=lib.id if with_rule else None)
+        item = SourceItem(source_id=sid, remote_id="r")
+        s.add_all([rule, item])
+        await s.flush()
+        job = Job(source_item_id=item.id, rule_id=rule.id, config_snapshot_json={})
+        s.add(job)
+        await s.flush()
+        s.add_all([
+            MediaMatch(source_item_id=item.id, library_instance_id=lib.id),
+            FileImport(job_id=job.id, candidate_relpath="a", library_instance_id=lib.id),
+        ])
+        await s.commit()
+        return lib.id
+
+
+@pytest.mark.asyncio
+async def test_delete_library_used_by_rule_conflicts(auth_client, app):
+    lid = await _lib_with_history(auth_client, app, with_rule=True)
+    r = await auth_client.delete(f"/api/v1/libraries/{lid}")
+    assert r.status_code == 409
+    assert "1 tag mapping" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_delete_library_with_only_history_nulls_refs(auth_client, app):
+    from app.database.models import FileImport, LibraryInstance, MediaMatch
+    lid = await _lib_with_history(auth_client, app, with_rule=False)
+    assert (await auth_client.delete(f"/api/v1/libraries/{lid}")).status_code == 204
+    async with get_session_factory(app.state.settings)() as s:
+        assert await s.get(LibraryInstance, lid) is None
+        for m in (MediaMatch, FileImport):
+            rows = (await s.execute(select(m))).scalars().all()
+            assert len(rows) == 1 and rows[0].library_instance_id is None

@@ -6,8 +6,10 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.database.models import SourceInstance
 from app.database.repositories import SourceItemRepository, SourceRepository, LabelRuleRepository, JobRepository
 from app.domain.models import JobStage, JobStatus
 from app.security import RequireAuth
@@ -58,8 +60,11 @@ async def list_source_items(
         offset=offset,
         limit=limit,
     )
+    names = dict(
+        (await session.execute(select(SourceInstance.id, SourceInstance.name))).all()
+    )
     return {
-        "items": [_item_to_dict(i) for i in items],
+        "items": [_item_to_dict(i, names) for i in items],
         "total": total,
         "offset": offset,
         "limit": limit,
@@ -72,7 +77,8 @@ async def get_source_item(item_id: str, session: AsyncSession = Depends(get_sess
     obj = await repo.get(item_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Source item not found")
-    result = _item_to_dict(obj)
+    src = await session.get(SourceInstance, obj.source_id)
+    result = _item_to_dict(obj, {obj.source_id: src.name} if src else {})
     result["media_matches"] = [
         {
             "id": m.id,
@@ -200,6 +206,7 @@ async def queue_item(
         "completed_directory": rule.completed_directory,
         "retry_limit": 5,
         "stage_lease_seconds": 90,
+        "title": item.title,
     }
 
     import uuid
@@ -238,10 +245,11 @@ async def bulk_queue(body: BulkQueueRequest, session: AsyncSession = Depends(get
     return {"results": results}
 
 
-def _item_to_dict(obj: Any) -> dict:
+def _item_to_dict(obj: Any, names: dict[str, str]) -> dict:
     return {
         "id": obj.id,
         "source_id": obj.source_id,
+        "source_name": names.get(obj.source_id),
         "remote_id": obj.remote_id,
         "title": obj.title,
         "labels": obj.labels_json,

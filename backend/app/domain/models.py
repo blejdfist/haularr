@@ -36,8 +36,6 @@ class EligibilityStatus(str, Enum):
     MISSING = "missing"
     PARTIALLY_MISSING = "partially_missing"
     ALREADY_AVAILABLE = "already_available"
-    UNCONFIRMED_UPGRADE = "unconfirmed_upgrade"
-    UPGRADE_ELIGIBLE = "upgrade_eligible"
     IGNORED = "ignored"
     DOWNLOAD_NEEDED = "download_needed"
 

@@ -93,6 +93,25 @@ async def delete_library(library_id: str, session: AsyncSession = Depends(get_se
     repo = LibraryRepository(session)
     obj = await repo.get(library_id)
     if obj:
+        from sqlalchemy import func, select, update
+        from app.database.models import FileImport, MediaMatch, SourceLabelRule
+
+        used = await session.scalar(
+            select(func.count()).select_from(SourceLabelRule).where(
+                SourceLabelRule.library_instance_id == library_id
+            )
+        )
+        if used:
+            raise HTTPException(
+                status_code=409, detail=f"Library is used by {used} tag mapping(s)"
+            )
+        # History refs are nullable; keep the rows, drop the link
+        for model in (MediaMatch, FileImport):
+            await session.execute(
+                update(model)
+                .where(model.library_instance_id == library_id)
+                .values(library_instance_id=None)
+            )
         await session.delete(obj)
         await session.commit()
 
