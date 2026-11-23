@@ -6,6 +6,12 @@
   const cur = $derived(currentIndex(steps));
   const allDone = $derived(steps.every((s) => s.state === 'done' || s.state === 'skipped'));
 
+  let tip = $state<{ x: number; y: number } | null>(null);
+  function show(e: Event) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    tip = { x: r.left + r.width / 2, y: r.top - 6 };
+  }
+
   const pill: Record<string, string> = {
     active: 'bg-blue-600 animate-pulse',
     waiting: 'bg-amber-600',
@@ -33,19 +39,24 @@
         {/if}
       </span>
       {#if s.reason}
-        <span class="group relative ml-1 inline-flex">
-          <button
-            type="button"
-            aria-label={s.reason}
-            class="cursor-help text-sm leading-none text-amber-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 rounded"
-            onclick={(e) => e.stopPropagation()}>⚠</button
-          >
+        <button
+          type="button"
+          aria-label={s.reason}
+          class="ml-1 cursor-help text-sm leading-none text-amber-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 rounded"
+          onclick={(e) => e.stopPropagation()}
+          onmouseenter={show}
+          onfocus={show}
+          onmouseleave={() => (tip = null)}
+          onblur={() => (tip = null)}>⚠</button
+        >
+        {#if tip}
+          <!-- fixed: escapes overflow-clipping parents like scrollable tables -->
           <span
             role="tooltip"
-            class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-gray-900 px-2.5 py-1.5 text-xs font-normal text-gray-50 shadow-lg group-hover:block group-focus-within:block"
-            >{s.reason}</span
+            class="pointer-events-none fixed z-50 w-max max-w-xs -translate-x-1/2 -translate-y-full whitespace-normal break-words rounded-md bg-gray-900 px-2.5 py-1.5 text-xs font-normal text-gray-50 shadow-lg"
+            style="left: {tip.x}px; top: {tip.y}px">{s.reason}</span
           >
-        </span>
+        {/if}
       {/if}
     {:else}
       <span
