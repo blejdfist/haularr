@@ -338,9 +338,11 @@ class JobScheduler:
         factory = get_session_factory(self.settings)
         async with factory() as session:
             repo = JobRepository(session)
+            # No fetch config: wait on the seedbox; saving fetch requeues the job
+            waiting = error_code == "no_transfer_config"
             await repo.update(
                 job_id,
-                status=JobStatus.NEEDS_ATTENTION.value,
+                status=(JobStatus.WAITING_SOURCE if waiting else JobStatus.NEEDS_ATTENTION).value,
                 error_code=error_code,
                 error_detail=error_detail,
                 worker_token=None,
@@ -348,10 +350,10 @@ class JobScheduler:
             )
             await repo.add_event(
                 job_id=job_id,
-                severity="error",
-                kind="stage.needs_attention",
+                severity="info" if waiting else "error",
+                kind="stage.waiting_fetch" if waiting else "stage.needs_attention",
                 stage=stage,
-                message=f"Stage {stage} needs attention: {error_detail}",
+                message=error_detail if waiting else f"Stage {stage} needs attention: {error_detail}",
                 details_json={"error_code": error_code},
             )
             await session.commit()

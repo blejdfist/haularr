@@ -63,6 +63,29 @@ async def upsert_source_fetch(
     endpoint.tls_settings_json = {}
     endpoint.credential_ref = cred
     endpoint.path_mappings_json = mappings
+    await resume_waiting_jobs(session, source.id, transfer.id)
+
+
+async def resume_waiting_jobs(session: AsyncSession, source_id: str, transfer_id: str) -> int:
+    """Requeue this source's jobs parked for lack of a fetch config. Does not commit."""
+    from app.database.models import Job
+
+    jobs = (
+        await session.execute(
+            select(Job).where(Job.status == "waiting_source", Job.error_code == "no_transfer_config")
+        )
+    ).scalars().all()
+    n = 0
+    for job in jobs:
+        if job.config_snapshot_json.get("source_id") != source_id:
+            continue
+        # JSON column: assign a new dict so the change is detected
+        job.config_snapshot_json = {**job.config_snapshot_json, "transfer_id": transfer_id}
+        job.status = "queued"
+        job.error_code = None
+        job.error_detail = None
+        n += 1
+    return n
 
 
 async def fetch_to_dict(

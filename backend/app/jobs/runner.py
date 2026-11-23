@@ -294,8 +294,12 @@ class JobRunner:
         transfer_id = config.get("transfer_id")
         temp_dir = config.get("temporary_directory", "/tmp")
         if not transfer_id:
+            # Scheduler parks this as waiting_source until fetch is configured
             return StageResult(
-                StageRunStatus.FAILED, "no_transfer_config", "No transfer configured", False
+                StageRunStatus.NEEDS_ATTENTION,
+                "no_transfer_config",
+                "Done on seedbox — no fetch configured",
+                False,
             )
 
         factory = get_session_factory(self.settings)
