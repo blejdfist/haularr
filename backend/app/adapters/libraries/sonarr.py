@@ -1,11 +1,11 @@
-"""Sonarr v5 Library Adapter.
+"""Sonarr v4 Library Adapter.
 
-API prefix: /api/v5
+API prefix: /api/v3 (Sonarr v4; same as Radarr)
 Endpoints used: parse, series, episode, episodefile, manualimport, command, history
 
 Important:
 - A parse response does NOT guarantee the series is registered. We always
-  cross-check against /api/v5/series to confirm catalog existence.
+  cross-check against /api/v3/series to confirm catalog existence.
 - Library state (hasFile) comes from the /parse episode records; no upgrades.
 - Never auto-register. Never invoke release-grabbing endpoints.
 """
@@ -30,11 +30,11 @@ from app.domain.models import (
 
 logger = logging.getLogger(__name__)
 
-API_PREFIX = "/api/v5"
+API_PREFIX = "/api/v3"
 
 
 class SonarrAdapter:
-    """Sonarr v5 Library Adapter."""
+    """Sonarr v4 Library Adapter (/api/v3)."""
 
     def __init__(
         self,
