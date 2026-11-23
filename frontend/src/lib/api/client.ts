@@ -153,6 +153,7 @@ export interface Job {
   id: string;
   status: string;
   error_code?: string | null;
+  error_detail?: string | null;
   stage: string;
   title: string | null;
   library_name: string | null;
