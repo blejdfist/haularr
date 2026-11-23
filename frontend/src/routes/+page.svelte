@@ -1,9 +1,11 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { Button, ButtonGroup, Input, Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell, Badge, Progressbar, Alert } from 'flowbite-svelte';
+  import { Button, ButtonGroup, Input, Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell, Alert } from 'flowbite-svelte';
   import { endpoints, type Job } from '$lib/api/client';
-  import { STATUS_GROUPS, groupOf, badgeColor, sourceHealth, ago, statusLabel } from '$lib/status';
+  import { STATUS_GROUPS, groupOf, sourceHealth, ago } from '$lib/status';
+  import { jobSteps } from '$lib/pipeline';
+  import StepDots from '$lib/components/steps/StepDots.svelte';
   import StatCards from '$lib/components/StatCards.svelte';
   import JobDrawer from '$lib/components/JobDrawer.svelte';
 
@@ -168,16 +170,15 @@
           {@const g = groupOf(j.status)}
           <TableBodyRow class="cursor-pointer" onclick={() => openJob(j.id)}>
             <TableBodyCell>{g ? icon[g] : '·'}</TableBodyCell>
-            <TableBodyCell class="whitespace-normal break-words font-medium">{j.title ?? '—'}</TableBodyCell>
-            <TableBodyCell class="whitespace-normal">
-              {j.config_snapshot?.source_name ?? '—'} · {j.config_snapshot?.label ?? '—'} → {j.library_name ?? '—'}
+            {@const route = `${j.config_snapshot?.source_name ?? '—'} · ${j.config_snapshot?.label ?? '—'} → ${j.library_name ?? '—'}`}
+            <TableBodyCell class="font-medium">
+              <div class="max-w-xs truncate" title={j.title ?? ''}>{j.title ?? '—'}</div>
             </TableBodyCell>
             <TableBodyCell>
-              <Badge color={badgeColor(j.status)}>{statusLabel(j)}</Badge>
-              <span class="ml-1 text-xs text-gray-500">{j.stage}</span>
-              {#if j.status === 'running' && progress[j.id] != null}
-                <Progressbar progress={progress[j.id]} size="h-1.5" class="mt-1" />
-              {/if}
+              <div class="max-w-xs truncate" title={route}>{route}</div>
+            </TableBodyCell>
+            <TableBodyCell>
+              <StepDots steps={jobSteps(j, progress[j.id])} />
             </TableBodyCell>
             <TableBodyCell>{ago(j.ended_at ?? j.created_at)}</TableBodyCell>
           </TableBodyRow>

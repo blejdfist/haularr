@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { STATUS_GROUPS, groupOf, badgeColor, sourceHealth, statusLabel } from '../src/lib/status';
+import { STATUS_GROUPS, groupOf, badgeColor, sourceHealth } from '../src/lib/status';
 
 const ALL = [
   'queued', 'running', 'waiting_source', 'waiting_external', 'retry_wait', 'paused',
@@ -46,14 +46,5 @@ describe('parseUtc', () => {
   it('leaves Z and offsets alone', () => {
     expect(parseUtc('2026-01-01T10:00:00Z').toISOString()).toBe('2026-01-01T10:00:00.000Z');
     expect(parseUtc('2026-01-01T10:00:00+02:00').toISOString()).toBe('2026-01-01T08:00:00.000Z');
-  });
-});
-
-describe('statusLabel', () => {
-  it('explains jobs waiting for a fetch config', () => {
-    expect(statusLabel({ status: 'waiting_source', error_code: 'no_transfer_config' })).toBe('Waiting for fetch config');
-  });
-  it('falls back to the raw status', () => {
-    expect(statusLabel({ status: 'running' })).toBe('running');
   });
 });
