@@ -83,7 +83,6 @@ def test_onboarding_states():
 
 def test_adapter_types():
     assert AdapterType.RTORRENT == "rtorrent"
-    assert AdapterType.DELUGE == "deluge"
     assert AdapterType.FTPS == "ftps"
     assert AdapterType.SONARR == "sonarr"
     assert AdapterType.RADARR == "radarr"

@@ -31,7 +31,7 @@ async def get_session(request: Request):
 
 class SourceCreate(BaseModel):
     name: str
-    adapter_type: str  # "rtorrent" | "deluge"
+    adapter_type: str  # "rtorrent"
 
     # Non-secret: host/url, port, username, TLS settings
     connection_config: dict[str, Any] = {}

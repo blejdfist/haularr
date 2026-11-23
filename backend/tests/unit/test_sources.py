@@ -1,7 +1,7 @@
 """Test source instance CRUD and label rules.
 
 Acceptance criteria covered:
-1. Two simultaneous Source instances (rTorrent + Deluge) both have label 'tv'
+1. Two simultaneous Source instances (rTorrent + rTorrent) both have label 'tv'
    and route to different temporary/completed directories, without config leakage.
 2. Two separate instances of the same Source Adapter type operate independently.
 3. Distinct Source Label Rules can reference the same or different Library Adapter instances.
@@ -14,7 +14,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_create_two_different_sources(auth_client):
-    """Create rTorrent and Deluge sources with same label 'tv' but different paths."""
+    """Create two rTorrent sources with same label 'tv' but different paths."""
     # Create rTorrent source
     r = await auth_client.post("/api/v1/sources", json={
         "name": "Primary seedbox",
@@ -29,18 +29,18 @@ async def test_create_two_different_sources(auth_client):
     assert rtorrent["enabled"] is True
     source_id_1 = rtorrent["id"]
 
-    # Create Deluge source
+    # Create second rTorrent source
     r = await auth_client.post("/api/v1/sources", json={
         "name": "Backup downloader",
-        "adapter_type": "deluge",
-        "connection_config": {"web_url": "http://deluge.example:8112"},
+        "adapter_type": "rtorrent",
+        "connection_config": {"xmlrpc_url": "https://b.example/RPC2"},
         "poll_interval": 30,
         "enabled": True,
     })
     assert r.status_code == 201, r.text
-    deluge = r.json()
-    assert deluge["adapter_type"] == "deluge"
-    source_id_2 = deluge["id"]
+    backup = r.json()
+    assert backup["adapter_type"] == "rtorrent"
+    source_id_2 = backup["id"]
 
     # Add label 'tv' to rTorrent with path A1/B1
     r = await auth_client.post(f"/api/v1/sources/{source_id_1}/labels", json={
@@ -57,20 +57,20 @@ async def test_create_two_different_sources(auth_client):
     assert rule1["temporary_directory"] == "/data/temp/rtorrent-tv"
     assert rule1["completed_directory"] == "/data/completed/rtorrent-tv"
 
-    # Add label 'tv' to Deluge with different path A2/B2
+    # Add label 'tv' to second source with different path A2/B2
     r = await auth_client.post(f"/api/v1/sources/{source_id_2}/labels", json={
         "label": "tv",
         "enabled": True,
         "automatic_processing": False,
-        "temporary_directory": "/data/temp/deluge-tv",
-        "completed_directory": "/data/completed/deluge-tv",
+        "temporary_directory": "/data/temp/backup-tv",
+        "completed_directory": "/data/completed/backup-tv",
         "library_instance_id": None,
     })
     assert r.status_code == 201, r.text
     rule2 = r.json()
     assert rule2["label"] == "tv"
-    assert rule2["temporary_directory"] == "/data/temp/deluge-tv"
-    assert rule2["completed_directory"] == "/data/completed/deluge-tv"
+    assert rule2["temporary_directory"] == "/data/temp/backup-tv"
+    assert rule2["completed_directory"] == "/data/completed/backup-tv"
 
     # Verify no config leakage: paths are different
     assert rule1["temporary_directory"] != rule2["temporary_directory"]
@@ -82,7 +82,7 @@ async def test_create_two_different_sources(auth_client):
     sources = r.json()
     assert len(sources) == 2
     adapter_types = {s["adapter_type"] for s in sources}
-    assert adapter_types == {"rtorrent", "deluge"}
+    assert adapter_types == {"rtorrent"}
 
     # Verify labels are source-scoped (each source has its own 'tv' rule)
     r = await auth_client.get(f"/api/v1/sources/{source_id_1}/labels")
@@ -95,7 +95,7 @@ async def test_create_two_different_sources(auth_client):
     labels2 = r.json()
     assert len(labels2) == 1
     assert labels2[0]["label"] == "tv"
-    assert labels2[0]["temporary_directory"] == "/data/temp/deluge-tv"
+    assert labels2[0]["temporary_directory"] == "/data/temp/backup-tv"
 
 
 @pytest.mark.asyncio
@@ -191,8 +191,8 @@ async def test_label_references_same_library(auth_client):
 
     r = await auth_client.post("/api/v1/sources", json={
         "name": "Source B",
-        "adapter_type": "deluge",
-        "connection_config": {"web_url": "http://deluge:8112"},
+        "adapter_type": "rtorrent",
+        "connection_config": {"xmlrpc_url": "https://b.example/RPC2"},
     })
     source_b = r.json()
 
@@ -214,3 +214,14 @@ async def test_label_references_same_library(auth_client):
     })
     assert r.status_code == 201, r.text
     assert r.json()["library_instance_id"] == library_id
+
+
+def test_create_source_adapter_rejects_deluge():
+    from app.adapters.sources import create_source_adapter
+    with pytest.raises(ValueError, match="Unknown source adapter type"):
+        create_source_adapter("s1", "deluge", {})
+
+
+def test_adapter_type_has_no_deluge():
+    from app.domain.models import AdapterType
+    assert "deluge" not in {a.value for a in AdapterType}

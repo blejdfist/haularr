@@ -103,7 +103,6 @@ class OnboardingState(str, Enum):
 
 class AdapterType(str, Enum):
     RTORRENT = "rtorrent"
-    DELUGE = "deluge"
     FTPS = "ftps"
     SONARR = "sonarr"
     RADARR = "radarr"
