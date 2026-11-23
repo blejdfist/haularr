@@ -256,8 +256,8 @@ async def test_classify_already_available(app, settings):
 
 
 @pytest.mark.asyncio
-async def test_no_auto_queue_before_onboarding(app, settings):
-    """First scan: items classified but zero jobs created (onboarding not complete)."""
+async def test_first_scan_auto_queues_missing_item(app, settings):
+    """First scan (source pending): missing item with automatic rule is queued."""
     from app.database.session import get_session_factory
     from app.services.discovery import DiscoveryService
     from app.database.models import SourceInstance, SourceLabelRule
@@ -279,7 +279,7 @@ async def test_no_auto_queue_before_onboarding(app, settings):
             label="tv",
             temporary_directory="/tmp",
             completed_directory="/tmp",
-            automatic_processing=True,  # Even if True, no auto-queue before onboarding
+            automatic_processing=True,
         )
         await session.commit()
         source_id = source.id
@@ -310,22 +310,13 @@ async def test_no_auto_queue_before_onboarding(app, settings):
         svc = DiscoveryService(settings, b"\x00" * 32)
         counts = await svc.run_discovery_for_source(source_id)
 
-    # Items discovered but no jobs queued (onboarding pending)
     assert counts["discovered"] == 1
     assert counts["new"] == 1
-    assert counts["queued"] == 0
+    assert counts["queued"] == 1
 
-    # Source transitioned to awaiting_review
-    async with factory() as session:
-        source_repo = SourceRepository(session)
-        source = await source_repo.get(source_id)
-        assert source.onboarding_state == OnboardingState.AWAITING_REVIEW.value
-
-    # Zero jobs created
     async with factory() as session:
         result = await session.execute(select(Job))
-        jobs = result.scalars().all()
-        assert len(jobs) == 0
+        assert len(result.scalars().all()) == 1
 
 
 @pytest.mark.asyncio

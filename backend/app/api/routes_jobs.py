@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database.models import LibraryInstance, SourceItem
 
 from app.database.repositories import JobRepository
 from app.security import RequireAuth
@@ -24,19 +27,34 @@ async def get_session(request: Request):
 
 @jobs_router.get("/jobs")
 async def list_jobs(
-    status: str | None = Query(None),
+    status: str | None = Query(None, description="Comma-separated statuses"),
     stage: str | None = Query(None),
     source_id: str | None = Query(None),
+    sort: Literal["newest", "attention"] = Query("newest"),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
     session: AsyncSession = Depends(get_session),
 ):
     repo = JobRepository(session)
     jobs, total = await repo.list_filtered(
-        status=status, stage=stage, source_id=source_id, offset=offset, limit=limit
+        status=[x for x in status.split(",") if x] if status else None,
+        stage=stage, source_id=source_id, offset=offset, limit=limit, sort=sort,
     )
+    titles = dict((await session.execute(
+        select(SourceItem.id, SourceItem.title).where(
+            SourceItem.id.in_([j.source_item_id for j in jobs])
+        )
+    )).all())
+    libs = dict((await session.execute(select(LibraryInstance.id, LibraryInstance.name))).all())
     return {
-        "items": [_job_to_dict(j) for j in jobs],
+        "items": [
+            {
+                **_job_to_dict(j),
+                "title": titles.get(j.source_item_id),
+                "library_name": libs.get(j.config_snapshot_json.get("library_instance_id")),
+            }
+            for j in jobs
+        ],
         "total": total,
         "offset": offset,
         "limit": limit,

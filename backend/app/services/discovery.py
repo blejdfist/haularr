@@ -144,7 +144,6 @@ class DiscoveryService:
                     source_id_copy,
                     item_dto,
                     label_rules,
-                    onboarding_state,
                     counts,
                 )
                 newly_seen_ids.add(item_dto.remote_id)
@@ -188,7 +187,6 @@ class DiscoveryService:
         source_id: str,
         item_dto: Any,
         label_rules: list[SourceLabelRule],
-        onboarding_state: str,
         counts: dict[str, int],
     ) -> None:
         factory = get_session_factory(self.settings)
@@ -247,10 +245,9 @@ class DiscoveryService:
             )
             counts["classified"] += 1
 
-            # Auto-queue if eligible and onboarding completed
+            # Auto-queue if eligible
             should_auto_queue = (
-                onboarding_state == OnboardingState.COMPLETED.value
-                and matched_rule.automatic_processing
+                matched_rule.automatic_processing
                 and eligibility in _AUTO_QUEUE_STATUSES
                 and item.ignored_at is None
             )

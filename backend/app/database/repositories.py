@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Sequence
 
-from sqlalchemy import select, update, func, and_, or_, text
+from sqlalchemy import select, update, func, and_, or_, case, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -381,11 +381,12 @@ class JobRepository:
 
     async def list_filtered(
         self,
-        status: str | None = None,
+        status: list[str] | None = None,
         stage: str | None = None,
         source_id: str | None = None,
         offset: int = 0,
         limit: int = 50,
+        sort: str = "newest",
     ) -> tuple[Sequence[Job], int]:
         # Join source item to filter by source
         query = select(Job)
@@ -393,7 +394,7 @@ class JobRepository:
 
         conditions = []
         if status:
-            conditions.append(Job.status == status)
+            conditions.append(Job.status.in_(status))
         if stage:
             conditions.append(Job.stage == stage)
         if source_id:
@@ -408,8 +409,11 @@ class JobRepository:
         total_result = await self.session.execute(count_query)
         total = total_result.scalar_one()
 
+        order = [Job.created_at.desc()]
+        if sort == "attention":
+            order.insert(0, case((Job.status.in_(["failed", "needs_attention"]), 0), else_=1))
         query = (
-            query.order_by(Job.created_at.desc())
+            query.order_by(*order)
             .offset(offset)
             .limit(limit)
         )
