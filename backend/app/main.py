@@ -36,15 +36,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Running database migrations...")
     from alembic.config import Config
     from alembic import command
+    import asyncio
     import os
+    from pathlib import Path
 
     os.environ.setdefault("HAULARR_CONFIG_DIR", str(settings.config_dir))
-    alembic_cfg = Config("alembic.ini")
-    try:
-        command.upgrade(alembic_cfg, "head")
-        logger.info("Migrations complete.")
-    except Exception as exc:
-        logger.error("Migration failed: %s", exc)
+    root = Path(__file__).resolve().parents[2]
+    alembic_cfg = Config(str(root / "alembic.ini"))
+    alembic_cfg.set_main_option("script_location", str(root / "backend" / "migrations"))
+    # env.py calls asyncio.run(), which can't nest in this loop; run it in a thread.
+    # Failure is fatal: serving on a stale schema corrupts data.
+    await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
+    logger.info("Migrations complete.")
 
     # Initialize master key
     from app.security import get_or_create_master_key
