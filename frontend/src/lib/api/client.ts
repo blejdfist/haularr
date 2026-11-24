@@ -241,6 +241,7 @@ export const endpoints = {
     pause: (id: string) => api.post<any>(`/jobs/${id}/pause`),
     resume: (id: string) => api.post<any>(`/jobs/${id}/resume`),
     retry: (id: string) => api.post<any>(`/jobs/${id}/retry`),
+    restart: (id: string) => api.post<any>(`/jobs/${id}/restart`),
     cancel: (id: string) => api.post<any>(`/jobs/${id}/cancel`),
     retryImport: (id: string) => api.post<any>(`/jobs/${id}/retry-import`),
   },

@@ -167,6 +167,30 @@ async def retry_job(job_id: str, session: AsyncSession = Depends(get_session)):
     return {"status": "queued", "job_id": job_id}
 
 
+@jobs_router.post("/jobs/{job_id}/restart")
+async def restart_job(job_id: str, session: AsyncSession = Depends(get_session)):
+    """Run the job again from the first stage, e.g. after its files were deleted."""
+    from sqlalchemy import delete
+
+    from app.database.models import JobFile
+    from app.domain.models import JobStage
+
+    repo = JobRepository(session)
+    obj = await repo.update(
+        job_id, stage=JobStage.RESOLVE_SOURCE.value, status="queued", attempts=0,
+        next_run_at=None, error_code=None, error_detail=None, ended_at=None,
+        worker_token=None, lease_expires_at=None, download_bytes_done=0,
+    )
+    if not obj:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await session.execute(delete(JobFile).where(JobFile.job_id == job_id))  # re-download from scratch
+    await repo.add_event(
+        job_id=job_id, severity="info", kind="job.restart", message="Job restarted from the beginning by user"
+    )
+    await session.commit()
+    return {"status": "queued", "job_id": job_id}
+
+
 @jobs_router.post("/jobs/{job_id}/cancel")
 async def cancel_job(job_id: str, session: AsyncSession = Depends(get_session)):
     from datetime import datetime, timezone

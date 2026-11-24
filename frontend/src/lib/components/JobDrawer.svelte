@@ -163,6 +163,15 @@
           <Button size="xs" disabled={busy} onclick={() => act(endpoints.jobs.retry)}>Retry</Button>
           <Button size="xs" color="alternative" disabled={busy} onclick={() => act(endpoints.jobs.retryImport)}>Retry import</Button>
         {/if}
+        {#if job.status !== 'running' && job.status !== 'queued'}
+          <Button
+            size="xs"
+            color="alternative"
+            disabled={busy}
+            title="Run every stage again from the start and download the files again"
+            onclick={() => act(endpoints.jobs.restart)}>Restart</Button
+          >
+        {/if}
         {#if job.status === 'running' || job.status === 'queued'}
           <Button size="xs" color="yellow" disabled={busy} onclick={() => act(endpoints.jobs.pause)}>Pause</Button>
         {/if}

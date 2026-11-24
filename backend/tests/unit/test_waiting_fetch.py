@@ -165,3 +165,23 @@ async def test_heartbeat_renews_lease(app, settings):
         await session.commit()
     await JobRunner(settings, job_id, "download", "tok")._renew_lease()
     assert (await _get(settings, job_id)).lease_expires_at is not None
+
+
+async def test_restart_runs_job_from_the_beginning(auth_client, settings):
+    """Restart: back to the first stage with a clean slate, files re-downloaded."""
+    from sqlalchemy import select
+    from app.database.models import JobFile
+
+    _, job_id = await _job(settings, "needs_attention")
+    async with get_session_factory(settings)() as session:
+        job = await session.get(Job, job_id)
+        job.stage, job.attempts, job.download_bytes_done = "publish", 3, 10
+        session.add(JobFile(job_id=job_id, remote_relpath="a.mkv", size_bytes=10))
+        await session.commit()
+
+    r = await auth_client.post(f"/api/v1/jobs/{job_id}/restart")
+    assert r.status_code == 200, r.text
+    job = await _get(settings, job_id)
+    assert (job.stage, job.status, job.attempts, job.download_bytes_done) == ("resolve_source", "queued", 0, 0)
+    async with get_session_factory(settings)() as session:
+        assert not (await session.execute(select(JobFile).where(JobFile.job_id == job_id))).scalars().all()
