@@ -65,7 +65,13 @@ async def events(request: Request) -> StreamingResponse:
                             return None
                         return round(done * 100 / total) if total else None
 
+                    # Changes whenever a job is created, updated or deleted: clients reload their lists on change.
+                    count, newest = (await session.execute(
+                        select(func.count(Job.id), func.max(Job.updated_at))
+                    )).one()
+
                     snapshot = {
+                        "version": f"{count}:{newest.isoformat() if newest else ''}",
                         "jobs": [
                             {
                                 "id": j.id,

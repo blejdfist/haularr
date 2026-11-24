@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { Button, ButtonGroup, Input, Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell, Alert } from 'flowbite-svelte';
   import { endpoints, type Job } from '$lib/api/client';
-  import { STATUS_GROUPS, groupOf, jobIcon, ago } from '$lib/status';
+  import { STATUS_GROUPS, jobIcon, ago } from '$lib/status';
   import { jobSteps, reasonFor } from '$lib/pipeline';
   import StatusIcon from '$lib/components/StatusIcon.svelte';
   import StepDots from '$lib/components/steps/StepDots.svelte';
@@ -65,33 +65,28 @@
     }
   }
 
-  // Reload on filter change, then poll: every 5s while a visible row is active, every 15s
-  // otherwise so jobs queued by a background scan still appear. Skipped while the tab is hidden.
+  // Reload on filter change; afterwards the server's event stream says when jobs changed.
   $effect(() => {
     filter;
     jobs = [];
     skipped = [];
     load();
-    let idle = 0;
-    const t = setInterval(() => {
-      if (document.hidden) return;
-      if (jobs.some((j) => groupOf(j.status) === 'active') || ++idle >= 3) {
-        idle = 0;
-        load();
-      }
-    }, 5000);
-    return () => clearInterval(t);
   });
 
-  // Live progress from SSE snapshots of running jobs.
+  // Live updates over SSE: progress for running jobs, and a jobs version that changes on any
+  // create/update/delete, so the list reloads only when something actually changed.
   $effect(() => {
+    let version: string | undefined;
     const es = new EventSource('/api/v1/events');
     es.addEventListener('snapshot', (ev) => {
       try {
+        const snap = JSON.parse((ev as MessageEvent).data);
         const next: Record<string, { stage: string; pct: number }> = {};
-        for (const j of JSON.parse((ev as MessageEvent).data).jobs)
+        for (const j of snap.jobs)
           if (j.progress != null) next[j.id] = { stage: j.stage, pct: j.progress };
         progress = next;
+        if (version !== undefined && snap.version !== version) load();
+        version = snap.version;
       } catch {
         /* ignore malformed snapshot */
       }
