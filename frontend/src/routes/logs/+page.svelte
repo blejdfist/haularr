@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { Alert, Badge, Button, Input, Spinner } from 'flowbite-svelte';
   import { endpoints, type LogEntry } from '$lib/api/client';
-  import { onChange } from '$lib/live';
+  import { subscribe } from '$lib/live';
 
   const LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR'] as const;
 
@@ -16,18 +16,20 @@
   let error = $state('');
   let autoRefresh = $state(true);
 
+  const LIMIT = 500;
+  // Filters of the last fetch; the stream sends only entries matching them.
+  let applied = $state({ level: undefined as string | undefined, search: undefined as string | undefined });
+
   async function load() {
+    const f = { level: level === 'all' ? undefined : level, search: search.trim() || undefined };
     try {
-      const data = await endpoints.logs.list({
-        level: level === 'all' ? undefined : level,
-        search: search.trim() || undefined,
-        limit: 500,
-      });
+      const data = await endpoints.logs.list({ ...f, limit: LIMIT });
       entries = data.entries;
       total = data.total;
       capacity = data.capacity;
       names = data.names ?? {};
       error = '';
+      if (f.level !== applied.level || f.search !== applied.search) applied = f;
     } catch (e: any) {
       error = e.message;
     } finally {
@@ -37,10 +39,24 @@
 
   onMount(load);
 
-  // Reload when the server reports new log records, while auto-refresh is on.
+  // New entries arrive over the log stream while auto-refresh is on. Each (re)connect refetches,
+  // so nothing logged while disconnected is missed; seq drops entries the fetch already had.
   $effect(() => {
     if (!autoRefresh) return;
-    return onChange((s) => s.logs, () => load());
+    const q = new URLSearchParams();
+    if (applied.level) q.set('level', applied.level);
+    if (applied.search) q.set('search', applied.search);
+    return subscribe(`/events/logs?${q}`, {
+      open: load,
+      log: (d: { entries: LogEntry[]; names: Record<string, string> }) => {
+        const newest = entries[0]?.seq ?? 0;
+        const fresh = d.entries.filter((e) => e.seq > newest).reverse();
+        if (!fresh.length) return;
+        entries = [...fresh, ...entries].slice(0, LIMIT);
+        total = Math.min(total + fresh.length, capacity || Infinity);
+        names = { ...names, ...d.names };
+      },
+    });
   });
 
   function onSearch(e: Event) {
@@ -117,7 +133,7 @@
     <div
       class="min-h-0 flex-1 overflow-auto rounded-lg border border-gray-200 bg-white font-mono text-sm dark:border-gray-700 dark:bg-gray-800"
     >
-      {#each entries as e (e.timestamp + e.message)}
+      {#each entries as e (e.seq)}
         <div
           class="border-b border-gray-100 px-3 py-1.5 last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/50"
         >

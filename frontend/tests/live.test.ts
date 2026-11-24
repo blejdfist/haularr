@@ -1,91 +1,83 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-class FakeES {
-  static CONNECTING = 0;
-  static OPEN = 1;
-  static CLOSED = 2;
-  static all: FakeES[] = [];
-  readyState = FakeES.OPEN;
-  onerror: (() => void) | null = null;
-  private handlers: ((ev: { data: string }) => void)[] = [];
-  constructor(public url: string) {
-    FakeES.all.push(this);
-  }
-  addEventListener(_type: string, fn: (ev: { data: string }) => void) {
-    this.handlers.push(fn);
-  }
-  close() {
-    this.readyState = FakeES.CLOSED;
-  }
-  send(version: string) {
-    for (const h of this.handlers) h({ data: JSON.stringify({ version, logs: 0, jobs: [] }) });
-  }
-  fail() {
-    this.readyState = FakeES.CLOSED; // reconnect refused: the browser gives up
-    this.onerror?.();
-  }
+vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
+vi.mock('$lib/api/client', () => ({ getAuthToken: () => 't', setAuthToken: vi.fn() }));
+
+// Each fetch returns a stream the test pushes text into, or ends.
+type Fake = { push: (s: string) => void; end: () => void; signal: AbortSignal; headers: any };
+let calls: Fake[] = [];
+
+function fakeFetch(_url: string, init: RequestInit) {
+  let ctrl!: ReadableStreamDefaultController<Uint8Array>;
+  const body = new ReadableStream<Uint8Array>({ start: (c) => (ctrl = c) });
+  const enc = new TextEncoder();
+  const fake: Fake = {
+    push: (s) => ctrl.enqueue(enc.encode(s)),
+    end: () => ctrl.close(),
+    signal: init.signal!,
+    headers: init.headers,
+  };
+  init.signal!.addEventListener('abort', () => ctrl.error(new Error('aborted')));
+  calls.push(fake);
+  return Promise.resolve(new Response(body, { status: 200 }));
 }
+
+const flush = () => vi.advanceTimersByTimeAsync(0);
 
 describe('live', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.resetModules();
-    FakeES.all = [];
-    vi.stubGlobal('EventSource', FakeES);
+    calls = [];
+    vi.stubGlobal('fetch', vi.fn(fakeFetch));
   });
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
-  it('reloads after a reconnect when jobs changed while disconnected', async () => {
-    const { onChange } = await import('../src/lib/live');
-    const fn = vi.fn();
-    const off = onChange((s) => s.version, fn);
+  it('dispatches events, sends the token, and reopens after the stream drops', async () => {
+    const { subscribe } = await import('../src/lib/live');
+    const open = vi.fn();
+    const job = vi.fn();
+    const off = subscribe('/events/jobs', { open, job });
+    await flush();
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(calls[0].headers.Authorization).toBe('Bearer t');
 
-    FakeES.all[0].send('3:a');
-    expect(fn).toHaveBeenCalledTimes(1); // first snapshot
-    FakeES.all[0].send('3:a');
-    expect(fn).toHaveBeenCalledTimes(1); // unchanged: no reload
+    calls[0].push('event: job\ndata: {"id":"a"');
+    calls[0].push('}\n\n: keepalive\n\n');
+    await flush();
+    expect(job).toHaveBeenCalledWith({ id: 'a' });
 
-    FakeES.all[0].fail(); // connection lost; a job is created meanwhile
-    vi.advanceTimersByTime(1000);
-    expect(FakeES.all).toHaveLength(2); // reconnected
-
-    FakeES.all[1].send('4:b');
-    expect(fn).toHaveBeenCalledTimes(2);
+    calls[0].end(); // backend went away; a job is created meanwhile
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(calls).toHaveLength(2);
+    expect(open).toHaveBeenCalledTimes(2); // subscriber refetches state, picking up the new job
     off();
-    expect(FakeES.all[1].readyState).toBe(FakeES.CLOSED);
+    expect(calls[1].signal.aborted).toBe(true);
   });
 
-  it('shares one connection and backs off between failed reconnects', async () => {
-    const { onSnapshot } = await import('../src/lib/live');
-    const offA = onSnapshot(() => {});
-    const offB = onSnapshot(() => {});
-    expect(FakeES.all).toHaveLength(1);
-
-    FakeES.all[0].fail();
-    vi.advanceTimersByTime(1000);
-    FakeES.all[1].fail();
-    vi.advanceTimersByTime(1000);
-    expect(FakeES.all).toHaveLength(2); // second retry waits 2s
-    vi.advanceTimersByTime(1000);
-    expect(FakeES.all).toHaveLength(3);
+  it('shares one connection per path', async () => {
+    const { subscribe } = await import('../src/lib/live');
+    const offA = subscribe('/events/jobs', {});
+    const offB = subscribe('/events/jobs', {});
+    await flush();
+    expect(calls).toHaveLength(1);
     offA();
+    expect(calls[0].signal.aborted).toBe(false);
     offB();
+    expect(calls[0].signal.aborted).toBe(true);
   });
 
-  it('reconnects a stream that went silent without an error', async () => {
-    const { onChange } = await import('../src/lib/live');
-    const fn = vi.fn();
-    const off = onChange((s) => s.version, fn);
-    FakeES.all[0].send('1:a');
-    vi.advanceTimersByTime(12_000); // no snapshots, no error: half-open
-    expect(FakeES.all[0].readyState).toBe(FakeES.CLOSED);
-    vi.advanceTimersByTime(1000);
-    expect(FakeES.all).toHaveLength(2);
-    FakeES.all[1].send('2:b');
-    expect(fn).toHaveBeenCalledTimes(2);
+  it('drops a stream that went silent and reconnects', async () => {
+    const { subscribe } = await import('../src/lib/live');
+    const off = subscribe('/events/jobs', {});
+    await flush();
+    await vi.advanceTimersByTimeAsync(41_000);
+    expect(calls[0].signal.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(calls).toHaveLength(2);
     off();
   });
 });

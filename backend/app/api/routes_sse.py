@@ -1,106 +1,151 @@
-"""SSE endpoint for job progress events."""
+"""Server-Sent Event streams of changes.
+
+Streams carry changes only. Current state comes from the regular endpoints
+(``GET /jobs``, ``GET /logs``): a client opens a stream, then fetches the
+state, then applies events on top. Doing that on every (re)connect means
+nothing missed while disconnected is lost.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import AsyncGenerator
+from datetime import datetime
+from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
+from sqlalchemy import func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.routes_logs import _UUID, _names
+from app.database.models import Job, StageRun
+from app.database.session import get_session_factory
+from app.logging_buffer import get_log_handler
+from app.security import RequireAuth
 
 sse_router = APIRouter(tags=["events"])
 
+TICK = 1.0  # seconds between change checks
+KEEPALIVE = 15.0  # seconds of silence before a comment line, so clients can spot dead streams
 
-@sse_router.get("/events")
-async def events(request: Request) -> StreamingResponse:
-    """Server-Sent Events for job/source/status/progress/config events.
 
-    Sends periodic snapshots of active jobs. Clients should fall back to
-    periodic refetch if the event buffer is too old.
-    """
-    async def event_stream() -> AsyncGenerator[str, None]:
-        event_id = 0
-        settings = request.app.state.settings
+def _event(kind: str, data: Any) -> str:
+    return f"event: {kind}\ndata: {json.dumps(data)}\n\n"
 
-        # Send initial hello
-        yield f"id: {event_id}\nevent: connected\ndata: {json.dumps({'status': 'connected'})}\n\n"
 
-        while True:
-            # Check if client disconnected
+def _sse(request: Request, ticks: AsyncGenerator[list[str], None]) -> StreamingResponse:
+    async def stream() -> AsyncGenerator[str, None]:
+        quiet_since = time.monotonic()
+        async for chunks in ticks:
             if await request.is_disconnected():
                 break
-
-            event_id += 1
-
-            # Send dashboard snapshot
-            try:
-                from app.database.session import get_session_factory
-                from sqlalchemy import select, func
-                from app.database.models import Job, StageRun
-
-                factory = get_session_factory(settings)
-                async with factory() as session:
-                    result = await session.execute(
-                        select(Job).where(Job.status == "running").limit(50)
-                    )
-                    running_jobs = result.scalars().all()
-
-                    # Extract progress lives on the running stage run; download progress on the job.
-                    runs = (await session.execute(
-                        select(StageRun.job_id, StageRun.progress_json).where(
-                            StageRun.job_id.in_([j.id for j in running_jobs if j.stage == "extract"]),
-                            StageRun.status == "running",
-                        )
-                    )).all()
-                    extract = {jid: p for jid, p in runs}
-
-                    def pct(j: Job) -> int | None:
-                        if j.stage == "download":
-                            done, total = j.download_bytes_done, j.download_bytes_total
-                        elif j.stage == "extract":
-                            p = extract.get(j.id) or {}
-                            done, total = p.get("bytes_done", 0), p.get("bytes_total", 0)
-                        else:
-                            return None
-                        return round(done * 100 / total) if total else None
-
-                    # Changes whenever a job is created, updated or deleted: clients reload their lists on change.
-                    count, newest = (await session.execute(
-                        select(func.count(Job.id), func.max(Job.updated_at))
-                    )).one()
-
-                    from app.logging_buffer import get_log_handler
-                    log_handler = get_log_handler()
-
-                    snapshot = {
-                        "version": f"{count}:{newest.isoformat() if newest else ''}",
-                        "logs": log_handler.seq if log_handler else 0,
-                        "jobs": [
-                            {
-                                "id": j.id,
-                                "status": j.status,
-                                "stage": j.stage,
-                                "bytes_done": j.download_bytes_done,
-                                "bytes_total": j.download_bytes_total,
-                                "progress": pct(j),
-                            }
-                            for j in running_jobs
-                        ]
-                    }
-                    yield f"id: {event_id}\nevent: snapshot\ndata: {json.dumps(snapshot)}\n\n"
-            except Exception:
-                yield f"id: {event_id}\nevent: error\ndata: {json.dumps({'error': 'db_error'})}\n\n"
-
-            # Send every 2 seconds
-            await asyncio.sleep(2.0)
+            if chunks:
+                yield "".join(chunks)
+                quiet_since = time.monotonic()
+            elif time.monotonic() - quiet_since > KEEPALIVE:
+                yield ": keepalive\n\n"
+                quiet_since = time.monotonic()
 
     return StreamingResponse(
-        event_stream(),
+        stream(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+async def job_changes(
+    session: AsyncSession, since: datetime | None, sent: dict[str, str]
+) -> tuple[list[dict], datetime | None]:
+    """Jobs that changed since the last check, and the new ``since`` cursor.
+
+    ``sent`` maps job id to the last state sent, so heartbeats (which bump
+    ``updated_at`` without changing anything visible) produce no events.
+    Running jobs are always checked: extract progress lives on the stage run
+    and does not touch the job row.
+    """
+    # ponytail: unindexed updated_at scan; fine while retention keeps the jobs table small.
+    changed = Job.status == "running" if since is None else or_(Job.updated_at >= since, Job.status == "running")
+    jobs = (await session.execute(select(Job).where(changed))).scalars().all()
+    runs = dict((await session.execute(
+        select(StageRun.job_id, StageRun.progress_json).where(
+            StageRun.job_id.in_([j.id for j in jobs if j.status == "running"]),
+            StageRun.status == "running",
+        )
+    )).all())
+
+    out = []
+    for j in jobs:
+        stage_progress = runs.get(j.id) or None
+        if j.stage == "download":
+            done, total = j.download_bytes_done, j.download_bytes_total
+        else:
+            done, total = (stage_progress or {}).get("bytes_done", 0), (stage_progress or {}).get("bytes_total", 0)
+        event = {
+            "id": j.id,
+            "status": j.status,
+            "stage": j.stage,
+            "error_code": j.error_code,
+            "download_bytes_done": j.download_bytes_done,
+            "download_bytes_total": j.download_bytes_total,
+            "stage_progress": stage_progress,
+            "progress": round(done * 100 / total) if j.status == "running" and total else None,
+        }
+        key = json.dumps(event, sort_keys=True)
+        if sent.get(j.id) != key:
+            sent[j.id] = key
+            out.append(event)
+        if j.updated_at and (since is None or j.updated_at > since):
+            since = j.updated_at
+    return out, since
+
+
+@sse_router.get("/events/jobs")
+async def job_events(request: Request, user: RequireAuth) -> StreamingResponse:
+    """Stream a ``job`` event whenever a job's status, stage or progress changes."""
+    factory = get_session_factory(request.app.state.settings)
+    async with factory() as session:
+        since = (await session.execute(select(func.max(Job.updated_at)))).scalar()
+
+    async def ticks() -> AsyncGenerator[list[str], None]:
+        nonlocal since
+        sent: dict[str, str] = {}
+        while True:
+            async with factory() as session:
+                changes, since = await job_changes(session, since, sent)
+            yield [_event("job", c) for c in changes]
+            await asyncio.sleep(TICK)
+
+    return _sse(request, ticks())
+
+
+@sse_router.get("/events/logs")
+async def log_events(
+    request: Request,
+    user: RequireAuth,
+    level: str | None = Query(None, description="Minimum severity to send."),
+    search: str | None = Query(None, description="Case-insensitive substring filter."),
+) -> StreamingResponse:
+    """Stream new log entries as ``log`` events (``{entries, names}``, oldest-first)."""
+    handler = get_log_handler()
+    seq = handler.seq if handler else 0
+    factory = get_session_factory(request.app.state.settings)
+
+    async def ticks() -> AsyncGenerator[list[str], None]:
+        nonlocal seq
+        while True:
+            entries = []
+            if handler and handler.seq > seq:
+                entries, seq = handler.since(seq, level=level, search=search)
+            if entries:
+                ids = {m for e in entries for m in _UUID.findall(e["message"])}
+                async with factory() as session:
+                    names = await _names(session, ids)
+                yield [_event("log", {"entries": entries, "names": names})]
+            else:
+                yield []
+            await asyncio.sleep(TICK)
+
+    return _sse(request, ticks())

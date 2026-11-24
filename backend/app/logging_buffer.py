@@ -32,6 +32,26 @@ _LEVEL_NO: dict[str, int] = {
 }
 
 
+def _filter(
+    items: list[dict[str, Any]], level: str | None, search: str | None
+) -> list[dict[str, Any]]:
+    if level:
+        min_no = _LEVEL_NO.get(str(level).upper())
+        if min_no is not None:
+            items = [e for e in items if _LEVEL_NO.get(e["level"], 0) >= min_no]
+
+    if search:
+        needle = search.lower()
+        items = [
+            e
+            for e in items
+            if needle in e["message"].lower()
+            or needle in e["logger"].lower()
+            or needle in e.get("exception", "").lower()
+        ]
+    return items
+
+
 class LogBufferHandler(logging.Handler):
     """Captures the most recent log records in an in-memory ring buffer.
 
@@ -43,7 +63,7 @@ class LogBufferHandler(logging.Handler):
         super().__init__()
         self._buffer: deque[dict[str, Any]] = deque(maxlen=capacity)
         self._lock = threading.Lock()
-        # Bumped on every record: lets clients (SSE) notice new logs without fetching them.
+        # Numbers records so streams can send only what is new.
         self.seq = 0
 
     def emit(self, record: logging.LogRecord) -> None:
@@ -64,8 +84,9 @@ class LogBufferHandler(logging.Handler):
             # A logging handler must never break the application.
             return
         with self._lock:
-            self._buffer.append(entry)
             self.seq += 1
+            entry["seq"] = self.seq
+            self._buffer.append(entry)
 
     def snapshot(
         self,
@@ -84,24 +105,20 @@ class LogBufferHandler(logging.Handler):
             items = list(self._buffer)
         items.reverse()  # newest first
 
-        if level:
-            min_no = _LEVEL_NO.get(str(level).upper())
-            if min_no is not None:
-                items = [e for e in items if _LEVEL_NO.get(e["level"], 0) >= min_no]
-
-        if search:
-            needle = search.lower()
-            items = [
-                e
-                for e in items
-                if needle in e["message"].lower()
-                or needle in e["logger"].lower()
-                or needle in e.get("exception", "").lower()
-            ]
+        items = _filter(items, level, search)
 
         if limit and limit > 0:
             items = items[:limit]
         return items
+
+    def since(
+        self, seq: int, *, level: str | None = None, search: str | None = None
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Entries added after ``seq`` that match the filters (oldest-first), and the latest seq."""
+        with self._lock:
+            items = [e for e in self._buffer if e["seq"] > seq]
+            last = self.seq
+        return _filter(items, level, search), last
 
     def clear(self) -> None:
         """Drop every captured record (used by tests for deterministic output)."""

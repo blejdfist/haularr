@@ -4,7 +4,7 @@
   import { Button, ButtonGroup, Input, Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell, Alert } from 'flowbite-svelte';
   import { endpoints, type Job } from '$lib/api/client';
   import { STATUS_GROUPS, jobIcon, ago } from '$lib/status';
-  import { onSnapshot, onChange } from '$lib/live';
+  import { subscribe, coalesce, type JobEvent } from '$lib/live';
   import { jobSteps, reasonFor } from '$lib/pipeline';
   import StatusIcon from '$lib/components/StatusIcon.svelte';
   import StepDots from '$lib/components/steps/StepDots.svelte';
@@ -42,6 +42,11 @@
   const shownJobs = $derived(jobs.filter((j) => !q || (j.title ?? '').toLowerCase().includes(q)));
   const shownSkipped = $derived(skipped.filter((i) => !q || (i.title ?? '').toLowerCase().includes(q)));
 
+  // Last status|stage seen per job: a change there (or a job we have not seen) means the list,
+  // its order or the stat cards may change, so refetch. Progress alone is patched in place.
+  let seen = new Map<string, string>();
+  const key = (j: { status: string; stage: string }) => `${j.status}|${j.stage}`;
+
   async function load() {
     const f = filter;
     try {
@@ -60,6 +65,7 @@
       dash = d;
       if (f === 'skipped') skipped = list.items;
       else jobs = list.items as Job[];
+      for (const j of jobs) seen.set(j.id, key(j));
       error = '';
     } catch (e: any) {
       error = e.message;
@@ -74,20 +80,22 @@
     load();
   });
 
-  // Live updates over SSE: progress for running jobs, and a jobs version that changes on any
-  // create/update/delete, so the list reloads only when something actually changed.
-  $effect(() => {
-    const offProgress = onSnapshot((snap) => {
-      const next: Record<string, { stage: string; pct: number }> = {};
-      for (const j of snap.jobs) if (j.progress != null) next[j.id] = { stage: j.stage, pct: j.progress };
-      progress = next;
-    });
-    const offList = onChange((s) => s.version, () => load());
-    return () => {
-      offProgress();
-      offList();
-    };
-  });
+  const refetch = coalesce(load);
+
+  // Job change stream. Refetch on (re)connect, so changes missed while disconnected show up.
+  $effect(() =>
+    subscribe('/events/jobs', {
+      open: refetch,
+      job: (e: JobEvent) => {
+        if (e.progress != null) progress[e.id] = { stage: e.stage, pct: e.progress };
+        else delete progress[e.id];
+        if (seen.get(e.id) !== key(e)) {
+          seen.set(e.id, key(e));
+          refetch();
+        }
+      },
+    }),
+  );
 
   function setFilter(next: Filter) {
     goto(next === 'all' ? '?' : `?f=${next}`, { replaceState: true, keepFocus: true, noScroll: true });

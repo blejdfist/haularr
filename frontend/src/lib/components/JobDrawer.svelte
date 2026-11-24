@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { Drawer, Button, Alert } from 'flowbite-svelte';
   import { endpoints } from '$lib/api/client';
-  import { onChange } from '$lib/live';
+  import { subscribe, coalesce, type JobEvent } from '$lib/live';
   import { groupOf, parseUtc, ago, runIcon } from '$lib/status';
   import StatusIcon from '$lib/components/StatusIcon.svelte';
   import { PHASES, jobSteps, currentRuns, trackRate, type RateSample } from '$lib/pipeline';
@@ -54,12 +54,13 @@
         etas = {};
         load(id);
       });
-      // Live view over SSE: reload when any job changed (stage, status, download bytes) or
-      // this job's progress moved (extract progress only lives on its stage run).
-      return onChange(
-        (s) => `${s.version}|${s.jobs.find((j) => j.id === id)?.progress ?? ''}`,
-        () => load(id),
-      );
+      // Live view: refetch this job whenever the stream reports a change to it, and on
+      // (re)connect in case something changed while disconnected.
+      const refetch = coalesce(() => load(id));
+      return subscribe('/events/jobs', {
+        open: refetch,
+        job: (e: JobEvent) => e.id === id && refetch(),
+      });
     }
   });
 

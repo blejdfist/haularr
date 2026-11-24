@@ -165,6 +165,7 @@ export interface Job {
 }
 
 export interface LogEntry {
+  seq: number;
   timestamp: string;
   level: string;
   logger: string;
