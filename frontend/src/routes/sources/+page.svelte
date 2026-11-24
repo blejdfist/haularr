@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Button, Alert, Spinner } from 'flowbite-svelte';
+  import { Button, Spinner } from 'flowbite-svelte';
   import { endpoints, type Source, type Library } from '$lib/api/client';
   import { sourceHealth, ago } from '$lib/status';
   import SourceEditor from '$lib/components/SourceEditor.svelte';
   import EntityCard from '$lib/components/EntityCard.svelte';
+  import EntityPage from '$lib/components/EntityPage.svelte';
 
   let sources = $state<Source[]>([]);
   let libraries = $state<Library[]>([]);
@@ -55,39 +56,32 @@
   const TYPES: Record<string, string> = { rtorrent: 'rTorrent' };
 </script>
 
-<div class="space-y-4">
-  <div class="flex items-center justify-between gap-2">
-    <h1 class="text-2xl font-bold">Sources</h1>
-    <div class="flex gap-2">
-      <Button color="alternative" disabled={scanning || !sources.some((s) => s.enabled)} onclick={scanAll}>
-        {#if scanning}<Spinner size="4" class="me-2" />{/if}Scan all
-      </Button>
-      <Button onclick={() => edit(null)}>Add source</Button>
-    </div>
-  </div>
-
-  {#if error}<Alert color="red">{error}</Alert>{/if}
-  {#if loaded && !sources.length && !error}
-    <p class="text-gray-500 dark:text-gray-400">No sources yet. Add an rTorrent instance.</p>
-  {/if}
-
-  <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-    {#each sources as s (s.id)}
-      {@const h = sourceHealth(s)}
-      <EntityCard
-        name={s.name}
-        dot={h}
-        dotText={HEALTH[h]}
-        badge={TYPES[s.adapter_type] ?? s.adapter_type}
-        badgeColor="purple"
-        onclick={() => edit(s)}
-      >
-        {#if !s.enabled}Disabled ·{/if}
-        Last scan: {s.last_scan_at ? ago(s.last_scan_at) : 'never'} · {tagCounts[s.id] ?? 0}
-        {tagCounts[s.id] === 1 ? 'tag' : 'tags'}
-      </EntityCard>
-    {/each}
-  </div>
-</div>
+<EntityPage
+  title="Sources"
+  {error}
+  empty={loaded && !sources.length && !error ? 'No sources yet. Add an rTorrent instance.' : undefined}
+>
+  {#snippet actions()}
+    <Button color="alternative" disabled={scanning || !sources.some((s) => s.enabled)} onclick={scanAll}>
+      {#if scanning}<Spinner size="4" class="me-2" />{/if}Scan all
+    </Button>
+    <Button onclick={() => edit(null)}>Add source</Button>
+  {/snippet}
+  {#each sources as s (s.id)}
+    {@const h = sourceHealth(s)}
+    <EntityCard
+      name={s.name}
+      dot={h}
+      dotText={HEALTH[h]}
+      badge={TYPES[s.adapter_type] ?? s.adapter_type}
+      badgeColor="purple"
+      onclick={() => edit(s)}
+    >
+      {#if !s.enabled}Disabled ·{/if}
+      Last scan: {s.last_scan_at ? ago(s.last_scan_at) : 'never'} · {tagCounts[s.id] ?? 0}
+      {tagCounts[s.id] === 1 ? 'tag' : 'tags'}
+    </EntityCard>
+  {/each}
+</EntityPage>
 
 <SourceEditor bind:open source={editing} {libraries} onsaved={load} ondeleted={load} />

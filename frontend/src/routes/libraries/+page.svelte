@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Button, Alert } from 'flowbite-svelte';
+  import { Button } from 'flowbite-svelte';
   import { endpoints, type Library } from '$lib/api/client';
   import LibraryModal from '$lib/components/LibraryModal.svelte';
   import EntityCard from '$lib/components/EntityCard.svelte';
+  import EntityPage from '$lib/components/EntityPage.svelte';
   import type { Dot } from '$lib/status';
 
   let libraries = $state<Library[]>([]);
@@ -38,33 +39,27 @@
   }
 </script>
 
-<div class="space-y-4">
-  <div class="flex items-center justify-between">
-    <h1 class="text-2xl font-bold">Libraries</h1>
+<EntityPage
+  title="Libraries"
+  {error}
+  empty={loaded && !libraries.length && !error ? 'No libraries yet. Add a Sonarr or Radarr instance.' : undefined}
+>
+  {#snippet actions()}
     <Button onclick={() => edit(null)}>Add library</Button>
-  </div>
-
-  {#if error}<Alert color="red">{error}</Alert>{/if}
-
-  {#if loaded && !libraries.length && !error}
-    <p class="text-gray-500 dark:text-gray-400">No libraries yet. Add a Sonarr or Radarr instance.</p>
-  {/if}
-
-  <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-    {#each libraries as l (l.id)}
-      {@const h = health[l.id] ?? { dot: 'checking', text: 'Checking…' }}
-      <EntityCard
-        name={l.name}
-        dot={h.dot}
-        dotText={h.text}
-        badge={l.adapter_type === 'sonarr' ? 'Sonarr' : 'Radarr'}
-        badgeColor={l.adapter_type === 'sonarr' ? 'blue' : 'yellow'}
-        onclick={() => edit(l)}
-      >
-        {h.dot === 'error' ? h.text : l.base_url}
-      </EntityCard>
-    {/each}
-  </div>
-</div>
+  {/snippet}
+  {#each libraries as l (l.id)}
+    {@const h = health[l.id] ?? { dot: 'checking', text: 'Checking…' }}
+    <EntityCard
+      name={l.name}
+      dot={h.dot}
+      dotText={h.text}
+      badge={l.adapter_type === 'sonarr' ? 'Sonarr' : 'Radarr'}
+      badgeColor={l.adapter_type === 'sonarr' ? 'blue' : 'yellow'}
+      onclick={() => edit(l)}
+    >
+      {h.dot === 'error' ? h.text : l.base_url}
+    </EntityCard>
+  {/each}
+</EntityPage>
 
 <LibraryModal bind:open={modalOpen} library={editing} onsaved={load} ondeleted={load} />
