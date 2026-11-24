@@ -144,7 +144,7 @@
             </span>
             <span class="shrink-0 truncate text-gray-400" title={e.logger}>{e.logger}</span>
             <span class="break-all"
-              >{#each e.message.split(ID) as part}{#if names[part]}<span
+              >{#each e.message.split(ID) as part}{#if names[part] && !e.message.includes(`"${names[part]}"`)}<span
                     class="font-semibold text-primary-600 dark:text-primary-400"
                     title={part}>{names[part]}</span
                   >{:else}{part}{/if}{/each}</span

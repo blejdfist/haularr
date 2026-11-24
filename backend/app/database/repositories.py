@@ -14,6 +14,8 @@ from sqlalchemy import select, update, func, and_, exists, or_, case, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.logging_buffer import job_name
+
 _event_log = logging.getLogger("app.jobs.events")
 _SEVERITY = {"debug": logging.DEBUG, "info": logging.INFO, "warning": logging.WARNING,
              "error": logging.ERROR, "critical": logging.CRITICAL}
@@ -504,13 +506,14 @@ class JobRepository:
         return await self.get(job_id)
 
     async def add_event(self, job_id: str, **kwargs: Any) -> JobEvent:
+        job = await self.session.get(Job, job_id)
         event = JobEvent(job_id=job_id, **kwargs)
         self.session.add(event)
         # Mirror into the application log so job activity shows in the logs view and file.
         _event_log.log(
             _SEVERITY.get(kwargs.get("severity", "info"), logging.INFO),
             "job %s %s%s: %s",
-            job_id,  # full id: the logs view swaps it for the job title
+            job_name(job) if job else job_id,
             kwargs.get("kind", "event"),
             f" [{kwargs['stage']}]" if kwargs.get("stage") else "",
             kwargs.get("message", ""),

@@ -32,6 +32,16 @@ _LEVEL_NO: dict[str, int] = {
 }
 
 
+def named(name: str | None, id_: str) -> str:
+    """``"Name" (id)`` for log lines: readable in the terminal, id kept for grepping."""
+    return f'"{name}" ({id_})' if name else id_
+
+
+def job_name(job: Any) -> str:
+    """Log label for a job: its title from the config snapshot, plus the id."""
+    return named((job.config_snapshot_json or {}).get("title"), job.id)
+
+
 def _filter(
     items: list[dict[str, Any]], level: str | None, search: str | None
 ) -> list[dict[str, Any]]:

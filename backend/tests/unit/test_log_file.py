@@ -41,7 +41,14 @@ async def test_job_events_are_logged(app, settings, caplog):
     from app.database.session import get_session_factory
     from tests.unit.test_waiting_fetch import _job
 
+    from sqlalchemy import update
+    from app.database.models import Job
+
     _, job_id = await _job(settings)
+    title = "Some.Show.S01E01"
+    async with get_session_factory(settings)() as session:
+        await session.execute(update(Job).where(Job.id == job_id).values(config_snapshot_json={"title": title}))
+        await session.commit()
     with caplog.at_level(logging.INFO, logger="app.jobs.events"):
         async with get_session_factory(settings)() as session:
             await JobRepository(session).add_event(
@@ -50,7 +57,8 @@ async def test_job_events_are_logged(app, settings, caplog):
             )
     [rec] = [r for r in caplog.records if r.name == "app.jobs.events"]
     assert rec.levelno == logging.ERROR
-    assert job_id[:8] in rec.getMessage()
+    # Title and id both, so the terminal log is readable and still greppable.
+    assert f'"{title}" ({job_id})' in rec.getMessage()
     assert "stage.failed" in rec.getMessage() and "boom" in rec.getMessage()
 
 

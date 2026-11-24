@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 
 from app.settings import Settings
 
+from app.logging_buffer import named
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,9 +65,9 @@ class DiscoverySupervisor:
         svc = DiscoveryService(self.settings, self.master_key)
         try:
             counts = await svc.run_discovery_for_source(source_id)
-            logger.info("Triggered scan for %s: %s", source_id, counts)
+            logger.info("Triggered scan for %s: %s", svc.source_label or source_id, counts)
         except Exception as exc:
-            logger.warning("Triggered scan error for %s: %s", source_id, exc)
+            logger.warning("Triggered scan error for %s: %s", svc.source_label or source_id, exc)
 
     async def _coordinator_loop(self) -> None:
         """Periodically reconcile the set of active polling tasks with enabled sources."""
@@ -88,13 +90,13 @@ class DiscoverySupervisor:
             result = await session.execute(
                 select(SourceInstance).where(SourceInstance.enabled == True)  # noqa: E712
             )
-            enabled_sources = {s.id: s.poll_interval for s in result.scalars().all()}
+            enabled_sources = {s.id: (s.poll_interval, named(s.name, s.id)) for s in result.scalars().all()}
 
         # Start tasks for new sources
-        for source_id, poll_interval in enabled_sources.items():
+        for source_id, (poll_interval, label) in enabled_sources.items():
             if source_id not in self._tasks or self._tasks[source_id].done():
                 self._tasks[source_id] = asyncio.create_task(
-                    self._source_poll_loop(source_id, poll_interval)
+                    self._source_poll_loop(source_id, poll_interval, label)
                 )
 
         # Stop tasks for removed/disabled sources
@@ -107,11 +109,11 @@ class DiscoverySupervisor:
                 except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
 
-    async def _source_poll_loop(self, source_id: str, initial_interval: int) -> None:
+    async def _source_poll_loop(self, source_id: str, initial_interval: int, label: str) -> None:
         """Poll a single source at its configured interval."""
         from app.services.discovery import DiscoveryService
 
-        logger.info("Starting poll loop for source %s (interval=%ds)", source_id, initial_interval)
+        logger.info("Starting poll loop for source %s (interval=%ds)", label, initial_interval)
 
         while self._running:
             try:
@@ -120,7 +122,7 @@ class DiscoverySupervisor:
             except asyncio.CancelledError:
                 break
             except Exception:
-                logger.exception("Poll loop error for source %s", source_id)
+                logger.exception("Poll loop error for source %s", label)
 
             # Re-read the poll interval from DB in case it changed
             try:
@@ -133,7 +135,7 @@ class DiscoverySupervisor:
             except asyncio.CancelledError:
                 break
 
-        logger.info("Poll loop stopped for source %s", source_id)
+        logger.info("Poll loop stopped for source %s", label)
 
     async def _get_poll_interval(self, source_id: str) -> int:
         """Read the current poll interval from DB."""

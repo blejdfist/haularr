@@ -37,6 +37,8 @@ from app.database.session import get_session_factory
 from app.domain.models import EligibilityStatus, JobStage, JobStatus, OnboardingState
 from app.settings import Settings
 
+from app.logging_buffer import named
+
 logger = logging.getLogger(__name__)
 
 # Statuses that allow auto-queueing after onboarding
@@ -65,6 +67,7 @@ class DiscoveryService:
     def __init__(self, settings: Settings, master_key: bytes) -> None:
         self.settings = settings
         self.master_key = master_key
+        self.source_label = ""  # "Name" (id) of the last source scanned, for log lines
 
     async def run_discovery_for_source(self, source_id: str) -> dict[str, int]:
         """Run one full discovery cycle for a source.
@@ -82,6 +85,8 @@ class DiscoveryService:
                 return counts
 
             source_id_copy = source.id
+            source_label = named(source.name, source.id)
+            self.source_label = source_label
             adapter_type = source.adapter_type
             onboarding_state = source.onboarding_state
             label_rules = list(source.label_rules)
@@ -123,13 +128,13 @@ class DiscoveryService:
             conn_ok = await adapter.test_connection()
             if not conn_ok.get("ok"):
                 logger.warning(
-                    "Source %s connection failed: %s", source_id_copy, conn_ok.get("error")
+                    "Source %s connection failed: %s", source_label, conn_ok.get("error")
                 )
                 counts["errors"] += 1
                 await self._record_scan_error(source_id_copy, conn_ok.get("error") or "connection failed")
                 return counts
         except Exception as exc:
-            logger.warning("Source %s adapter error: %s", source_id_copy, exc)
+            logger.warning("Source %s adapter error: %s", source_label, exc)
             counts["errors"] += 1
             await self._record_scan_error(source_id_copy, exc)
             return counts
@@ -138,7 +143,7 @@ class DiscoveryService:
         try:
             items_dto = await adapter.list_items()
         except Exception as exc:
-            logger.warning("Source %s list_items failed: %s", source_id_copy, exc)
+            logger.warning("Source %s list_items failed: %s", source_label, exc)
             counts["errors"] += 1
             await self._record_scan_error(source_id_copy, exc)
             return counts
@@ -162,7 +167,7 @@ class DiscoveryService:
             except Exception as exc:
                 logger.debug(
                     "Error processing item %s from %s: %s",
-                    item_dto.remote_id, source_id_copy, exc,
+                    item_dto.remote_id, source_label, exc,
                 )
                 counts["errors"] += 1
 
@@ -177,7 +182,7 @@ class DiscoveryService:
                 update_kwargs["initial_scan_at"] = _utcnow()
                 logger.info(
                     "Source %s first scan complete (%d items) — awaiting admin review",
-                    source_id_copy, len(items_dto),
+                    source_label, len(items_dto),
                 )
             elif is_first_scan:
                 # First scan, no items
@@ -189,7 +194,7 @@ class DiscoveryService:
 
         logger.info(
             "Source %s scan: discovered=%d new=%d classified=%d queued=%d errors=%d",
-            source_id_copy, counts["discovered"], counts["new"],
+            source_label, counts["discovered"], counts["new"],
             counts["classified"], counts["queued"], counts["errors"],
         )
         return counts
@@ -382,7 +387,7 @@ class DiscoveryService:
             details_json={"eligibility": item.last_eligibility},
         )
         logger.info(
-            "Auto-queued job %s for item %s (%s, label=%s)",
-            job.id, item.id, item.title, rule.label,
+            "Auto-queued job %s (label=%s)",
+            named(item.title, job.id), rule.label,
         )
         return job

@@ -21,6 +21,7 @@ from app.processing.publication import long_path, plain_path
 from app.security import decrypt_secret
 from app.database.repositories import JobRepository
 from app.database.session import get_session_factory
+from app.logging_buffer import job_name
 from app.domain.models import JobStage, StageRunStatus, TransferStatus
 from app.settings import Settings
 
@@ -52,6 +53,7 @@ class JobRunner:
         self.worker_token = worker_token
         self._heartbeat_task: asyncio.Task | None = None
         self._cancelled = False
+        self.label = job_id  # "Title" (id) once the job is loaded, for log lines
 
     async def execute(self) -> StageResult:
         """Execute the stage and return the result."""
@@ -63,6 +65,7 @@ class JobRunner:
             job = await repo.get(self.job_id)
             if not job:
                 return StageResult(StageRunStatus.FAILED, "job_not_found", "Job not found", False)
+            self.label = job_name(job)
 
             attempt = job.attempts
             stage_run = await repo.add_stage_run(
@@ -105,7 +108,7 @@ class JobRunner:
             try:
                 await self._renew_lease()
             except Exception:
-                logger.warning("Heartbeat failed for job %s", self.job_id, exc_info=True)
+                logger.warning("Heartbeat failed for job %s", self.label, exc_info=True)
 
     async def _renew_lease(self) -> None:
         async with get_session_factory(self.settings)() as session:

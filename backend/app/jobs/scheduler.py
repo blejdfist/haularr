@@ -210,7 +210,7 @@ class JobScheduler:
         runner = JobRunner(self.settings, job_id, stage, worker_token)
         try:
             result = await runner.execute()
-            logger.info("Job %s stage %s completed: %s", job_id, stage, result.status)
+            logger.info("Job %s stage %s completed: %s", runner.label, stage, result.status.value)
 
             # Transition to next stage
             if result.status == StageRunStatus.SUCCEEDED:
@@ -223,10 +223,10 @@ class JobScheduler:
                 await self._transition_needs_attention(job_id, stage, result.error_code, result.error_detail)
 
         except asyncio.CancelledError:
-            logger.info("Job %s stage %s cancelled", job_id, stage)
+            logger.info("Job %s stage %s cancelled", runner.label, stage)
             await self._transition_cancelled(job_id, stage)
         except Exception:
-            logger.exception("Job %s stage %s crashed", job_id, stage)
+            logger.exception("Job %s stage %s crashed", runner.label, stage)
             await self._transition_failed(job_id, stage, "unexpected_error", "Unhandled exception", False)
         finally:
             semaphore.release()

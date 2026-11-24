@@ -17,6 +17,7 @@ from app.database.models import Job, StageRun, JobFile
 from app.database.repositories import JobRepository
 from app.database.session import get_session_factory
 from app.domain.models import JobStatus, StageRunStatus, TransferStatus
+from app.logging_buffer import job_name
 from app.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -58,7 +59,7 @@ class Recovery:
             for job in expired_jobs:
                 logger.warning(
                     "Reclaiming job %s (stage %s) — lease expired at %s",
-                    job.id, job.stage, job.lease_expires_at,
+                    job_name(job), job.stage, job.lease_expires_at,
                 )
 
                 # Reconcile: check if the stage's files are on disk
@@ -117,8 +118,8 @@ class Recovery:
             temp_dir = config.get("temporary_directory", "/tmp")
             # Job files that were marked in_progress are reset to pending
             # so the download stage will resume from the .part file offset
-            logger.info("Reconciling download for job %s — .part files will resume", job.id)
+            logger.info("Reconciling download for job %s — .part files will resume", job_name(job))
         elif job.stage in ("extract", "publish"):
             # These stages may have partial output on disk
             # The stage handler should be idempotent and clean up incomplete work
-            logger.info("Reconciling %s for job %s", job.stage, job.id)
+            logger.info("Reconciling %s for job %s", job.stage, job_name(job))
