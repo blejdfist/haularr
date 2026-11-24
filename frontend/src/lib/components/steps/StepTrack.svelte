@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { CheckOutline, CloseOutline, ExclamationCircleOutline } from 'flowbite-svelte-icons';
   import { currentIndex, type Step } from './types';
 
   let {
@@ -19,8 +20,14 @@
     failed: 'bg-red-600 text-white ring-4 ring-red-500/30',
     pending: 'bg-white dark:bg-gray-800 border-2 border-gray-300 text-gray-500 dark:border-gray-500 dark:text-gray-400',
   };
-  const glyph = (s: Step, i: number) =>
-    s.state === 'done' || s.state === 'skipped' ? '✓' : s.state === 'waiting' || s.state === 'failed' ? '!' : s.state === 'active' ? String(i + 1) : '';
+  const STATE: Record<Step['state'], string> = {
+    done: 'done',
+    skipped: 'skipped',
+    active: 'in progress',
+    waiting: 'needs attention',
+    failed: 'failed',
+    pending: 'not started',
+  };
 </script>
 
 <div>
@@ -39,11 +46,21 @@
           onclick={() => (selected = s.key)}
         >
           <span class="flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold {node[s.state]}">
-            {glyph(s, i)}
+            {#if s.state === 'done' || s.state === 'skipped'}
+              <CheckOutline class="h-4 w-4" strokeWidth="3" aria-hidden="true" />
+            {:else if s.state === 'failed'}
+              <CloseOutline class="h-4 w-4" strokeWidth="3" aria-hidden="true" />
+            {:else if s.state === 'waiting'}
+              <ExclamationCircleOutline class="h-4 w-4" strokeWidth="2.5" aria-hidden="true" />
+            {:else if s.state === 'active'}
+              {i + 1}
+            {/if}
           </span>
           <span
-            class="text-xs {sel?.key === s.key ? 'font-semibold text-gray-900 dark:text-white' : s.state === 'pending' ? 'text-gray-500 dark:text-gray-400' : 'text-gray-700 dark:text-gray-200'}"
-            >{s.label}</span
+            class="text-xs whitespace-nowrap {sel?.key === s.key
+              ? 'font-semibold text-gray-900 dark:text-white'
+              : `max-sm:sr-only ${s.state === 'pending' ? 'text-gray-500 dark:text-gray-400' : 'text-gray-700 dark:text-gray-200'}`}"
+            >{s.label}<span class="sr-only">, {STATE[s.state]}</span></span
           >
         </button>
       </li>

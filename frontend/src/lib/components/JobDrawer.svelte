@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { Drawer, Button, Alert } from 'flowbite-svelte';
+  import { ChevronRightOutline, FolderSolid } from 'flowbite-svelte-icons';
   import { endpoints } from '$lib/api/client';
   import { subscribe, coalesce, type JobEvent } from '$lib/live';
   import { groupOf, parseUtc, ago, runIcon, fmtSize, SPEED_STALE_MS, type IconKind } from '$lib/status';
@@ -104,6 +105,17 @@
   }
 
   const group = $derived(job ? groupOf(job.status) : null);
+  // The job finished while the drawer was open: its done mark draws in, as on the dashboard.
+  let landed = $state(false);
+  let lastStatus: string | null = null;
+  $effect(() => {
+    const st: string | null = job?.status ?? null;
+    untrack(() => {
+      if (!st) landed = false;
+      else if (lastStatus && !DONE.includes(lastStatus) && DONE.includes(st)) landed = true;
+      lastStatus = st;
+    });
+  });
   const steps = $derived(job ? jobSteps(job) : []);
   // Follow the job: when it moves to another phase, drop any manual selection.
   const currentKey = $derived(steps.length ? steps[currentIndex(steps)].key : undefined);
@@ -118,7 +130,19 @@
   };
   const fetched = $derived(job ? bytes({ bytes_done: job.download_bytes_done, bytes_total: job.download_bytes_total }) : null);
 
-  const fmt = (s: string | null) => (s ? parseUtc(s).toLocaleString() : '');
+  const DONE = ['completed', 'completed_with_warnings'];
+  /** Event time: clock time today, date and time otherwise. The full stamp is in the tooltip. */
+  function when(s: string): string {
+    const d = parseUtc(s);
+    const today = d.toDateString() === new Date().toDateString();
+    return d.toLocaleString(undefined, today ? { hour: '2-digit', minute: '2-digit' } : { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+  const hasDetails = (d: unknown) => d != null && (typeof d !== 'object' || Object.keys(d).length > 0);
+  /** A file's error repeats its path first; the row already shows the path. */
+  const unprefix = (detail: string, path: string) => {
+    const head = [path, basename(path)].find((p) => detail.startsWith(`${p}: `));
+    return head ? detail.slice(head.length + 2) : detail;
+  };
   const size = fmtSize;
   const FILE_ICON: Record<string, IconKind> = {
     pending: 'pending',
@@ -162,7 +186,8 @@
             });
       const total = st === 'transfer' ? files.reduce((n, f) => n + (f.size_bytes ?? 0), 0) : ((p?.files ?? []) as any[]).reduce((n, f) => n + f.size_bytes, 0);
       return {
-        caption: rows.length ? [`${rows.length} files · ${size(total)}`] : [],
+        // While running, the stage bar above already shows the total.
+        caption: rows.length ? [live ? `${rows.length} files` : `${rows.length} files · ${size(total)}`] : [],
         rows,
         empty: st === 'transfer' ? 'Files are listed once the transfer starts.' : 'Files are listed once the seedbox reports them.',
       };
@@ -172,7 +197,7 @@
         caption: [],
         rows: p.files.map((f: any) => {
           const bad = f.result === 'failed' || f.result === 'missing';
-          return { key: f.path, path: f.path, kind: VERIFY_ICON[f.result] ?? 'pending', meta: bad ? undefined : f.detail || f.result, ...(bad && { note: f.detail || f.result, tone: 'error' }) };
+          return { key: f.path, path: f.path, kind: VERIFY_ICON[f.result] ?? 'pending', meta: bad ? undefined : f.detail || f.result, ...(bad && { note: unprefix(f.detail || f.result, f.path), tone: 'error' }) };
         }),
       };
     if (st === 'extract' && p?.archives?.length)
@@ -239,13 +264,19 @@
 
 {#snippet fileList(list: List)}
   {@const root = commonRoot(list.rows.map((f) => f.path))}
-  {@const caption = [...list.caption, ...(root ? [`in ${root.slice(0, -1)}`] : [])]}
   <div class="mt-1.5 ms-6 text-xs">
-    {#each caption as line}
+    {#each list.caption as line}
       <p class="mb-1 truncate text-gray-600 dark:text-gray-300" title={line}>{line}</p>
     {/each}
     {#if list.rows.length}
-      <ul class="divide-y divide-gray-200 rounded-md border border-gray-200 bg-white dark:divide-gray-700 dark:border-gray-700 dark:bg-gray-800">
+      <ul class="divide-y divide-gray-200 overflow-hidden rounded-md border border-gray-200 bg-white dark:divide-gray-700 dark:border-gray-700 dark:bg-gray-800">
+        {#if root}
+          <!-- The release folder every file sits in, as the list's header. -->
+          <li class="flex items-center gap-2 bg-gray-50 px-2.5 py-1.5 text-gray-600 dark:bg-gray-900/40 dark:text-gray-300">
+            <FolderSolid class="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-gray-500" aria-hidden="true" />
+            <span class="min-w-0 truncate" title={root.slice(0, -1)}>{root.slice(0, -1)}</span>
+          </li>
+        {/if}
         {#each list.rows as f (f.key)}
           {@const rel = f.path.slice(root.length)}
           {@const slash = rel.lastIndexOf('/')}
@@ -283,8 +314,8 @@
 
 {#snippet phaseCard(s: Step)}
   {@const runs = currentRuns((job.stage_runs ?? []) as any[])}
-  <h5 class="font-semibold text-gray-900 dark:text-white">{s.label}</h5>
-  <ul class="mt-2 space-y-2 text-sm">
+  <!-- No heading: the selected step's label right above names this card. -->
+  <ul class="space-y-2.5 text-sm">
     {#each PHASES.find((p) => p.key === s.key)?.stages ?? [] as st (st)}
       {@const r = runs.get(st)}
       {@const kind = r ? runIcon(r.status) : st === job.stage && s.state === 'waiting' ? 'warning' : 'pending'}
@@ -297,7 +328,7 @@
             >{st.replaceAll('_', ' ')}</span
           >
           {#if r}
-            <span class="whitespace-nowrap font-mono text-xs text-gray-600 dark:text-gray-300"
+            <span class="whitespace-nowrap text-xs text-gray-500 tabular-nums dark:text-gray-400"
               >{#if took(r)}{`${r.ended_at ? '' : 'for '}${took(r)}`}{/if}{#if r.attempt > 1}{` · try ${r.attempt}`}{/if}</span
             >
           {/if}
@@ -347,22 +378,26 @@
           </dl>
         {/if}
         {#if list}{@render fileList(list)}{/if}
-        {#if r?.error_detail}
-          <p class="mt-0.5 ms-6 text-xs text-red-700 dark:text-red-300">{r.error_code}: {r.error_detail}</p>
+        <!-- The phase's banner below already says it when it is the job's own reason. -->
+        {#if r?.error_detail && r.error_detail !== s.reason}
+          <p class="mt-1 ms-6 text-xs text-red-700 dark:text-red-300" title={r.error_code}>{r.error_detail}</p>
         {/if}
       </li>
     {/each}
   </ul>
   {#if s.reason}
     <div
-      class="mt-3 rounded-md border p-2.5 text-sm {s.state === 'failed'
+      class="mt-3 flex gap-2 rounded-md border p-2.5 text-sm {s.state === 'failed'
         ? 'border-red-400 bg-red-50 text-red-900 dark:border-red-500/50 dark:bg-red-500/15 dark:text-red-200'
         : 'border-amber-400 bg-amber-50 text-amber-900 dark:border-amber-500/50 dark:bg-amber-500/15 dark:text-amber-200'}"
     >
-      <span class="font-semibold">{s.state === 'failed' ? 'Failed' : 'Blocked'}:</span> {s.reason}
-      {#if job.error_code === 'no_transfer_config'}
-        <a href="/sources/" class="mt-1.5 block font-medium underline">Open source settings</a>
-      {/if}
+      <StatusIcon kind={s.state === 'failed' ? 'failed' : 'warning'} class="mt-0.5 h-4 w-4" />
+      <div class="min-w-0 break-words">
+        {s.reason}
+        {#if job.error_code === 'no_transfer_config'}
+          <a href="/sources/" class="mt-1.5 block font-medium underline underline-offset-2">Open source settings</a>
+        {/if}
+      </div>
     </div>
   {/if}
 {/snippet}
@@ -371,33 +406,46 @@
   {#if job}
     <div class="space-y-5">
       <div class="pr-8">
-        <h3 class="text-lg font-semibold break-words text-gray-900 dark:text-white">{job.config_snapshot?.title ?? '—'}</h3>
+        <!-- Release names are one long token: allow breaks after the dots, not mid-word. -->
+        <h3 class="text-lg font-semibold break-words text-gray-900 dark:text-white">
+          {#each (job.config_snapshot?.title ?? '—').split('.') as part, i}{#if i}.<wbr />{/if}{part}{/each}
+        </h3>
         <!-- Route: where the release comes from and which library it goes to. -->
         <div class="mt-2 flex flex-wrap items-center gap-1.5 text-sm">
           {#each [['Source', job.config_snapshot?.source_name], ['Label', job.config_snapshot?.label], ['Library', job.library_name]] as [what, value], i}
-            {#if i}
-              <svg viewBox="0 0 20 20" class="h-4 w-4 shrink-0 text-gray-400" aria-hidden="true"
-                ><path fill="currentColor" d="M7.3 4.3a1 1 0 0 1 1.4 0l5 5a1 1 0 0 1 0 1.4l-5 5a1 1 0 1 1-1.4-1.4L11.6 10 7.3 5.7a1 1 0 0 1 0-1.4Z" /></svg
-              >
-            {/if}
-            <span class="inline-flex items-baseline gap-1.5 rounded-md bg-gray-100 px-2 py-0.5 dark:bg-gray-700">
-              <span class="text-xs text-gray-500 dark:text-gray-400">{what}</span>
-              {#if value}
-                <span class="font-medium text-gray-900 dark:text-white">{value}</span>
-              {:else}
-                <span class="text-gray-500 italic dark:text-gray-400">none</span>
+            <!-- Arrow and the chip it points to wrap together, so no line ends on an arrow. -->
+            <span class="inline-flex items-center gap-1.5">
+              {#if i}
+                <ChevronRightOutline class="h-4 w-4 shrink-0 text-gray-400" aria-hidden="true" />
               {/if}
+              <span class="inline-flex items-baseline gap-1.5 rounded-md bg-gray-100 px-2 py-0.5 dark:bg-gray-700">
+                <span class="text-xs text-gray-500 dark:text-gray-400">{what}</span>
+                {#if value}
+                  <span class="font-medium text-gray-900 dark:text-white">{value}</span>
+                {:else}
+                  <span class="text-gray-500 italic dark:text-gray-400">none</span>
+                {/if}
+              </span>
             </span>
           {/each}
         </div>
-        <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">Created {ago(job.created_at)}</p>
+        <p class="mt-2 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+          Created {ago(job.created_at)}
+          {#if DONE.includes(job.status) && job.ended_at}
+            <span aria-hidden="true">·</span>
+            <StatusIcon kind={job.status === 'completed' ? 'done' : 'warning'} draw={landed} class="h-3.5 w-3.5" />
+            <span class="text-gray-700 dark:text-gray-200"
+              >Done in {dur((parseUtc(job.ended_at).getTime() - parseUtc(job.created_at).getTime()) / 1000, false)}</span
+            >
+          {/if}
+        </p>
       </div>
 
       {#if error}<Alert color="red">{error}</Alert>{/if}
 
       <StepTrack {steps} bind:selected detail={phaseCard} />
 
-      <div class="flex flex-wrap gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         {#if group === 'failed'}
           <Button size="xs" disabled={busy} onclick={() => act(endpoints.jobs.retry)}>Retry</Button>
           <Button size="xs" color="alternative" disabled={busy} onclick={() => act(endpoints.jobs.retryImport)}>Retry import</Button>
@@ -424,30 +472,53 @@
           >
         {/if}
         {#if job.status === 'running' || job.status === 'queued'}
-          <Button size="xs" color="yellow" disabled={busy} onclick={() => act(endpoints.jobs.pause)}>Pause</Button>
+          <Button size="xs" color="alternative" disabled={busy} onclick={() => act(endpoints.jobs.pause)}>Pause</Button>
         {/if}
         {#if job.status === 'paused'}
           <Button size="xs" disabled={busy} onclick={() => act(endpoints.jobs.resume)}>Resume</Button>
         {/if}
         {#if group === 'active'}
-          <Button size="xs" color="red" disabled={busy} onclick={() => act(endpoints.jobs.cancel)}>Cancel</Button>
+          <!-- Destructive: kept apart from the rest and quieter than the primary action. -->
+          <Button size="xs" color="red" outline class="ms-auto" disabled={busy} onclick={() => act(endpoints.jobs.cancel)}>Cancel job</Button>
         {/if}
       </div>
 
-      <details>
-        <summary class="cursor-pointer font-semibold text-gray-900 dark:text-white">Events ({events.length})</summary>
-        <ul class="mt-2 space-y-2 text-sm">
-          {#each events as e}
-            <li class={e.severity === 'error' ? 'text-red-700 dark:text-red-300' : 'text-gray-800 dark:text-gray-100'}>
-              <span class="text-gray-600 dark:text-gray-300">{fmt(e.created_at)}</span> <span class="font-mono">{e.kind}</span> {e.message}
-              {#if e.severity === 'error' && e.details}
-                <pre class="mt-1 text-xs whitespace-pre-wrap">{JSON.stringify(e.details, null, 2)}</pre>
-              {/if}
-            </li>
-          {:else}
-            <li class="text-gray-600 dark:text-gray-300">No events.</li>
-          {/each}
-        </ul>
+      <details class="group border-t border-gray-200 pt-4 dark:border-gray-700">
+        <summary
+          class="flex cursor-pointer list-none items-center gap-1.5 rounded-md text-sm font-semibold text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-white [&::-webkit-details-marker]:hidden"
+        >
+          <ChevronRightOutline
+            class="h-4 w-4 text-gray-500 transition-transform group-open:rotate-90 motion-reduce:transition-none dark:text-gray-400"
+            aria-hidden="true"
+          />
+          Events
+          <span class="font-normal text-gray-500 tabular-nums dark:text-gray-400">{events.length}</span>
+        </summary>
+        {#if events.length}
+          <!-- A timeline: one rail, a dot per event colored by severity. -->
+          <ol class="mt-3 ms-2 border-s border-gray-200 text-sm dark:border-gray-700">
+            {#each events as e}
+              <li class="relative ps-4 pb-3 last:pb-0">
+                <span
+                  class="absolute -start-1 top-1.5 h-2 w-2 rounded-full ring-4 ring-white dark:ring-gray-800 {e.severity === 'error'
+                    ? 'bg-red-500'
+                    : e.severity === 'warning'
+                      ? 'bg-amber-500'
+                      : 'bg-gray-400 dark:bg-gray-500'}"
+                ></span>
+                <time class="block text-xs text-gray-500 tabular-nums dark:text-gray-400" datetime={e.created_at} title={parseUtc(e.created_at).toLocaleString()}
+                  >{when(e.created_at)}</time
+                >
+                <p class="break-words {e.severity === 'error' ? 'text-red-700 dark:text-red-300' : 'text-gray-800 dark:text-gray-100'}" title={e.kind}>{e.message}</p>
+                {#if e.severity === 'error' && hasDetails(e.details)}
+                  <pre class="mt-1 overflow-x-auto rounded bg-gray-50 p-2 text-xs whitespace-pre-wrap text-gray-700 dark:bg-gray-900/40 dark:text-gray-300">{JSON.stringify(e.details, null, 2)}</pre>
+                {/if}
+              </li>
+            {/each}
+          </ol>
+        {:else}
+          <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">Nothing logged yet.</p>
+        {/if}
       </details>
     </div>
   {:else if error}
