@@ -147,6 +147,17 @@ async def _load_persisted_settings(settings: Settings) -> None:
         logger.debug("Could not load persisted settings (may be first run): %s", exc)
 
 
+OPENAPI_TAGS = [
+    {"name": "auth", "description": "Admin account setup and login (no token required)."},
+    {"name": "sources", "description": "Torrent clients to watch, their FTP fetch config and tag rules."},
+    {"name": "source-items", "description": "Inventory of torrents seen on the sources; queue them as jobs."},
+    {"name": "jobs", "description": "Download/verify/extract/import pipeline runs and their controls."},
+    {"name": "libraries", "description": "Sonarr/Radarr instances that imports are handed to."},
+    {"name": "system", "description": "Health, dashboard counts, settings, logs and config export."},
+    {"name": "events", "description": "Server-Sent Event streams of changes, for live UIs."},
+]
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Create the FastAPI application."""
     if settings is None:
@@ -154,41 +165,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="Haularr",
-        description="Download Orchestrator for self-hosted media automation",
+        description=(
+            "Download Orchestrator for self-hosted media automation.\n\n"
+            "All endpoints except `POST /auth/setup`, `POST /auth/login` and `GET /health` "
+            "require `Authorization: Bearer <token>`; get a token from `POST /auth/login`.\n\n"
+            "Everything is available as plain request/response JSON. The `events` streams are "
+            "an optional push channel for UIs: they carry changes only, so a client fetches "
+            "current state from the regular endpoints after (re)connecting."
+        ),
         version="0.1.0",
+        openapi_tags=OPENAPI_TAGS,
         lifespan=lifespan,
     )
     app.state.settings = settings
 
-    # Register API routers
-    from app.api.routes import (
-        auth_router,
-        dashboard_router,
-        health_router,
-        jobs_router,
-        libraries_router,
-        logs_router,
-        settings_router,
-        source_items_router,
-        sources_router,
-        transfers_router,
+    # Every API route requires a bearer token except login/setup (how a token is obtained)
+    # and health (polled by the container healthcheck, exposes nothing).
+    from fastapi import Depends
+
+    from app.api import (
+        routes_auth, routes_dashboard, routes_export, routes_health, routes_jobs,
+        routes_libraries, routes_logs, routes_settings, routes_source_items, routes_sources,
+        routes_sse,
     )
-    from app.api.routes_sse import sse_router
-    from app.api.routes_export import export_router
+    from app.security import get_current_user
 
     api_prefix = "/api/v1"
-    app.include_router(health_router, prefix=api_prefix)
-    app.include_router(auth_router, prefix=api_prefix)
-    app.include_router(settings_router, prefix=api_prefix)
-    app.include_router(sources_router, prefix=api_prefix)
-    app.include_router(source_items_router, prefix=api_prefix)
-    app.include_router(transfers_router, prefix=api_prefix)
-    app.include_router(libraries_router, prefix=api_prefix)
-    app.include_router(jobs_router, prefix=api_prefix)
-    app.include_router(dashboard_router, prefix=api_prefix)
-    app.include_router(logs_router, prefix=api_prefix)
-    app.include_router(sse_router, prefix=api_prefix)
-    app.include_router(export_router, prefix=api_prefix)
+    app.include_router(routes_health.health_router, prefix=api_prefix)
+    app.include_router(routes_auth.auth_router, prefix=api_prefix)
+    auth = [Depends(get_current_user)]
+    for module in (
+        routes_sources, routes_source_items, routes_jobs, routes_libraries,
+        routes_dashboard, routes_settings, routes_export, routes_logs, routes_sse,
+    ):
+        app.include_router(module.router, prefix=api_prefix, dependencies=auth)
 
     # Serve static frontend (SPA fallback)
     static_dir = settings.static_dir

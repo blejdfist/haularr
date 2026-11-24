@@ -1,4 +1,4 @@
-"""Library instances endpoints."""
+"""Libraries: Sonarr/Radarr instances that completed downloads are imported into."""
 
 from __future__ import annotations
 
@@ -9,18 +9,10 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.repositories import LibraryRepository
-from app.security import RequireAuth
+from app.database.session import get_session
 
-libraries_router = APIRouter(tags=["libraries"])
+router = APIRouter(tags=["libraries"])
 
-
-async def get_session(request: Request):
-    from app.database.session import get_session_factory
-    from app.settings import Settings
-    settings: Settings = request.app.state.settings
-    factory = get_session_factory(settings)
-    async with factory() as session:
-        yield session
 
 
 class LibraryCreate(BaseModel):
@@ -55,13 +47,13 @@ def _api_key(obj: Any, master_key: bytes) -> str:
     return decrypt_secret(key[4:], master_key) if key.startswith("enc:") else key
 
 
-@libraries_router.post("/libraries/test-config")
+@router.post("/libraries/test-config")
 async def test_library_config(
     body: LibraryTestConfig,
     request: Request,
-    user: RequireAuth,
     session: AsyncSession = Depends(get_session),
 ):
+    """Test unsaved library settings. A blank `api_key` with `library_id` uses the saved key."""
     from app.adapters.libraries import create_library_adapter
 
     api_key = body.api_key
@@ -78,15 +70,17 @@ async def test_library_config(
     return await adapter.test_connection()
 
 
-@libraries_router.get("/libraries")
+@router.get("/libraries")
 async def list_libraries(session: AsyncSession = Depends(get_session)):
+    """List libraries. API keys are never returned."""
     repo = LibraryRepository(session)
     items = await repo.list_all()
     return [_library_to_dict(l) for l in items]
 
 
-@libraries_router.post("/libraries", status_code=201)
+@router.post("/libraries", status_code=201)
 async def create_library(body: LibraryCreate, session: AsyncSession = Depends(get_session)):
+    """Create a library. `api_key_secret_ref` carries the API key."""
     repo = LibraryRepository(session)
     obj = await repo.create(
         name=body.name,
@@ -100,8 +94,9 @@ async def create_library(body: LibraryCreate, session: AsyncSession = Depends(ge
     return _library_to_dict(obj)
 
 
-@libraries_router.get("/libraries/{library_id}")
+@router.get("/libraries/{library_id}")
 async def get_library(library_id: str, session: AsyncSession = Depends(get_session)):
+    """Get one library."""
     repo = LibraryRepository(session)
     obj = await repo.get(library_id)
     if not obj:
@@ -109,16 +104,15 @@ async def get_library(library_id: str, session: AsyncSession = Depends(get_sessi
     return _library_to_dict(obj)
 
 
-@libraries_router.patch("/libraries/{library_id}")
+@router.patch("/libraries/{library_id}")
 async def update_library(
     library_id: str, body: LibraryUpdate, session: AsyncSession = Depends(get_session)
 ):
+    """Update a library. Omitted fields (including the API key) are kept."""
     repo = LibraryRepository(session)
     updates = body.model_dump(exclude_none=True)
     if "options" in updates:
         updates["options_json"] = updates.pop("options")
-    if "api_key_secret_ref" in updates:
-        updates["api_key_secret_ref"] = updates.pop("api_key_secret_ref")
     obj = await repo.update(library_id, **updates)
     if not obj:
         raise HTTPException(status_code=404, detail="Library not found")
@@ -126,8 +120,9 @@ async def update_library(
     return _library_to_dict(obj)
 
 
-@libraries_router.delete("/libraries/{library_id}", status_code=204)
+@router.delete("/libraries/{library_id}", status_code=204)
 async def delete_library(library_id: str, session: AsyncSession = Depends(get_session)):
+    """Delete a library. 409 while a tag rule still imports into it."""
     repo = LibraryRepository(session)
     obj = await repo.get(library_id)
     if obj:
@@ -154,10 +149,11 @@ async def delete_library(library_id: str, session: AsyncSession = Depends(get_se
         await session.commit()
 
 
-@libraries_router.post("/libraries/{library_id}/test")
+@router.post("/libraries/{library_id}/test")
 async def test_library(
     library_id: str, request: Request, session: AsyncSession = Depends(get_session)
 ):
+    """Test the saved connection of a library."""
     repo = LibraryRepository(session)
     obj = await repo.get(library_id)
     if not obj:

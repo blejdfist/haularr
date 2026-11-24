@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Alert, Button, Input, Label, Spinner } from 'flowbite-svelte';
-  import { endpoints, api } from '$lib/api/client';
+  import { endpoints } from '$lib/api/client';
 
   const fields = [
     ['max_concurrent_download_jobs', 'Max concurrent download jobs'],
@@ -50,7 +50,7 @@
 
   async function exportConfig() {
     try {
-      const data = await api.get<unknown>('/config/export');
+      const data = await endpoints.config.export();
       const url = URL.createObjectURL(
         new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
       );

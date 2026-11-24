@@ -17,6 +17,8 @@ export type JobEvent = {
   download_bytes_total: number;
   stage_progress: { bytes_done?: number; bytes_total?: number } | null;
   progress: number | null;
+  /** Running jobs only: file count per transfer status. */
+  files: Record<string, number> | null;
 };
 
 type Handlers = { open?: () => void } & Record<string, ((data: any) => void) | undefined>;

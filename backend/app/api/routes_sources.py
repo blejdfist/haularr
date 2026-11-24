@@ -1,4 +1,4 @@
-"""Source instances and label rules endpoints."""
+"""Sources (torrent clients) and their tag rules."""
 
 from __future__ import annotations
 
@@ -11,20 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import TransferInstance
 from app.database.repositories import LabelRuleRepository, SourceRepository
-from app.database.session import get_session_factory
-from app.security import OptionalAuth
+from app.database.session import get_session
 from app.services.source_fetch import fetch_to_dict, resolve_password, upsert_source_fetch
-from app.settings import Settings
 
-sources_router = APIRouter(tags=["sources"])
-
-
-async def get_session(request: Request):
-    settings: Settings = request.app.state.settings
-    factory = get_session_factory(settings)
-    async with factory() as session:
-        yield session
-
+router = APIRouter(tags=["sources"])
 
 # ---------------------------------------------------------------------------
 # Schemas
@@ -112,21 +102,22 @@ class LabelRuleUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@sources_router.get("/sources")
-async def list_sources(request: Request, session: AsyncSession = Depends(get_session), user: OptionalAuth = None):
+@router.get("/sources")
+async def list_sources(request: Request, session: AsyncSession = Depends(get_session)):
+    """List all sources, each with its fetch config and tag rules."""
     repo = SourceRepository(session)
     sources = await repo.list_all()
     mk = request.app.state.master_key
     return [await _source_full(session, s, mk) for s in sources]
 
 
-@sources_router.post("/sources", status_code=201)
+@router.post("/sources", status_code=201)
 async def create_source(
     body: SourceCreate,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: OptionalAuth = None,
 ):
+    """Create a source. `credential` is encrypted at rest; `fetch` sets up its FTP transfer."""
     master_key = request.app.state.master_key
     encrypted_cred = _encrypt_credential(body.credential, master_key) if body.credential else ""
 
@@ -143,33 +134,31 @@ async def create_source(
     if body.fetch:
         await upsert_source_fetch(session, obj, body.fetch, master_key)
     await session.commit()
-    return await _source_full(session, obj, master_key)
+    return await _source_full(session, await repo.get(obj.id), master_key)
 
 
-@sources_router.get("/sources/{source_id}")
+@router.get("/sources/{source_id}")
 async def get_source(
     source_id: str,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: OptionalAuth = None,
 ):
+    """Get one source with its fetch config and tag rules."""
     repo = SourceRepository(session)
     obj = await repo.get(source_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Source not found")
-    result = await _source_full(session, obj, request.app.state.master_key)
-    result["label_rules"] = [_label_to_dict(r) for r in obj.label_rules]
-    return result
+    return await _source_full(session, obj, request.app.state.master_key)
 
 
-@sources_router.patch("/sources/{source_id}")
+@router.patch("/sources/{source_id}")
 async def update_source(
     source_id: str,
     body: SourceUpdate,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: OptionalAuth = None,
 ):
+    """Update a source. Omitted fields are kept; omitting `fetch` leaves the transfer untouched."""
     repo = SourceRepository(session)
     updates: dict[str, Any] = {}
 
@@ -196,12 +185,12 @@ async def update_source(
     return await _source_full(session, obj, request.app.state.master_key)
 
 
-@sources_router.delete("/sources/{source_id}", status_code=204)
+@router.delete("/sources/{source_id}", status_code=204)
 async def delete_source(
     source_id: str,
     session: AsyncSession = Depends(get_session),
-    user: OptionalAuth = None,
 ):
+    """Delete a source with its items, their jobs, tag rules and its own transfer."""
     repo = SourceRepository(session)
     obj = await repo.get(source_id)
     transfer_id = obj.default_transfer_id if obj else None
@@ -220,17 +209,12 @@ async def delete_source(
     await session.commit()
 
 
-@sources_router.post("/sources/test-config")
+@router.post("/sources/test-config")
 async def test_source_config(
     body: SourceTestRequest,
     request: Request,
-    user: OptionalAuth = None,
 ):
-    """Test a source connection config before saving it.
-
-    Does not require an existing source record.
-    Returns adapter test_connection() result.
-    """
+    """Test an unsaved source connection config (no source record needed)."""
     config = dict(body.connection_config)
     if body.credential:
         config["password"] = body.credential  # Pass plaintext directly for test
@@ -241,14 +225,13 @@ async def test_source_config(
     return result
 
 
-@sources_router.post("/sources/fetch-test")
+@router.post("/sources/fetch-test")
 async def test_fetch_config(
     body: FetchTest,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: OptionalAuth = None,
 ):
-    """Test an FTP fetch config before saving it."""
+    """Test an unsaved FTP fetch config. A blank password with `source_id` uses that source's saved one."""
     source = await SourceRepository(session).get(body.source_id) if body.source_id else None
     transfer_id = source.default_transfer_id if source else None
     password = await resolve_password(session, transfer_id, body, request.app.state.master_key)
@@ -265,13 +248,13 @@ async def test_fetch_config(
     return await adapter.test_connection()
 
 
-@sources_router.post("/sources/{source_id}/test")
+@router.post("/sources/{source_id}/test")
 async def test_source(
     source_id: str,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: OptionalAuth = None,
 ):
+    """Test the saved connection of a source."""
     repo = SourceRepository(session)
     obj = await repo.get(source_id)
     if not obj:
@@ -285,14 +268,13 @@ async def test_source(
     return await adapter.test_connection()
 
 
-@sources_router.post("/sources/{source_id}/scan")
+@router.post("/sources/{source_id}/scan")
 async def scan_source(
     source_id: str,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    user: OptionalAuth = None,
 ):
-    """Trigger discovery/reconciliation for a source."""
+    """Start a discovery scan of a source in the background."""
     repo = SourceRepository(session)
     obj = await repo.get(source_id)
     if not obj:
@@ -309,48 +291,18 @@ async def scan_source(
     return {"status": "scan_triggered", "source_id": source_id}
 
 
-@sources_router.post("/sources/{source_id}/complete-onboarding")
-async def complete_onboarding(
-    source_id: str,
-    session: AsyncSession = Depends(get_session),
-    user: OptionalAuth = None,
-):
-    """Activate automatic processing for new items after admin acknowledges baseline."""
-    repo = SourceRepository(session)
-    obj = await repo.update(source_id, onboarding_state="completed")
-    if not obj:
-        raise HTTPException(status_code=404, detail="Source not found")
-    label_repo = LabelRuleRepository(session)
-    rules = await label_repo.list_by_source(source_id)
-    for rule in rules:
-        await label_repo.update(rule.id, automatic_processing=True)
-    await session.commit()
-    return _source_to_dict(obj)
-
-
 # ---------------------------------------------------------------------------
 # Label rules
 # ---------------------------------------------------------------------------
 
 
-@sources_router.get("/sources/{source_id}/labels")
-async def list_labels(
-    source_id: str,
-    session: AsyncSession = Depends(get_session),
-    user: OptionalAuth = None,
-):
-    repo = LabelRuleRepository(session)
-    rules = await repo.list_by_source(source_id)
-    return [_label_to_dict(r) for r in rules]
-
-
-@sources_router.post("/sources/{source_id}/labels", status_code=201)
+@router.post("/sources/{source_id}/labels", status_code=201)
 async def create_label(
     source_id: str,
     body: LabelRuleCreate,
     session: AsyncSession = Depends(get_session),
-    user: OptionalAuth = None,
 ):
+    """Add a tag rule: what to do with items carrying `label` on this source."""
     source_repo = SourceRepository(session)
     source = await source_repo.get(source_id)
     if not source:
@@ -378,14 +330,14 @@ async def create_label(
     return _label_to_dict(obj)
 
 
-@sources_router.patch("/sources/{source_id}/labels/{rule_id}")
+@router.patch("/sources/{source_id}/labels/{rule_id}")
 async def update_label(
     source_id: str,
     rule_id: str,
     body: LabelRuleUpdate,
     session: AsyncSession = Depends(get_session),
-    user: OptionalAuth = None,
 ):
+    """Update a tag rule. Omitted fields are kept."""
     repo = LabelRuleRepository(session)
     updates = body.model_dump(exclude_none=True)
     if "label" in updates:
@@ -399,13 +351,13 @@ async def update_label(
     return _label_to_dict(obj)
 
 
-@sources_router.delete("/sources/{source_id}/labels/{rule_id}", status_code=204)
+@router.delete("/sources/{source_id}/labels/{rule_id}", status_code=204)
 async def delete_label(
     source_id: str,
     rule_id: str,
     session: AsyncSession = Depends(get_session),
-    user: OptionalAuth = None,
 ):
+    """Delete a tag rule."""
     repo = LabelRuleRepository(session)
     await repo.delete(rule_id)
     await session.commit()
@@ -454,8 +406,12 @@ def _build_adapter_config(obj: Any, master_key: bytes) -> dict[str, Any]:
 
 
 async def _source_full(session: AsyncSession, obj: Any, master_key: bytes) -> dict:
+    """Source as returned by the API: fields, fetch config and tag rules (``obj`` must have
+    ``label_rules`` loaded, as ``SourceRepository.get``/``list_all`` do)."""
     result = _source_to_dict(obj)
     result["fetch"] = await fetch_to_dict(session, obj.default_transfer_id, master_key)
+    rules = sorted(obj.label_rules, key=lambda r: (-r.priority, r.label))
+    result["label_rules"] = [_label_to_dict(r) for r in rules]
     return result
 
 

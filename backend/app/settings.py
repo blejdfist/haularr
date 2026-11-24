@@ -53,10 +53,6 @@ class Settings(BaseSettings):
     retry_limit: int = 5
     stage_lease_seconds: int = 90
 
-    # Auth
-    admin_username: str = "admin"
-    admin_password_hash: str = ""  # bcrypt hash stored here, set via /api/v1/auth/setup
-
     # Static frontend
     static_dir: Path = Field(default=Path("frontend/build"))
 

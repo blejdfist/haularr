@@ -6,26 +6,15 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.security import RequireAuth
+from app.database.session import get_session
 
-export_router = APIRouter(tags=["config"])
-
-
-async def get_session(request: Request):
-    from app.database.session import get_session_factory
-    from app.settings import Settings
-    settings: Settings = request.app.state.settings
-    factory = get_session_factory(settings)
-    async with factory() as session:
-        yield session
+router = APIRouter(tags=["system"])
 
 
-@export_router.get("/config/export")
-async def export_config(request: Request, session: AsyncSession = Depends(get_session), user: RequireAuth = None):
-    """Export the full configuration with secrets redacted.
 
-    Never exposes credential values, API keys, or connection passwords.
-    """
+@router.get("/config/export")
+async def export_config(request: Request, session: AsyncSession = Depends(get_session)):
+    """Export settings, sources, tag rules, transfers and libraries with all secrets redacted."""
     from app.database.models import (
         LibraryInstance,
         SourceInstance,

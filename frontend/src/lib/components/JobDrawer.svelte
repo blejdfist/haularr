@@ -47,7 +47,8 @@
   async function load(id: string) {
     error = '';
     try {
-      [job, events] = await Promise.all([endpoints.jobs.get(id), endpoints.jobs.events(id)]);
+      job = await endpoints.jobs.get(id);
+      events = job.events ?? [];
       for (const r of job.stage_runs ?? [])
         if (r.status === 'running') sample(r.stage, r.stage === 'download' ? fetched : bytes(r.progress));
     } catch (e: any) {

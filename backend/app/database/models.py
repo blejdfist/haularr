@@ -460,6 +460,20 @@ class NotificationDelivery(Base):
 # ---------------------------------------------------------------------------
 
 
+class User(Base):
+    """A login. The first one (created by ``POST /auth/setup``) is the admin."""
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
+    username: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+
 class AppSetting(Base):
     __tablename__ = "app_settings"
 

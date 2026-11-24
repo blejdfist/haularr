@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
+from fastapi import Request
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -53,9 +54,9 @@ def get_session_factory(settings: Settings) -> async_sessionmaker[AsyncSession]:
     return _session_factory
 
 
-async def get_db_session(settings: Settings) -> AsyncGenerator[AsyncSession, None]:
-    factory = get_session_factory(settings)
-    async with factory() as session:
+async def get_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
+    """FastAPI dependency: one session per request."""
+    async with get_session_factory(request.app.state.settings)() as session:
         yield session
 
 

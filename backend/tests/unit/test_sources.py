@@ -85,14 +85,14 @@ async def test_create_two_different_sources(auth_client):
     assert adapter_types == {"rtorrent"}
 
     # Verify labels are source-scoped (each source has its own 'tv' rule)
-    r = await auth_client.get(f"/api/v1/sources/{source_id_1}/labels")
-    labels1 = r.json()
+    r = await auth_client.get(f"/api/v1/sources/{source_id_1}")
+    labels1 = r.json()["label_rules"]
     assert len(labels1) == 1
     assert labels1[0]["label"] == "tv"
     assert labels1[0]["temporary_directory"] == "/data/temp/rtorrent-tv"
 
-    r = await auth_client.get(f"/api/v1/sources/{source_id_2}/labels")
-    labels2 = r.json()
+    r = await auth_client.get(f"/api/v1/sources/{source_id_2}")
+    labels2 = r.json()["label_rules"]
     assert len(labels2) == 1
     assert labels2[0]["label"] == "tv"
     assert labels2[0]["temporary_directory"] == "/data/temp/backup-tv"
@@ -134,12 +134,12 @@ async def test_two_same_type_sources_independent(auth_client):
     })
 
     # Verify isolation
-    r = await auth_client.get(f"/api/v1/sources/{src1['id']}/labels")
-    l1 = r.json()
+    r = await auth_client.get(f"/api/v1/sources/{src1['id']}")
+    l1 = r.json()["label_rules"]
     assert l1[0]["temporary_directory"] == "/data/temp/rt1-tv"
 
-    r = await auth_client.get(f"/api/v1/sources/{src2['id']}/labels")
-    l2 = r.json()
+    r = await auth_client.get(f"/api/v1/sources/{src2['id']}")
+    l2 = r.json()["label_rules"]
     assert l2[0]["temporary_directory"] == "/data/temp/rt2-tv"
 
 

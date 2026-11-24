@@ -21,12 +21,11 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.routes_logs import _UUID, _names
-from app.database.models import Job, StageRun
+from app.database.models import Job, JobFile, StageRun
 from app.database.session import get_session_factory
 from app.logging_buffer import get_log_handler
-from app.security import RequireAuth
 
-sse_router = APIRouter(tags=["events"])
+router = APIRouter(tags=["events"])
 
 TICK = 1.0  # seconds between change checks
 KEEPALIVE = 15.0  # seconds of silence before a comment line, so clients can spot dead streams
@@ -64,14 +63,24 @@ async def job_changes(
     ``sent`` maps job id to the last state sent, so heartbeats (which bump
     ``updated_at`` without changing anything visible) produce no events.
     Running jobs are always checked: extract progress lives on the stage run
-    and does not touch the job row.
+    and file rows (added up front, then flipped per transfer) do not touch the
+    job row. ``files`` counts them by transfer status, so a file appearing or
+    changing state is a change too.
     """
     # ponytail: unindexed updated_at scan; fine while retention keeps the jobs table small.
     changed = Job.status == "running" if since is None else or_(Job.updated_at >= since, Job.status == "running")
     jobs = (await session.execute(select(Job).where(changed))).scalars().all()
+    running = [j.id for j in jobs if j.status == "running"]
+    files: dict[str, dict[str, int]] = {}
+    for job_id, status, n in await session.execute(
+        select(JobFile.job_id, JobFile.transfer_status, func.count())
+        .where(JobFile.job_id.in_(running))
+        .group_by(JobFile.job_id, JobFile.transfer_status)
+    ):
+        files.setdefault(job_id, {})[status] = n
     runs = dict((await session.execute(
         select(StageRun.job_id, StageRun.progress_json).where(
-            StageRun.job_id.in_([j.id for j in jobs if j.status == "running"]),
+            StageRun.job_id.in_(running),
             StageRun.status == "running",
         )
     )).all())
@@ -92,6 +101,7 @@ async def job_changes(
             "download_bytes_total": j.download_bytes_total,
             "stage_progress": stage_progress,
             "progress": round(done * 100 / total) if j.status == "running" and total else None,
+            "files": files.get(j.id),
         }
         key = json.dumps(event, sort_keys=True)
         if sent.get(j.id) != key:
@@ -102,9 +112,12 @@ async def job_changes(
     return out, since
 
 
-@sse_router.get("/events/jobs")
-async def job_events(request: Request, user: RequireAuth) -> StreamingResponse:
-    """Stream a ``job`` event whenever a job's status, stage or progress changes."""
+@router.get("/events/jobs")
+async def job_events(request: Request) -> StreamingResponse:
+    """Stream a ``job`` event whenever a job's status, stage, progress or files change.
+
+    Changes only: fetch ``GET /jobs`` (or ``GET /jobs/{id}``) after connecting for current state.
+    """
     factory = get_session_factory(request.app.state.settings)
     async with factory() as session:
         since = (await session.execute(select(func.max(Job.updated_at)))).scalar()
@@ -121,14 +134,16 @@ async def job_events(request: Request, user: RequireAuth) -> StreamingResponse:
     return _sse(request, ticks())
 
 
-@sse_router.get("/events/logs")
+@router.get("/events/logs")
 async def log_events(
     request: Request,
-    user: RequireAuth,
     level: str | None = Query(None, description="Minimum severity to send."),
     search: str | None = Query(None, description="Case-insensitive substring filter."),
 ) -> StreamingResponse:
-    """Stream new log entries as ``log`` events (``{entries, names}``, oldest-first)."""
+    """Stream new log entries as ``log`` events (``{entries, names}``, oldest-first).
+
+    Changes only: fetch ``GET /logs`` after connecting for the backlog.
+    """
     handler = get_log_handler()
     seq = handler.seq if handler else 0
     factory = get_session_factory(request.app.state.settings)

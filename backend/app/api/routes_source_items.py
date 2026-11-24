@@ -1,54 +1,43 @@
-"""Source items (inventory) endpoints."""
+"""Source items: the inventory of torrents seen on the sources."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import SourceInstance
 from app.database.repositories import SourceItemRepository, SourceRepository, LabelRuleRepository, JobRepository
 from app.domain.models import JobStage, JobStatus
-from app.security import RequireAuth
+from app.database.session import get_session
 
-source_items_router = APIRouter(tags=["source-items"])
+router = APIRouter(tags=["source-items"])
 
-
-async def get_session(request: Request):
-    from app.database.session import get_session_factory
-    from app.settings import Settings
-    settings: Settings = request.app.state.settings
-    factory = get_session_factory(settings)
-    async with factory() as session:
-        yield session
 
 
 class QueueRequest(BaseModel):
-    force_transfer: bool = False
-    idempotency_key: str | None = None
+    force_transfer: bool = Field(
+        False, description="Queue even though the item was skipped (e.g. already in the library)."
+    )
 
 
-class BulkQueueRequest(BaseModel):
-    source_item_ids: list[str]
-    force_transfer: bool = False
-
-
-@source_items_router.get("/source-items")
+@router.get("/source-items")
 async def list_source_items(
     request: Request,
     source_id: str | None = Query(None),
     label: str | None = Query(None),
-    eligibility: str | None = Query(None),
-    search: str | None = Query(None),
-    has_job: bool | None = Query(None),
-    include_ignored: bool = Query(False),
+    eligibility: str | None = Query(None, description="Last classification, e.g. `eligible`, `already_available`."),
+    search: str | None = Query(None, description="Case-insensitive substring of the title."),
+    has_job: bool | None = Query(None, description="Only items that have (true) or lack (false) a job."),
+    include_ignored: bool = Query(False, description="Include items marked ignored."),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
     session: AsyncSession = Depends(get_session),
 ):
+    """List torrents seen on the sources, newest first, with filters and paging."""
     repo = SourceItemRepository(session)
     items, total = await repo.list_filtered(
         source_id=source_id,
@@ -71,8 +60,9 @@ async def list_source_items(
     }
 
 
-@source_items_router.get("/source-items/{item_id}")
+@router.get("/source-items/{item_id}")
 async def get_source_item(item_id: str, session: AsyncSession = Depends(get_session)):
+    """Get one item with its media matches and eligibility check history."""
     repo = SourceItemRepository(session)
     obj = await repo.get(item_id)
     if not obj:
@@ -103,27 +93,9 @@ async def get_source_item(item_id: str, session: AsyncSession = Depends(get_sess
     return result
 
 
-@source_items_router.post("/source-items/{item_id}/recheck")
-async def recheck_item(item_id: str, request: Request, session: AsyncSession = Depends(get_session)):
-    repo = SourceItemRepository(session)
-    item = await repo.get(item_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="Source item not found")
-
-    await repo.update(item_id, last_eligibility="classifying")
-    await session.commit()
-
-    # Trigger classification via discovery supervisor if available
-    # (async background, doesn't block response)
-    if hasattr(request.app.state, "supervisor"):
-        import asyncio
-        asyncio.create_task(request.app.state.supervisor.trigger_scan(item.source_id))
-
-    return {"status": "rechecking", "item_id": item_id}
-
-
-@source_items_router.post("/source-items/{item_id}/ignore")
+@router.post("/source-items/{item_id}/ignore")
 async def ignore_item(item_id: str, session: AsyncSession = Depends(get_session)):
+    """Hide an item from the default list and from automatic queueing."""
     from datetime import datetime, timezone
     repo = SourceItemRepository(session)
     obj = await repo.update(item_id, ignored_at=datetime.now(timezone.utc), last_eligibility="ignored")
@@ -133,12 +105,16 @@ async def ignore_item(item_id: str, session: AsyncSession = Depends(get_session)
     return {"status": "ignored", "item_id": item_id}
 
 
-@source_items_router.post("/source-items/{item_id}/queue")
+@router.post("/source-items/{item_id}/queue")
 async def queue_item(
     item_id: str,
     body: QueueRequest,
     session: AsyncSession = Depends(get_session),
 ):
+    """Create a job for an item, using the tag rule matching one of its labels.
+
+    409 if the item already has an active job; 400 if no tag rule matches.
+    """
     repo = SourceItemRepository(session)
     item = await repo.get(item_id)
     if not item:
@@ -153,21 +129,6 @@ async def queue_item(
             detail={"error": "duplicate_job", "job_id": existing.id, "status": existing.status},
         )
 
-    # Idempotency: check for a recently completed job with the same key
-    if body.idempotency_key:
-        from sqlalchemy import select as sa_select
-        from app.database.models import Job as JobModel
-        from sqlalchemy.ext.asyncio import AsyncSession as AsyncSessionType
-        idem_result = await session.execute(
-            sa_select(JobModel).where(
-                JobModel.source_item_id == item_id,
-                JobModel.idempotency_key == body.idempotency_key,
-            ).limit(1)
-        )
-        idem_job = idem_result.scalar_one_or_none()
-        if idem_job:
-            return {"job_id": idem_job.id, "status": idem_job.status, "stage": idem_job.stage}
-
     # Find matching label rule
     if not item.labels_json:
         raise HTTPException(status_code=400, detail="No labels on this source item")
@@ -179,13 +140,6 @@ async def queue_item(
         if rule:
             break
 
-    if not rule and not body.force_transfer:
-        raise HTTPException(
-            status_code=400,
-            detail="No matching label rule; cannot auto-queue",
-        )
-
-    # Find a rule even for force_transfer
     if not rule:
         raise HTTPException(
             status_code=400,
@@ -209,9 +163,6 @@ async def queue_item(
         "title": item.title,
     }
 
-    import uuid
-    from datetime import datetime, timezone
-
     job = await job_repo.create(
         source_item_id=item_id,
         rule_id=rule.id,
@@ -219,7 +170,6 @@ async def queue_item(
         priority=rule.priority,
         status="queued",
         stage=JobStage.RESOLVE_SOURCE.value,
-        idempotency_key=body.idempotency_key,
     )
     await job_repo.add_event(
         job_id=job.id,
@@ -230,19 +180,6 @@ async def queue_item(
     )
     await session.commit()
     return {"job_id": job.id, "status": job.status, "stage": job.stage}
-
-
-@source_items_router.post("/source-items/bulk-queue")
-async def bulk_queue(body: BulkQueueRequest, session: AsyncSession = Depends(get_session)):
-    results = []
-    for item_id in body.source_item_ids:
-        try:
-            result = await queue_item(item_id, QueueRequest(force_transfer=body.force_transfer), session)
-            results.append({"item_id": item_id, "job_id": result["job_id"], "status": "queued"})
-        except HTTPException as exc:
-            results.append({"item_id": item_id, "error": exc.detail, "status": "error"})
-    await session.commit()
-    return {"results": results}
 
 
 def _item_to_dict(obj: Any, names: dict[str, str]) -> dict:

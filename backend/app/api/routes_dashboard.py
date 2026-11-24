@@ -1,4 +1,4 @@
-"""Dashboard aggregate endpoint."""
+"""Dashboard: aggregate counts for the overview page."""
 
 from __future__ import annotations
 
@@ -8,21 +8,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Job, SourceInstance, SourceItem
 
-dashboard_router = APIRouter(tags=["dashboard"])
+from app.database.session import get_session
+
+router = APIRouter(tags=["system"])
 
 
-async def get_session(request: Request):
-    from app.database.session import get_session_factory
-    from app.settings import Settings
-    settings: Settings = request.app.state.settings
-    factory = get_session_factory(settings)
-    async with factory() as session:
-        yield session
 
-
-@dashboard_router.get("/dashboard")
+@router.get("/dashboard")
 async def get_dashboard(session: AsyncSession = Depends(get_session)):
-    """Aggregate counts, queue, capacity, source health, disk space."""
+    """Job counts by status, completions, source scan health and the 10 most recently ended jobs."""
 
     # Job counts by status
     status_counts = {}
@@ -51,12 +45,6 @@ async def get_dashboard(session: AsyncSession = Depends(get_session)):
         select(func.count(SourceItem.id))
     )
     total_items = item_result.scalar_one()
-
-    # Active jobs
-    active_result = await session.execute(
-        select(func.count(Job.id)).where(Job.status == "running")
-    )
-    active_jobs = active_result.scalar_one()
 
     # Completed today
     from datetime import datetime, timedelta, timezone
@@ -109,7 +97,6 @@ async def get_dashboard(session: AsyncSession = Depends(get_session)):
 
     return {
         "jobs": {
-            "active": active_jobs,
             "queued": status_counts.get("queued", 0),
             "running": status_counts.get("running", 0),
             "retry_wait": status_counts.get("retry_wait", 0),
@@ -126,41 +113,5 @@ async def get_dashboard(session: AsyncSession = Depends(get_session)):
         "sources": source_counts,
         "enabled_sources": enabled_sources,
         "source_items_total": total_items,
-        "capacity": {
-            "max_concurrent_download_jobs": 3,
-            "active_downloads": active_jobs,
-        },
         "recent_jobs": recent_jobs,
-        "disk": _get_disk_info(),
     }
-
-
-def _get_disk_info() -> dict:
-    """Get disk usage info for common temp/completed paths."""
-    import shutil
-    import os
-
-    paths_to_check = [
-        ("temp", "/data/temp"),
-        ("completed", "/data/completed"),
-        ("config", "/config"),
-    ]
-
-    disk_info = {}
-    for label, path in paths_to_check:
-        try:
-            if os.path.exists(path):
-                total, used, free = shutil.disk_usage(path)
-                disk_info[label] = {
-                    "path": path,
-                    "total_bytes": total,
-                    "used_bytes": used,
-                    "free_bytes": free,
-                    "free_percent": round(free / total * 100, 1) if total > 0 else 0,
-                }
-            else:
-                disk_info[label] = {"path": path, "available": False}
-        except Exception:
-            disk_info[label] = {"path": path, "available": False, "error": "check failed"}
-
-    return disk_info

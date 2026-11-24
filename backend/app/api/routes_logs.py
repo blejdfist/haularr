@@ -8,12 +8,11 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.routes_jobs import get_session
+from app.database.session import get_session
 from app.database.models import Job, LibraryInstance, SourceInstance, SourceItem
 from app.logging_buffer import get_log_handler
-from app.security import RequireAuth
 
-logs_router = APIRouter(tags=["logs"])
+router = APIRouter(tags=["system"])
 
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
@@ -35,9 +34,8 @@ async def _names(session: AsyncSession, ids: set[str]) -> dict[str, str]:
     return names
 
 
-@logs_router.get("/logs")
+@router.get("/logs")
 async def get_logs(
-    user: RequireAuth,
     level: str | None = Query(
         default=None,
         description="Minimum severity to return (DEBUG, INFO, WARNING, ERROR).",

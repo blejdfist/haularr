@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import func, select, update
 
 from app.api.routes_sse import job_changes
-from app.database.models import Job
+from app.database.models import Job, JobFile
 from app.database.session import get_session_factory
 from app.logging_buffer import install_log_handler
 from tests.unit.test_jobs_list import _seed
@@ -35,6 +35,12 @@ async def test_job_changes_skip_heartbeats_and_report_new_jobs(app, settings):
         await s.commit()
         changes, since = await job_changes(s, since, sent)
         assert [(c["id"], c["progress"]) for c in changes] == [(job_id, 50)]
+
+        # A file row appearing (or changing state) on a running job is a change.
+        s.add(JobFile(job_id=job_id, remote_relpath="a.mkv"))
+        await s.commit()
+        changes, since = await job_changes(s, since, sent)
+        assert [(c["id"], c["files"]) for c in changes] == [(job_id, {"pending": 1})]
 
         # A job created between checks shows up.
         first = await s.get(Job, job_id)

@@ -9,7 +9,6 @@
 
   let sources = $state<Source[]>([]);
   let libraries = $state<Library[]>([]);
-  let tagCounts = $state<Record<string, number>>({});
   let loaded = $state(false);
   let error = $state('');
   let open = $state(false);
@@ -19,8 +18,6 @@
   async function load() {
     try {
       [sources, libraries] = await Promise.all([endpoints.sources.list(), endpoints.libraries.list()]);
-      const counts = await Promise.all(sources.map((s) => endpoints.sources.labels.list(s.id)));
-      tagCounts = Object.fromEntries(sources.map((s, i) => [s.id, counts[i].length]));
       error = '';
     } catch (e: any) {
       error = e.message;
@@ -78,8 +75,8 @@
       onclick={() => edit(s)}
     >
       {#if !s.enabled}Disabled ·{/if}
-      Last scan: {s.last_scan_at ? ago(s.last_scan_at) : 'never'} · {tagCounts[s.id] ?? 0}
-      {tagCounts[s.id] === 1 ? 'tag' : 'tags'}
+      Last scan: {s.last_scan_at ? ago(s.last_scan_at) : 'never'} · {s.label_rules.length}
+      {s.label_rules.length === 1 ? 'tag' : 'tags'}
     </EntityCard>
   {/each}
 </EntityPage>

@@ -7,9 +7,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
-from app.security import RequireAuth
 
-settings_router = APIRouter(tags=["settings"])
+router = APIRouter(tags=["system"])
 
 
 class SettingsResponse(BaseModel):
@@ -36,8 +35,9 @@ class SettingsPatch(BaseModel):
     stage_lease_seconds: int | None = None
 
 
-@settings_router.get("/settings", response_model=SettingsResponse)
+@router.get("/settings", response_model=SettingsResponse)
 async def get_settings_api(request: Request) -> SettingsResponse:
+    """Global concurrency, polling, retry and retention settings."""
     settings = request.app.state.settings
     return SettingsResponse(
         max_concurrent_download_jobs=settings.max_concurrent_download_jobs,
@@ -52,10 +52,11 @@ async def get_settings_api(request: Request) -> SettingsResponse:
     )
 
 
-@settings_router.patch("/settings", response_model=SettingsResponse)
+@router.patch("/settings", response_model=SettingsResponse)
 async def patch_settings_api(
-    body: SettingsPatch, request: Request, user: RequireAuth
+    body: SettingsPatch, request: Request
 ) -> SettingsResponse:
+    """Change settings. Omitted fields are kept; concurrency changes apply immediately."""
     settings = request.app.state.settings
     updates = body.model_dump(exclude_none=True)
 

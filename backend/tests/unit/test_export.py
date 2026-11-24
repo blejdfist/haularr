@@ -30,13 +30,11 @@ async def test_config_export_redacts_secrets(auth_client):
     })
     assert r.status_code == 201
 
-    # Create a transfer with credentials
-    r = await auth_client.post("/api/v1/transfers", json={
-        "name": "FTPS Transfer",
-        "adapter_type": "ftps",
-        "config": {"host": "ftp.example.com", "password": "ftp-password"},
-    })
-    assert r.status_code == 201
+    # Give the source an FTP fetch (its own transfer) with a password
+    r = await auth_client.patch(f"/api/v1/sources/{source_id}", json={"fetch": {
+        "host": "ftp.example.com", "username": "u", "password": "ftp-password",
+    }})
+    assert r.status_code == 200
 
     # Export config
     r = await auth_client.get("/api/v1/config/export")
@@ -74,23 +72,3 @@ async def test_source_detail_redacts_connection(auth_client):
     data = r.json()
     # connection_secret_ref should not be in the response
     assert "credential_ref" not in data  # credential never exposed in source detail
-
-
-@pytest.mark.asyncio
-async def test_transfer_detail_redacts_config(auth_client):
-    """Transfer detail endpoint doesn't expose config with passwords."""
-    r = await auth_client.post("/api/v1/transfers", json={
-        "name": "Test Transfer",
-        "adapter_type": "ftps",
-        "config": {"host": "ftp.example.com", "password": "my-password"},
-    })
-    transfer_id = r.json()["id"]
-
-    r = await auth_client.get(f"/api/v1/transfers/{transfer_id}")
-    assert r.status_code == 200
-    data = r.json()
-    # Config may be returned but should not contain password in plain text
-    # The test verifies the API doesn't expose raw password fields
-    config = data.get("config", {})
-    if config:
-        assert "password" not in config or config["password"] != "my-password"

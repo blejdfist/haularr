@@ -31,8 +31,6 @@ def settings(temp_config_dir):
         config_dir=temp_config_dir,
         static_dir=temp_config_dir / "nonexistent",  # No frontend in tests
         secret_key="test-secret-key-for-testing-only-32chars",
-        admin_username="admin",
-        admin_password_hash="",
     )
     return s
 
@@ -78,14 +76,16 @@ async def client(app):
 @pytest_asyncio.fixture
 async def auth_client(app):
     """Create an authenticated async HTTP client (admin account pre-set up)."""
+    from app.database.models import User
+    from app.database.session import get_session_factory
     from app.security import hash_password, create_access_token
 
-    # Set up admin password
     settings = app.state.settings
-    settings.admin_password_hash = hash_password("testpass123")
-
-    # Create token
-    token = create_access_token({"sub": "admin"}, settings)
+    user = User(username="admin", password_hash=hash_password("testpass123"), is_admin=True)
+    async with get_session_factory(settings)() as session:
+        session.add(user)
+        await session.commit()
+    token = create_access_token({"sub": user.id}, settings)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(

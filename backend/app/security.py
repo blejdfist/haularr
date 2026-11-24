@@ -106,8 +106,10 @@ def decrypt_secret(ciphertext: str, master_key: bytes) -> str:
 
 
 class AuthUser:
-    def __init__(self, username: str) -> None:
+    def __init__(self, id: str, username: str, is_admin: bool) -> None:
+        self.id = id
         self.username = username
+        self.is_admin = is_admin
 
 
 async def get_current_user(
@@ -122,41 +124,22 @@ async def get_current_user(
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    from app.database.models import User
+    from app.database.session import get_session_factory
+
+    user = None
     try:
-        payload = decode_access_token(credentials.credentials, settings)
-        username: str = payload.get("sub", "")
-        if not username:
-            raise ValueError("No subject in token")
-    except (JWTError, ValueError):
+        user_id = decode_access_token(credentials.credentials, settings).get("sub")
+        if user_id:
+            async with get_session_factory(settings)() as session:
+                user = await session.get(User, user_id)
+    except JWTError:
+        pass
+    if user is None:  # bad/expired token, or the user was deleted
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return AuthUser(username=username)
+    return AuthUser(id=user.id, username=user.username, is_admin=user.is_admin)
 
-
-async def get_optional_user(
-    request: Request,
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(http_bearer)],
-) -> AuthUser | None:
-    """Like get_current_user but returns None instead of raising 401.
-
-    Used for endpoints that should work without authentication (e.g. configuring
-    the very first source before an admin account exists).
-    """
-    if credentials is None:
-        return None
-    try:
-        settings: Settings = request.app.state.settings
-        payload = decode_access_token(credentials.credentials, settings)
-        username: str = payload.get("sub", "")
-        if not username:
-            return None
-        return AuthUser(username=username)
-    except Exception:
-        return None
-
-
-RequireAuth = Annotated[AuthUser, Depends(get_current_user)]
-OptionalAuth = Annotated[AuthUser | None, Depends(get_optional_user)]

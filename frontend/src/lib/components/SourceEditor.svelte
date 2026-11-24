@@ -101,18 +101,8 @@
     savedTags = [];
     if (s) {
       loadSeen(s.id);
-      loadTags(s.id);
-    }
-  }
-
-  async function loadTags(id: string) {
-    try {
-      const list = await endpoints.sources.labels.list(id);
-      if (current?.id !== id) return;
-      savedTags = list;
-      tags = list.map((t) => ({ ...t }));
-    } catch (e: any) {
-      error = e.message;
+      savedTags = s.label_rules;
+      tags = s.label_rules.map((t) => ({ ...t }));
     }
   }
 

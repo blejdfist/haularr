@@ -6,29 +6,23 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_dashboard_empty(client):
+async def test_dashboard_empty(auth_client):
     """Dashboard returns valid structure when empty."""
-    r = await client.get("/api/v1/dashboard")
+    r = await auth_client.get("/api/v1/dashboard")
     assert r.status_code == 200
     data = r.json()
     assert "jobs" in data
     assert "sources" in data
     assert "source_items_total" in data
-    assert "capacity" in data
-    assert "disk" in data
     assert "recent_jobs" in data
 
     # Check job counts structure
     jobs = data["jobs"]
-    assert "active" in jobs
     assert "queued" in jobs
     assert "running" in jobs
     assert "completed" in jobs
     assert "needs_attention" in jobs
     assert "completed_today" in jobs
-
-    # Disk info
-    assert isinstance(data["disk"], dict)
 
 
 async def _seed(settings, specs, error=None):
@@ -66,22 +60,22 @@ async def _seed(settings, specs, error=None):
 
 
 @pytest.mark.asyncio
-async def test_dashboard_completed_7d(client, settings):
+async def test_dashboard_completed_7d(auth_client, settings):
     await _seed(settings, [("completed", 2), ("completed", 10), ("completed_with_warnings", 1)])
-    jobs = (await client.get("/api/v1/dashboard")).json()["jobs"]
+    jobs = (await auth_client.get("/api/v1/dashboard")).json()["jobs"]
     assert jobs["completed_7d"] == 2
 
 
 @pytest.mark.asyncio
-async def test_dashboard_by_status(client, settings):
+async def test_dashboard_by_status(auth_client, settings):
     await _seed(settings, [("queued", None), ("waiting_source", None)])
-    assert (await client.get("/api/v1/dashboard")).json()["jobs"]["by_status"] == {
+    assert (await auth_client.get("/api/v1/dashboard")).json()["jobs"]["by_status"] == {
         "queued": 1, "waiting_source": 1,
     }
 
 
 @pytest.mark.asyncio
-async def test_dashboard_source_health(client, settings):
+async def test_dashboard_source_health(auth_client, settings):
     sid = await _seed(settings, [], error="boom")
-    health = (await client.get("/api/v1/dashboard")).json()["source_health"]
+    health = (await auth_client.get("/api/v1/dashboard")).json()["source_health"]
     assert [h for h in health if h["id"] == sid][0]["last_scan_error"] == "boom"

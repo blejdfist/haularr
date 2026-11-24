@@ -113,6 +113,7 @@ export interface Source {
   last_scan_error: string | null;
   created_at: string | null;
   fetch: Fetch | null;
+  label_rules: LabelRule[];
 }
 
 export interface LabelRule {
@@ -192,17 +193,14 @@ function qs(params: Record<string, string | number | undefined>): string {
 
 // API endpoints
 export const endpoints = {
-  health: () => api.get<{ status: string; database: string; version: string }>('/health'),
   auth: {
     login: (username: string, password: string) =>
       api.post<{ access_token: string; token_type: string; username: string }>('/auth/login', { username, password }),
     setup: (username: string, password: string) =>
       api.post<{ access_token: string; token_type: string; username: string }>('/auth/setup', { username, password }),
-    me: () => api.get<{ username: string }>('/auth/me'),
   },
   sources: {
     list: () => api.get<Source[]>('/sources'),
-    get: (id: string) => api.get<Source>(`/sources/${id}`),
     create: (data: Record<string, any> & { fetch?: FetchInput }) => api.post<Source>('/sources', data),
     update: (id: string, data: Record<string, any> & { fetch?: FetchInput }) =>
       api.patch<Source>(`/sources/${id}`, data),
@@ -212,9 +210,7 @@ export const endpoints = {
     test: (id: string) => api.post<any>(`/sources/${id}/test`),
     fetchTest: (data: FetchInput & { source_id?: string }) => api.post<any>('/sources/fetch-test', data),
     scan: (id: string) => api.post<any>(`/sources/${id}/scan`),
-    completeOnboarding: (id: string) => api.post<any>(`/sources/${id}/complete-onboarding`),
     labels: {
-      list: (sourceId: string) => api.get<LabelRule[]>(`/sources/${sourceId}/labels`),
       create: (sourceId: string, data: Partial<LabelRule>) =>
         api.post<LabelRule>(`/sources/${sourceId}/labels`, data),
       update: (sourceId: string, ruleId: string, data: Partial<LabelRule>) =>
@@ -230,19 +226,13 @@ export const endpoints = {
       api.get<Page<any>>(
         `/source-items${qs({ eligibility: 'already_available', has_job: 'false', ...p })}`,
       ),
-    get: (id: string) => api.get<any>(`/source-items/${id}`),
-    recheck: (id: string) => api.post<any>(`/source-items/${id}/recheck`),
-    ignore: (id: string) => api.post<any>(`/source-items/${id}/ignore`),
     queue: (id: string, force: boolean = false) =>
       api.post<{ job_id: string; status: string; stage: string }>(`/source-items/${id}/queue`, { force_transfer: force }),
-    bulkQueue: (ids: string[], force: boolean = false) =>
-      api.post<any>('/source-items/bulk-queue', { source_item_ids: ids, force_transfer: force }),
   },
   jobs: {
     list: (p: { status?: string[]; sort?: 'newest' | 'attention'; offset?: number; limit?: number } = {}) =>
       api.get<Page<Job>>(`/jobs${qs({ ...p, status: p.status?.join(',') })}`),
     get: (id: string) => api.get<Job>(`/jobs/${id}`),
-    events: (id: string) => api.get<any[]>(`/jobs/${id}/events`),
     pause: (id: string) => api.post<any>(`/jobs/${id}/pause`),
     resume: (id: string) => api.post<any>(`/jobs/${id}/resume`),
     retry: (id: string) => api.post<any>(`/jobs/${id}/retry`),
@@ -250,18 +240,8 @@ export const endpoints = {
     cancel: (id: string) => api.post<any>(`/jobs/${id}/cancel`),
     retryImport: (id: string) => api.post<any>(`/jobs/${id}/retry-import`),
   },
-  transfers: {
-    list: () => api.get<any[]>('/transfers'),
-    get: (id: string) => api.get<any>(`/transfers/${id}`),
-    create: (data: any) => api.post<any>('/transfers', data),
-    update: (id: string, data: any) => api.patch<any>(`/transfers/${id}`, data),
-    delete: (id: string) => api.delete(`/transfers/${id}`),
-    test: (id: string) => api.post<any>(`/transfers/${id}/test`),
-    addEndpoint: (id: string, data: any) => api.post<any>(`/transfers/${id}/endpoints`, data),
-  },
   libraries: {
     list: () => api.get<Library[]>('/libraries'),
-    get: (id: string) => api.get<Library>(`/libraries/${id}`),
     create: (data: LibraryInput) => api.post<Library>('/libraries', data),
     update: (id: string, data: Partial<Omit<LibraryInput, 'adapter_type'>>) =>
       api.patch<Library>(`/libraries/${id}`, data),
@@ -273,7 +253,6 @@ export const endpoints = {
   settings: {
     get: () => api.get<any>('/settings'),
     patch: (data: any) => api.patch<any>('/settings', data),
-    update: (data: any) => api.patch<any>('/settings', data),
   },
   config: {
     export: () => api.get<unknown>('/config/export'),
