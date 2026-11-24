@@ -212,6 +212,29 @@ async def approve_job(job_id: str, session: AsyncSession = Depends(get_session))
     return {"status": "queued", "job_id": job_id}
 
 
+@router.post("/jobs/{job_id}/skip-library")
+async def skip_library_check(job_id: str, session: AsyncSession = Depends(get_session)):
+    """Process a job without asking the library first (e.g. "Tron Trilogy", which no library
+    parses as one title); at import the library matches each file on its own. Starting it this
+    way also counts as approval. Allowed until the job is past the library check."""
+    repo = JobRepository(session)
+    job = await repo.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.stage not in ("source_download", "check_library") or job.status in ("running", "cancelled"):
+        raise HTTPException(status_code=409, detail="Job is already past the library check")
+    changes: dict = {"config_snapshot_json": {**job.config_snapshot_json, "skip_library": True, "approved": True}}
+    if job.stage == "check_library":
+        # Also reopens a job ended as "Already in library": a pack can parse as one of its movies.
+        changes.update(status="queued", error_code=None, error_detail=None, next_run_at=None, ended_at=None)
+    await repo.update(job_id, **changes)
+    await repo.add_event(
+        job_id=job_id, severity="info", kind="job.skip_library", message="Library check skipped by user"
+    )
+    await session.commit()
+    return {"status": changes.get("status", job.status), "job_id": job_id}
+
+
 @router.post("/jobs/{job_id}/cancel")
 async def cancel_job(job_id: str, session: AsyncSession = Depends(get_session)):
     """Cancel a job."""

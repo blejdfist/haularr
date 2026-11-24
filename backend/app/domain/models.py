@@ -238,6 +238,7 @@ class ImportOperation(BaseModel):
     command_id: int | None = None
     submitted_at: datetime
     candidates: list[str] = Field(default_factory=list)
+    media_ids: list[int] = Field(default_factory=list)  # movie/series each candidate went to
 
 
 class ImportOutcome(BaseModel):

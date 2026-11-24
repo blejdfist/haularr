@@ -102,3 +102,71 @@ async def test_approve_rejects_other_status(auth_client, settings):
     _, job_id = await _job(settings, "running")
     r = await auth_client.post(f"/api/v1/jobs/{job_id}/approve")
     assert r.status_code == 409
+
+
+@pytest.mark.parametrize("v", ["not_registered", "needs_review", "already_available"])
+async def test_skip_library_check_continues_whatever_the_verdict(app, settings, verdict, v):
+    """A multi-movie pack ("Tron Trilogy") never parses as one movie; the user can wave it through."""
+    verdict[0] = v
+    job_id = await _gated_job(settings, automatic=False)
+    async with get_session_factory(settings)() as session:
+        job = await session.get(Job, job_id)
+        job.config_snapshot_json = {**job.config_snapshot_json, "skip_library": True}
+        await session.commit()
+    job = await _run(settings, job_id)
+    assert (job.status, job.stage) == ("queued", "transfer")
+
+
+async def _staged(settings, stage, status):
+    _, job_id = await _job(settings, status)
+    async with get_session_factory(settings)() as session:
+        (await session.get(Job, job_id)).stage = stage
+        await session.commit()
+    return job_id
+
+
+@pytest.mark.parametrize("status", ["waiting_library", "waiting_approval", "needs_attention"])
+async def test_skip_library_requeues_parked_job(auth_client, settings, status):
+    job_id = await _staged(settings, "check_library", status)
+    r = await auth_client.post(f"/api/v1/jobs/{job_id}/skip-library")
+    assert r.status_code == 200, r.text
+    job = await _get(settings, job_id)
+    assert (job.status, job.error_code) == ("queued", None)
+    assert job.config_snapshot_json["skip_library"] is True
+
+
+async def test_skip_library_while_downloading_is_remembered(auth_client, settings):
+    job_id = await _staged(settings, "source_download", "waiting_source")
+    r = await auth_client.post(f"/api/v1/jobs/{job_id}/skip-library")
+    assert r.status_code == 200, r.text
+    job = await _get(settings, job_id)
+    assert job.status == "waiting_source"
+    assert job.config_snapshot_json["skip_library"] is True
+
+
+@pytest.mark.parametrize("stage,status", [("check_library", "running"), ("transfer", "queued")])
+async def test_skip_library_rejected_once_past_or_running(auth_client, settings, stage, status):
+    job_id = await _staged(settings, stage, status)
+    r = await auth_client.post(f"/api/v1/jobs/{job_id}/skip-library")
+    assert r.status_code == 409
+
+
+async def test_skip_library_reopens_job_ended_as_already_in_library(auth_client, settings):
+    """A pack can parse as one of its movies ("Tron" 1982) and look already available."""
+    from datetime import datetime, timezone
+
+    job_id = await _staged(settings, "check_library", "skipped")
+    async with get_session_factory(settings)() as session:
+        job = await session.get(Job, job_id)
+        job.error_code, job.ended_at = "already_available", datetime.now(timezone.utc)
+        await session.commit()
+    r = await auth_client.post(f"/api/v1/jobs/{job_id}/skip-library")
+    assert r.status_code == 200, r.text
+    job = await _get(settings, job_id)
+    assert (job.status, job.ended_at) == ("queued", None)
+
+
+async def test_skip_library_rejects_cancelled_job(auth_client, settings):
+    job_id = await _staged(settings, "check_library", "cancelled")
+    r = await auth_client.post(f"/api/v1/jobs/{job_id}/skip-library")
+    assert r.status_code == 409

@@ -267,6 +267,15 @@
         {#if job.status === 'waiting_approval'}
           <Button size="xs" disabled={busy} onclick={() => act(endpoints.jobs.approve)}>Start</Button>
         {/if}
+        {#if ['source_download', 'check_library'].includes(job.stage) && !['running', 'cancelled'].includes(job.status) && !job.config_snapshot?.skip_library}
+          <Button
+            size="xs"
+            color="alternative"
+            disabled={busy}
+            title="Process it without asking the library first, e.g. a pack of several movies. At import the library matches each file on its own."
+            onclick={() => act(endpoints.jobs.skipLibrary)}>Skip library check</Button
+          >
+        {/if}
         {#if !['running', 'queued', 'waiting_source'].includes(job.status)}
           <Button
             size="xs"

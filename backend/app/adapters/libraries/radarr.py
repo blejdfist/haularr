@@ -136,10 +136,11 @@ class RadarrAdapter:
     async def inspect_import(
         self, ready_path: str, match: MediaMatch
     ) -> ImportInspection:
-        """Inspect files at ready_path using Radarr's ManualImport GET."""
-        if match.catalog_id is None:
-            return ImportInspection(all_rejected=True)
+        """Inspect files at ready_path using Radarr's ManualImport GET.
 
+        No catalog_id (the user skipped the library check, e.g. a multi-movie pack): each
+        file goes to whatever Radarr matched it to, and files it couldn't match are rejected.
+        """
         try:
             # folder only: with movieId Radarr ignores folder and scans the movie's library folder.
             candidates_raw = await self._get("/manualimport", folder=ready_path)
@@ -154,7 +155,10 @@ class RadarrAdapter:
             quality = item.get("quality", {}).get("quality", {}).get("name", "")
             custom_formats = [cf.get("name", "") for cf in item.get("customFormats", [])]
             movie_id = (item.get("movie") or {}).get("id")
-            if movie_id != match.catalog_id:
+            if match.catalog_id is None:
+                if movie_id is None:
+                    rejections.append("Radarr couldn't tell which movie this is")
+            elif movie_id != match.catalog_id:
                 rejections.append(f"Matched movie {movie_id}, expected {match.catalog_id}")
 
             candidates.append(
@@ -164,7 +168,7 @@ class RadarrAdapter:
                     quality=quality,
                     custom_formats=custom_formats,
                     rejection_reasons=rejections,
-                    media_id=match.catalog_id,
+                    media_id=match.catalog_id or movie_id,
                     quality_model=item.get("quality") or {},
                     languages=item.get("languages") or [],
                     release_group=item.get("releaseGroup") or "",
@@ -199,6 +203,7 @@ class RadarrAdapter:
             command_id=command_id,
             submitted_at=datetime.now(timezone.utc),
             candidates=[c.absolute_path for c in selected_candidates],
+            media_ids=sorted({c.media_id for c in selected_candidates if c.media_id}),
         )
 
     async def reconcile_import(
@@ -218,18 +223,15 @@ class RadarrAdapter:
 
         cmd_status = cmd.get("status", "unknown")
         if cmd_status == "completed":
-            # A completed ManualImport can still have imported nothing: check the movie.
-            movie = await self._get(f"/movie/{match.catalog_id}")
-            if not movie.get("hasFile"):
-                return ImportOutcome(
-                    success=False, details={"command_status": cmd_status, "error": "Movie still has no file"}
-                )
-            movie_file_path = (movie.get("movieFile") or {}).get("path", "")
-            return ImportOutcome(
-                success=True,
-                imported_paths=[movie_file_path] if movie_file_path else [],
-                details={"command_status": cmd_status},
-            )
+            # A completed ManualImport can still have imported nothing: check the movie(s).
+            ids = [match.catalog_id] if match.catalog_id is not None else operation.media_ids
+            movies = {i: await self._get(f"/movie/{i}") for i in ids}
+            missing = [i for i, m in movies.items() if not m.get("hasFile")]
+            if missing:
+                error = "Movie still has no file" if match.catalog_id is not None else f"Movies {missing} still have no file"
+                return ImportOutcome(success=False, details={"command_status": cmd_status, "error": error})
+            paths = [p for m in movies.values() if (p := (m.get("movieFile") or {}).get("path"))]
+            return ImportOutcome(success=True, imported_paths=paths, details={"command_status": cmd_status})
         elif cmd_status in ("failed", "aborted"):
             return ImportOutcome(
                 success=False,

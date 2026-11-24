@@ -141,3 +141,62 @@ async def test_radarr_inspect_library_uses_parse_movie():
     assert inv.has_file is True
     assert inv.existing_quality == "Bluray-1080p"
     get.assert_not_called()
+
+
+def _resp(data):
+    return type("MockResp", (), {"json": lambda self: data, "raise_for_status": lambda self: None})()
+
+
+@pytest.mark.asyncio
+async def test_radarr_inspect_import_without_match_takes_each_files_movie():
+    """Skipped library check: no expected movie, so Radarr's own per-file match decides."""
+    from app.domain.models import MediaMatch
+
+    adapter = RadarrAdapter(library_id="test", base_url="http://radarr:7878", api_key="k")
+    rows = [
+        {"path": "/c/Tron/Tron.1982.mkv", "movie": {"id": 1}, "rejections": []},
+        {"path": "/c/Tron/Tron.Legacy.2010.mkv", "movie": {"id": 2}, "rejections": []},
+        {"path": "/c/Tron/sample.mkv", "movie": None, "rejections": []},
+    ]
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=_resp(rows)):
+        inspection = await adapter.inspect_import("/c/Tron", MediaMatch(media_type=MediaType.MOVIE))
+
+    ok = {c.absolute_path: c.media_id for c in inspection.candidates if not c.rejection_reasons}
+    assert ok == {"/c/Tron/Tron.1982.mkv": 1, "/c/Tron/Tron.Legacy.2010.mkv": 2}
+    assert not inspection.all_rejected
+
+
+@pytest.mark.asyncio
+async def test_sonarr_inspect_import_without_match_takes_each_files_series():
+    from app.domain.models import MediaMatch
+
+    adapter = SonarrAdapter(library_id="test", base_url="http://sonarr:8989", api_key="k")
+    rows = [
+        {"path": "/c/P/a.mkv", "series": {"id": 7}, "episodes": [{"id": 70}], "rejections": []},
+        {"path": "/c/P/b.mkv", "series": None, "episodes": [], "rejections": []},
+    ]
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=_resp(rows)):
+        inspection = await adapter.inspect_import("/c/P", MediaMatch(media_type=MediaType.SERIES))
+
+    ok = [(c.media_id, c.episode_ids) for c in inspection.candidates if not c.rejection_reasons]
+    assert ok == [(7, [70])]
+
+
+@pytest.mark.asyncio
+async def test_radarr_reconcile_without_match_checks_each_imported_movie():
+    from datetime import datetime, timezone
+    from app.domain.models import ImportOperation, MediaMatch
+
+    adapter = RadarrAdapter(library_id="test", base_url="http://radarr:7878", api_key="k")
+    op = ImportOperation(operation_id="9", command_id=9, submitted_at=datetime.now(timezone.utc),
+                         candidates=["/a.mkv", "/b.mkv"], media_ids=[1, 2])
+    replies = {"/api/v3/command/9": {"status": "completed"},
+               "/api/v3/movie/1": {"hasFile": True}, "/api/v3/movie/2": {"hasFile": False}}
+
+    async def get(self, url, params=None):
+        return _resp(replies[url])
+
+    with patch("httpx.AsyncClient.get", get):
+        outcome = await adapter.reconcile_import(op, MediaMatch(media_type=MediaType.MOVIE))
+    assert not outcome.success
+    assert "2" in outcome.details["error"]

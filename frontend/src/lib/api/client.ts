@@ -241,6 +241,7 @@ export const endpoints = {
     cancel: (id: string) => api.post<any>(`/jobs/${id}/cancel`),
     retryImport: (id: string) => api.post<any>(`/jobs/${id}/retry-import`),
     approve: (id: string) => api.post<any>(`/jobs/${id}/approve`),
+    skipLibrary: (id: string) => api.post<any>(`/jobs/${id}/skip-library`),
   },
   libraries: {
     list: () => api.get<Library[]>('/libraries'),

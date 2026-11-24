@@ -52,6 +52,22 @@ _LIBRARY_VERDICTS = {
 }
 
 
+def _import_match(match_row: Any, job: Any, library: Any) -> Any:
+    """What the import expects the files to be. With the library check skipped (a pack the
+    library can't parse as one title) the library matches each file on its own instead."""
+    from app.domain.models import MediaMatch, MediaType
+
+    if job.config_snapshot_json.get("skip_library"):
+        return MediaMatch(media_type=MediaType.MOVIE if library.adapter_type == "radarr" else MediaType.SERIES)
+    if match_row:
+        return MediaMatch(
+            media_type=MediaType(match_row.media_type),
+            catalog_id=match_row.catalog_id,
+            episode_ids=match_row.episode_ids_json,
+        )
+    return None
+
+
 class JobRunner:
     """Runs a single job stage."""
 
@@ -187,6 +203,10 @@ class JobRunner:
         """Ask the library (fresh, no cached verdict) whether this release is wanted, then gate on the rule."""
         from app.database.models import LibraryInstance, SourceItem, SourceLabelRule
         from app.services import classification
+
+        if job.config_snapshot_json.get("skip_library"):
+            await self._update_progress(stage_run_id, {"eligibility": "skipped_by_user"})
+            return StageResult(StageRunStatus.SUCCEEDED)
 
         async with get_session_factory(self.settings)() as session:
             item = await session.get(SourceItem, job.source_item_id)
@@ -670,20 +690,12 @@ class JobRunner:
                     MediaMatchModel.source_item_id == job.source_item_id
                 )
             )
-            match_row = match_result.scalar_one_or_none()
-            if not match_row:
+            match = _import_match(match_result.scalar_one_or_none(), job, library)
+            if not match:
                 return StageResult(
                     StageRunStatus.NEEDS_ATTENTION, "no_match",
                     "No media match found for source item", False,
                 )
-
-            from app.domain.models import MediaMatch, MediaType
-            match = MediaMatch(
-                media_type=MediaType(match_row.media_type),
-                catalog_id=match_row.catalog_id,
-                title="",
-                episode_ids=match_row.episode_ids_json,
-            )
 
             # Decrypt API key
             api_key = library.api_key_secret_ref
@@ -758,7 +770,6 @@ class JobRunner:
             from app.adapters.libraries import create_library_adapter
             from app.security import decrypt_secret
             from app.database.models import MediaMatch as MediaMatchModel
-            from app.domain.models import MediaMatch, MediaType
 
             lib_repo = LibraryRepository(session)
             library = await lib_repo.get(library_id)
@@ -772,17 +783,11 @@ class JobRunner:
                     MediaMatchModel.source_item_id == job.source_item_id
                 )
             )
-            match_row = match_row_result.scalar_one_or_none()
-            if not match_row:
+            match = _import_match(match_row_result.scalar_one_or_none(), job, library)
+            if not match:
                 return StageResult(
                     StageRunStatus.NEEDS_ATTENTION, "no_match", "No media match", False
                 )
-
-            match = MediaMatch(
-                media_type=MediaType(match_row.media_type),
-                catalog_id=match_row.catalog_id,
-                episode_ids=match_row.episode_ids_json,
-            )
 
             api_key = library.api_key_secret_ref
             if api_key.startswith("enc:"):

@@ -143,10 +143,11 @@ class SonarrAdapter:
     async def inspect_import(
         self, ready_path: str, match: MediaMatch
     ) -> ImportInspection:
-        """Inspect files at ready_path using Sonarr's ManualImport GET."""
-        if match.catalog_id is None:
-            return ImportInspection(all_rejected=True)
+        """Inspect files at ready_path using Sonarr's ManualImport GET.
 
+        No catalog_id (the user skipped the library check, e.g. a multi-movie pack): each
+        file goes to whatever Sonarr matched it to, and files it couldn't match are rejected.
+        """
         try:
             # folder only: with seriesId (and no downloadId) Sonarr ignores folder and
             # scans the series' library folder instead (500 if it doesn't exist yet).
@@ -163,7 +164,10 @@ class SonarrAdapter:
             quality = item.get("quality", {}).get("quality", {}).get("name", "")
             custom_formats = [cf.get("name", "") for cf in item.get("customFormats", [])]
             series_id = (item.get("series") or {}).get("id")
-            if series_id != match.catalog_id:
+            if match.catalog_id is None:
+                if series_id is None:
+                    rejections.append("Sonarr couldn't tell which series this is")
+            elif series_id != match.catalog_id:
                 rejections.append(f"Matched series {series_id}, expected {match.catalog_id}")
 
             candidates.append(
@@ -173,7 +177,7 @@ class SonarrAdapter:
                     quality=quality,
                     custom_formats=custom_formats,
                     rejection_reasons=rejections,
-                    media_id=match.catalog_id,
+                    media_id=match.catalog_id or series_id,
                     episode_ids=episode_ids,
                     quality_model=item.get("quality") or {},
                     languages=item.get("languages") or [],
@@ -210,6 +214,7 @@ class SonarrAdapter:
             command_id=command_id,
             submitted_at=datetime.now(timezone.utc),
             candidates=[c.absolute_path for c in selected_candidates],
+            media_ids=sorted({c.media_id for c in selected_candidates if c.media_id}),
         )
 
     async def reconcile_import(
