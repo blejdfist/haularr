@@ -65,14 +65,20 @@
     }
   }
 
-  // Reload on filter change; poll every 5s while any visible row is active.
+  // Reload on filter change, then poll: every 5s while a visible row is active, every 15s
+  // otherwise so jobs queued by a background scan still appear. Skipped while the tab is hidden.
   $effect(() => {
     filter;
     jobs = [];
     skipped = [];
     load();
+    let idle = 0;
     const t = setInterval(() => {
-      if (jobs.some((j) => groupOf(j.status) === 'active')) load();
+      if (document.hidden) return;
+      if (jobs.some((j) => groupOf(j.status) === 'active') || ++idle >= 3) {
+        idle = 0;
+        load();
+      }
     }, 5000);
     return () => clearInterval(t);
   });
