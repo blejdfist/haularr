@@ -48,3 +48,20 @@ describe('parseUtc', () => {
     expect(parseUtc('2026-01-01T10:00:00+02:00').toISOString()).toBe('2026-01-01T08:00:00.000Z');
   });
 });
+
+import { jobIcon, runIcon } from '../src/lib/status';
+
+describe('icons', () => {
+  it('maps job statuses', () => {
+    expect(jobIcon('running')).toBe('running');
+    expect(jobIcon('waiting_source')).toBe('queued');
+    expect(jobIcon('waiting_source', true)).toBe('warning');
+    expect(jobIcon('needs_attention')).toBe('failed');
+    expect(jobIcon('completed')).toBe('done');
+  });
+  it('maps stage runs', () => {
+    expect(runIcon(undefined)).toBe('pending');
+    expect(runIcon('succeeded')).toBe('done');
+    expect(runIcon('retry_wait')).toBe('queued');
+  });
+});

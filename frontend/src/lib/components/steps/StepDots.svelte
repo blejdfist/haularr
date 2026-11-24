@@ -4,68 +4,98 @@
   let { steps }: { steps: Step[] } = $props();
 
   const cur = $derived(currentIndex(steps));
-  const allDone = $derived(steps.every((s) => s.state === 'done' || s.state === 'skipped'));
 
-  let tip = $state<{ x: number; y: number } | null>(null);
-  function show(e: Event) {
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    tip = { x: r.left + r.width / 2, y: r.top - 6 };
-  }
-
-  const pill: Record<string, string> = {
-    active: 'bg-blue-600 animate-pulse',
-    waiting: 'bg-amber-600',
-    failed: 'bg-red-600',
-    pending: 'bg-gray-500',
+  const fill: Record<Step['state'], string> = {
     done: 'bg-green-600',
     skipped: 'bg-green-600',
+    active: 'bg-blue-600',
+    waiting: 'bg-amber-600',
+    failed: 'bg-red-600',
+    pending: 'bg-gray-400 dark:bg-gray-500',
   };
+  const idle = 'bg-gray-300 dark:bg-gray-600';
 </script>
 
-<span class="inline-flex items-center whitespace-nowrap">
-  {#each steps as s, i (s.key)}
-    {#if i > 0}
-      <span class="h-0.5 w-3 {i <= cur ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-400'}"></span>
-    {/if}
-    {#if i === cur}
+<!--
+  Two stacked copies of the same layout. The back one draws the colored shapes
+  through a "goo" filter (blur + alpha threshold) so dots, line and pill melt
+  into one blob; the front one carries the crisp text, which a blur would ruin.
+  Size changes are CSS transitions, so moving to the next stage animates.
+-->
+{#snippet track(front: boolean)}
+  <!-- relative on the front: the filter makes the back a stacking context that would paint over it -->
+  <span class="col-start-1 row-start-1 flex items-center {front ? 'relative' : ''}" aria-hidden={!front} style={front ? '' : 'filter: url(#steps-goo)'}>
+    {#each steps as s, i (s.key)}
+      {#if i > 0}
+        <span class="h-1 w-3 shrink-0 transition-colors duration-500 {front ? '' : i <= cur ? fill[steps[i - 1].state] : idle}"></span>
+      {/if}
       <span
-        class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold text-white {allDone ? 'bg-green-600' : pill[s.state]}"
+        class="step {i === cur ? 'cur' : ''} {front ? 'text-white' : `text-transparent ${fill[s.state]}`}"
+        title={front && i !== cur ? `${s.label}: ${s.state}` : undefined}
       >
-        {s.label}
-        {#if s.state === 'active' && s.progress != null}
-          <span class="h-1 w-10 overflow-hidden rounded bg-white/35">
-            <span class="block h-full bg-white" style="width: {s.progress}%"></span>
+        <span class="label">{s.label}</span>
+        {#if i === cur && s.state === 'active' && s.progress != null}
+          <span class="label h-1 w-10 shrink-0 overflow-hidden rounded {front ? 'bg-white/35' : ''}">
+            <span class="block h-full transition-[width] duration-700 {front ? 'bg-white' : ''}" style="width: {s.progress}%"></span>
           </span>
         {/if}
       </span>
-      {#if s.reason}
-        <button
-          type="button"
-          aria-label={s.reason}
-          class="ml-1 cursor-help text-sm leading-none text-amber-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 rounded"
-          onclick={(e) => e.stopPropagation()}
-          onmouseenter={show}
-          onfocus={show}
-          onmouseleave={() => (tip = null)}
-          onblur={() => (tip = null)}>⚠</button
-        >
-        {#if tip}
-          <!-- fixed: escapes overflow-clipping parents like scrollable tables -->
-          <span
-            role="tooltip"
-            class="pointer-events-none fixed z-50 w-max max-w-xs -translate-x-1/2 -translate-y-full whitespace-normal break-words rounded-md bg-gray-900 px-2.5 py-1.5 text-xs font-normal text-gray-50 shadow-lg"
-            style="left: {tip.x}px; top: {tip.y}px">{s.reason}</span
-          >
-        {/if}
-      {/if}
-    {:else}
-      <span
-        class="inline-block shrink-0 rounded-full {s.state === 'skipped'
-          ? 'h-1.5 w-1.5 bg-gray-400'
-          : i < cur
-            ? 'h-2.5 w-2.5 bg-blue-500'
-            : 'h-2 w-2 border-2 border-gray-400 dark:border-gray-400'}"
-      ></span>
-    {/if}
-  {/each}
+    {/each}
+  </span>
+{/snippet}
+
+<span class="inline-grid whitespace-nowrap">
+  {@render track(false)}
+  {@render track(true)}
 </span>
+
+<svg width="0" height="0" class="absolute" aria-hidden="true">
+  <filter id="steps-goo" x="-20%" y="-60%" width="140%" height="220%" color-interpolation-filters="sRGB">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="blur" />
+    <feColorMatrix in="blur" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 16 -6" result="goo" />
+    <feComposite in="SourceGraphic" in2="goo" operator="atop" />
+  </filter>
+</svg>
+
+<style>
+  .step {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    overflow: hidden;
+    border-radius: 9999px;
+    height: 0.625rem;
+    min-width: 0.625rem;
+    max-width: 0.625rem;
+    padding: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+    transition:
+      max-width 0.5s ease,
+      height 0.4s ease,
+      padding 0.4s ease,
+      background-color 0.5s ease;
+  }
+  .step.cur {
+    height: 1.25rem;
+    max-width: 10rem;
+    padding: 0 0.625rem;
+  }
+  .label {
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+  .cur .label {
+    opacity: 1;
+    transition-delay: 0.2s;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .step,
+    .label {
+      transition: none;
+    }
+  }
+</style>

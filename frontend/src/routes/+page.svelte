@@ -3,8 +3,9 @@
   import { goto } from '$app/navigation';
   import { Button, ButtonGroup, Input, Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell, Alert } from 'flowbite-svelte';
   import { endpoints, type Job } from '$lib/api/client';
-  import { STATUS_GROUPS, groupOf, sourceHealth, ago } from '$lib/status';
-  import { jobSteps } from '$lib/pipeline';
+  import { STATUS_GROUPS, groupOf, jobIcon, ago } from '$lib/status';
+  import { jobSteps, reasonFor } from '$lib/pipeline';
+  import StatusIcon from '$lib/components/StatusIcon.svelte';
   import StepDots from '$lib/components/steps/StepDots.svelte';
   import StatCards from '$lib/components/StatCards.svelte';
   import JobDrawer from '$lib/components/JobDrawer.svelte';
@@ -36,9 +37,6 @@
   const sum = (by: Record<string, number>, g: 'active' | 'failed') =>
     STATUS_GROUPS[g].reduce((n, s) => n + (by[s] ?? 0), 0);
   const by = $derived(dash?.jobs?.by_status ?? {});
-  const sources = $derived(
-    (dash?.source_health ?? []).map((s: any) => ({ id: s.id, name: s.name, health: sourceHealth(s) })),
-  );
   const q = $derived(search.trim().toLowerCase());
   const shownJobs = $derived(jobs.filter((j) => !q || (j.title ?? '').toLowerCase().includes(q)));
   const shownSkipped = $derived(skipped.filter((i) => !q || (i.title ?? '').toLowerCase().includes(q)));
@@ -112,8 +110,6 @@
       error = e.message;
     }
   }
-
-  const icon = { active: '⟳', failed: '✕', done: '✓' } as const;
 </script>
 
 <div class="space-y-4">
@@ -121,8 +117,6 @@
     active={sum(by, 'active')}
     failed={sum(by, 'failed')}
     done7d={dash?.jobs?.completed_7d ?? 0}
-    {sources}
-    onscanned={load}
   />
 
   <div class="flex flex-wrap items-center justify-between gap-2">
@@ -167,9 +161,12 @@
       </TableHead>
       <TableBody>
         {#each shownJobs as j (j.id)}
-          {@const g = groupOf(j.status)}
+          {@const reason = reasonFor(j)}
+          {@const kind = jobIcon(j.status, !!reason)}
           <TableBodyRow class="cursor-pointer" onclick={() => openJob(j.id)}>
-            <TableBodyCell>{g ? icon[g] : '·'}</TableBodyCell>
+            <TableBodyCell
+              ><StatusIcon {kind} tip={kind === 'warning' || kind === 'failed' ? reason : undefined} /></TableBodyCell
+            >
             {@const route = `${j.config_snapshot?.source_name ?? '—'} · ${j.config_snapshot?.label ?? '—'} → ${j.library_name ?? '—'}`}
             <TableBodyCell class="font-medium">
               <div class="max-w-xs truncate" title={j.title ?? ''}>{j.title ?? '—'}</div>

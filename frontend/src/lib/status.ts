@@ -21,6 +21,8 @@ export function badgeColor(status: string): 'blue' | 'red' | 'green' | 'yellow' 
 }
 
 export type Health = 'ok' | 'error' | 'never';
+/** Status dot on source/library cards: a health or a check still in flight. */
+export type Dot = Health | 'checking';
 
 export function sourceHealth(s: { last_scan_at: string | null; last_scan_error: string | null }): Health {
   if (s.last_scan_error) return 'error';
@@ -39,4 +41,26 @@ export function ago(s: string | null): string {
   if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
   if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
   return `${Math.floor(sec / 86400)}d ago`;
+}
+
+export type IconKind = 'running' | 'queued' | 'pending' | 'done' | 'failed' | 'warning' | 'skipped';
+
+/** Row icon for a job; `blocked` = the job has a reason it is stuck (shown as a warning). */
+export function jobIcon(status: string, blocked = false): IconKind {
+  if (status === 'running') return 'running';
+  if (status === 'completed') return 'done';
+  if (status === 'failed' || status === 'needs_attention') return 'failed';
+  if (status === 'completed_with_warnings') return 'warning';
+  if (status === 'cancelled' || status === 'skipped') return 'skipped';
+  return blocked ? 'warning' : 'queued';
+}
+
+/** Icon for one stage run (undefined = not started). */
+export function runIcon(status: string | undefined): IconKind {
+  if (!status) return 'pending';
+  if (status === 'running') return 'running';
+  if (status === 'succeeded') return 'done';
+  if (status === 'failed' || status === 'needs_attention') return 'failed';
+  if (status === 'skipped') return 'skipped';
+  return 'queued';
 }

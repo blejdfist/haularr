@@ -23,7 +23,7 @@ const STATE: Record<string, StepState> = {
 
 type JobLike = { status: string; stage: string; error_code?: string | null; error_detail?: string | null };
 
-function reasonFor(job: JobLike): string | undefined {
+export function reasonFor(job: JobLike): string | undefined {
   if (job.status === 'cancelled') return 'Cancelled';
   if (job.status === 'paused') return 'Paused';
   if (job.error_detail) return job.error_detail;

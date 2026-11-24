@@ -2,7 +2,8 @@
   import { untrack } from 'svelte';
   import { Drawer, Button, Alert } from 'flowbite-svelte';
   import { endpoints } from '$lib/api/client';
-  import { groupOf, parseUtc, ago } from '$lib/status';
+  import { groupOf, parseUtc, ago, runIcon } from '$lib/status';
+  import StatusIcon from '$lib/components/StatusIcon.svelte';
   import { PHASES, jobSteps } from '$lib/pipeline';
   import StepTrack from '$lib/components/steps/StepTrack.svelte';
   import { currentIndex, type Step } from '$lib/components/steps/types';
@@ -67,9 +68,8 @@
     untrack(() => (selected = undefined));
   });
   const fetched = $derived.by(() => {
-    const files = job?.files ?? [];
-    const total = files.reduce((n: number, f: any) => n + (f.size_bytes ?? 0), 0);
-    const got = files.reduce((n: number, f: any) => n + (f.bytes_received ?? 0), 0);
+    const total = job?.download_bytes_total ?? 0;
+    const got = job?.download_bytes_done ?? 0;
     return total ? { pct: Math.round((got / total) * 100), got, total } : null;
   });
 
@@ -83,53 +83,53 @@
     if (s < 3600) return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
     return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
   }
-  const runColor = (status: string) =>
-    status === 'failed' ? 'text-red-700 dark:text-red-300' : status === 'running' ? 'text-blue-700 dark:text-blue-300' : 'text-gray-600 dark:text-gray-300';
   // Latest run per stage only: the card shows current status, not attempt history.
-  const runsFor = (s: Step) => {
-    const stages = PHASES.find((p) => p.key === s.key)?.stages ?? [];
+  const latestRuns = () => {
     const latest = new Map<string, any>();
     for (const r of job?.stage_runs ?? []) {
-      if (!stages.includes(r.stage)) continue;
       const prev = latest.get(r.stage);
       if (!prev || r.attempt > prev.attempt || (r.attempt === prev.attempt && (r.started_at ?? '') > (prev.started_at ?? '')))
         latest.set(r.stage, r);
     }
-    return stages.filter((st) => latest.has(st)).map((st) => latest.get(st));
+    return latest;
   };
 </script>
 
 {#snippet phaseCard(s: Step)}
-  {@const runs = runsFor(s)}
-  <div class="flex items-baseline justify-between">
-    <h5 class="font-semibold text-gray-900 dark:text-white">{s.label}</h5>
-    <span class="text-xs text-gray-600 dark:text-gray-300">{s.state}</span>
-  </div>
-  {#if runs.length}
-    <ul class="mt-2 space-y-1.5 text-sm">
-      {#each runs as r}
-        <li>
-          <div class="flex justify-between gap-2">
-            <span class="text-gray-800 dark:text-gray-100">{r.stage.replaceAll('_', ' ')}</span>
-            <span class="whitespace-nowrap font-mono text-xs {runColor(r.status)}"
-              >{r.status}{#if took(r)}{` · ${r.ended_at ? '' : 'for '}${took(r)}`}{/if}{#if r.attempt > 1}{` · try ${r.attempt}`}{/if}</span
+  {@const runs = latestRuns()}
+  <h5 class="font-semibold text-gray-900 dark:text-white">{s.label}</h5>
+  <ul class="mt-2 space-y-2 text-sm">
+    {#each PHASES.find((p) => p.key === s.key)?.stages ?? [] as st (st)}
+      {@const r = runs.get(st)}
+      {@const kind = r ? runIcon(r.status) : st === job.stage && s.state === 'waiting' ? 'warning' : 'pending'}
+      <li>
+        <div class="flex items-center gap-2">
+          <StatusIcon {kind} class="h-4 w-4" />
+          <span class="flex-1 capitalize {r ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}"
+            >{st.replaceAll('_', ' ')}</span
+          >
+          {#if r}
+            <span class="whitespace-nowrap font-mono text-xs text-gray-600 dark:text-gray-300"
+              >{#if took(r)}{`${r.ended_at ? '' : 'for '}${took(r)}`}{/if}{#if r.attempt > 1}{` · try ${r.attempt}`}{/if}</span
             >
-          </div>
-          {#if r.error_detail}
-            <p class="mt-0.5 text-xs text-red-700 dark:text-red-300">{r.error_code}: {r.error_detail}</p>
           {/if}
-        </li>
-      {/each}
-    </ul>
-  {:else}
-    <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">Not started.</p>
-  {/if}
-  {#if s.key === 'fetch' && fetched && s.state !== 'done'}
-    <div class="mt-2 text-xs text-gray-600 dark:text-gray-300">{fetched.pct}% · {size(fetched.got)} / {size(fetched.total)}</div>
-    <div class="mt-1 h-1.5 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
-      <div class="h-full bg-blue-600" style="width: {fetched.pct}%"></div>
-    </div>
-  {/if}
+        </div>
+        {#if st === 'download' && r?.status === 'running' && fetched}
+          <div class="mt-1.5 ms-6">
+            <div class="h-1.5 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
+              <div class="h-full bg-blue-600 transition-[width] duration-700" style="width: {fetched.pct}%"></div>
+            </div>
+            <div class="mt-1 text-xs text-gray-600 dark:text-gray-300">
+              {fetched.pct}% · {size(fetched.got)} / {size(fetched.total)}
+            </div>
+          </div>
+        {/if}
+        {#if r?.error_detail}
+          <p class="mt-0.5 ms-6 text-xs text-red-700 dark:text-red-300">{r.error_code}: {r.error_detail}</p>
+        {/if}
+      </li>
+    {/each}
+  </ul>
   {#if s.reason}
     <div
       class="mt-3 rounded-md border p-2.5 text-sm {s.state === 'failed'
