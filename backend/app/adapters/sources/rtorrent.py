@@ -37,6 +37,7 @@ _TORRENT_FIELDS = [
     "d.base_path=",
     "d.message=",
     "d.directory=",
+    "d.down.rate=",      # bytes/s
 ]
 
 _FILE_FIELDS = [
@@ -240,6 +241,7 @@ class RtorrentAdapter:
             base_path,
             message,
             directory,
+            down_rate,
         ) = row
 
         # Normalize status
@@ -277,6 +279,7 @@ class RtorrentAdapter:
                 "state": int(state),
                 "completed_bytes": int(completed_bytes),
                 "message": str(message),
+                "down_rate": int(down_rate),
             },
         )
 
@@ -287,23 +290,26 @@ class RtorrentAdapter:
                 return self._row_to_dto(row)
         raise KeyError(f"Torrent not found: {item_key}")
 
+    async def get_files(self, item_key: str) -> list[RemoteFileDTO]:
+        """Every file in the torrent with how much of it is downloaded. Errors propagate."""
+        rows = await self._call("f.multicall", item_key, "", *_FILE_FIELDS)
+        files = []
+        for path, size_bytes, completed_chunks, total_chunks in rows:
+            size, total = int(size_bytes), int(total_chunks)
+            # Chunks straddle file boundaries, so this is approximate until the file completes.
+            done = size * min(int(completed_chunks), total) // total if total else 0
+            files.append(RemoteFileDTO(relative_path=str(path), size_bytes=size, done_bytes=done))
+        return files
+
     async def get_manifest(self, item_key: str) -> list[RemoteFileDTO]:
-        """Return per-file manifest using f.multicall."""
+        """Fully downloaded files only (empty files have no chunks and are left out)."""
         try:
-            rows = await self._call("f.multicall", item_key, "", *_FILE_FIELDS)
+            files = await self.get_files(item_key)
         except Exception as exc:
             logger.warning("get_manifest failed for %s: %s", item_key, exc)
             return []
-
-        files = []
-        for row in rows:
-            path, size_bytes, completed_chunks, total_chunks = row
-            # Only include files that are fully downloaded
-            if int(total_chunks) > 0 and int(completed_chunks) >= int(total_chunks):
-                files.append(
-                    RemoteFileDTO(
-                        relative_path=str(path),
-                        size_bytes=int(size_bytes),
-                    )
-                )
-        return files
+        return [
+            RemoteFileDTO(relative_path=f.relative_path, size_bytes=f.size_bytes)
+            for f in files
+            if f.size_bytes and f.done_bytes == f.size_bytes
+        ]

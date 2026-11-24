@@ -154,20 +154,32 @@ async def retry_job(job_id: str, session: AsyncSession = Depends(get_session)):
 @router.post("/jobs/{job_id}/restart")
 async def restart_job(job_id: str, session: AsyncSession = Depends(get_session)):
     """Run the job again from the first stage, e.g. after its files were deleted."""
-    from sqlalchemy import delete
+    from sqlalchemy import delete, update
 
-    from app.database.models import JobFile
+    from app.database.models import JobFile, SourceItem, StageRun
     from app.domain.models import JobStage
+    from app.services.jobs import initial_position, start_download_run
 
     repo = JobRepository(session)
-    obj = await repo.update(
-        job_id, stage=JobStage.CHECK_LIBRARY.value, status="queued", attempts=0,
+    job = await repo.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    item = await session.get(SourceItem, job.source_item_id)
+    stage, status = initial_position(item) if item else (JobStage.CHECK_LIBRARY.value, "queued")
+    await repo.update(
+        job_id, stage=stage, status=status, attempts=0,
         next_run_at=None, error_code=None, error_detail=None, ended_at=None,
         worker_token=None, lease_expires_at=None, download_bytes_done=0,
     )
-    if not obj:
-        raise HTTPException(status_code=404, detail="Job not found")
     await session.execute(delete(JobFile).where(JobFile.job_id == job_id))  # re-download from scratch
+    # Runs left open (e.g. the seedbox download) belong to the old pass.
+    await session.execute(
+        update(StageRun)
+        .where(StageRun.job_id == job_id, StageRun.status == "running")
+        .values(status="failed", error_code="restarted", error_detail="Job restarted by user")
+    )
+    if stage == JobStage.SOURCE_DOWNLOAD.value:
+        await start_download_run(session, job_id)
     await repo.add_event(
         job_id=job_id, severity="info", kind="job.restart", message="Job restarted from the beginning by user"
     )

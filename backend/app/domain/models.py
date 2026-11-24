@@ -121,6 +121,7 @@ class RemoteFileDTO(BaseModel):
     content_hash: str | None = None
     hash_type: str | None = None  # e.g. "sha1", "md5"
     path_hints: dict[str, Any] = Field(default_factory=dict)
+    done_bytes: int | None = None  # downloaded so far on the source; None when not reported
 
 
 class SourceItemDTO(BaseModel):

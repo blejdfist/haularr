@@ -139,7 +139,8 @@ async def test_list_items_raises_on_fault():
 
 # Field values as reported by a real rTorrent (seedbox) for both torrent shapes.
 _COMMON = {"d.custom1=": "TV", "d.custom2=": "", "d.state=": 1, "d.complete=": 1, "d.size_bytes=": 10,
-           "d.completed_bytes=": 10, "d.timestamp.finished=": 0, "d.message=": ""}
+           "d.completed_bytes=": 10, "d.timestamp.finished=": 0, "d.message=": "",
+           "d.down.rate=": 0}
 _SINGLE = {**_COMMON, "d.hash=": "A", "d.name=": "Show.S01E01.mkv",
            "d.base_path=": "/home/u/files/completed/TV/Show.S01E01.mkv",
            "d.directory=": "/home/u/files/completed/TV"}
@@ -162,3 +163,34 @@ async def test_remote_base_path_is_folder_manifest_paths_are_relative_to(rt, exp
     with patch.object(adapter, "_call", side_effect=fake_call):
         [item] = await adapter.list_items()
     assert item.remote_base_path == expected
+
+
+@pytest.mark.asyncio
+async def test_row_reports_down_rate():
+    async def fake_call(method, target, view, *fields):
+        return [[{**_MULTI, "d.down.rate=": 1234}[f] for f in fields]]
+
+    adapter = RtorrentAdapter(source_id="test", xmlrpc_url="http://example.com/RPC2")
+    with patch.object(adapter, "_call", side_effect=fake_call):
+        [item] = await adapter.list_items()
+    assert item.metadata["down_rate"] == 1234
+
+
+_FILES = [["a.mkv", 1000, 5, 10], ["b.nfo", 10, 1, 1], ["c.txt", 0, 0, 0]]
+
+
+@pytest.mark.asyncio
+async def test_get_files_reports_partial_progress():
+    adapter = RtorrentAdapter(source_id="test", xmlrpc_url="http://example.com/RPC2")
+    with patch.object(adapter, "_call", new_callable=AsyncMock, return_value=_FILES):
+        files = await adapter.get_files("hash")
+    assert [(f.relative_path, f.size_bytes, f.done_bytes) for f in files] == [
+        ("a.mkv", 1000, 500), ("b.nfo", 10, 10), ("c.txt", 0, 0)]
+
+
+@pytest.mark.asyncio
+async def test_get_manifest_only_complete_files():
+    adapter = RtorrentAdapter(source_id="test", xmlrpc_url="http://example.com/RPC2")
+    with patch.object(adapter, "_call", new_callable=AsyncMock, return_value=_FILES):
+        files = await adapter.get_manifest("hash")
+    assert [f.relative_path for f in files] == ["b.nfo"]

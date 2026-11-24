@@ -35,6 +35,7 @@ from app.database.repositories import (
 )
 from app.database.session import get_session_factory
 from app.domain.models import EligibilityStatus, JobStage, JobStatus, OnboardingState
+from app.services.jobs import create_job, item_complete, update_download
 from app.settings import Settings
 
 from app.logging_buffer import named
@@ -162,6 +163,7 @@ class DiscoveryService:
                     item_dto,
                     label_rules,
                     counts,
+                    adapter,
                 )
                 newly_seen_ids.add(item_dto.remote_id)
             except Exception as exc:
@@ -170,6 +172,8 @@ class DiscoveryService:
                     item_dto.remote_id, source_label, exc,
                 )
                 counts["errors"] += 1
+
+        await self._flag_removed_downloads(source_id_copy, {i.remote_id for i in items_dto})
 
         # Update source scan timestamps and onboarding
         async with factory() as session:
@@ -199,6 +203,31 @@ class DiscoveryService:
         )
         return counts
 
+    async def _flag_removed_downloads(self, source_id: str, listed: set[str]) -> None:
+        """Downloading jobs whose torrent is no longer on the seedbox need the user."""
+        async with get_session_factory(self.settings)() as session:
+            rows = (await session.execute(
+                select(Job, SourceItem.remote_id)
+                .join(SourceItem, Job.source_item_id == SourceItem.id)
+                .where(
+                    SourceItem.source_id == source_id,
+                    Job.stage == JobStage.SOURCE_DOWNLOAD.value,
+                    Job.ended_at.is_(None),
+                )
+            )).all()
+            repo = JobRepository(session)
+            for job, remote_id in rows:
+                if remote_id in listed or job.status == JobStatus.NEEDS_ATTENTION.value:
+                    continue
+                job.status = JobStatus.NEEDS_ATTENTION.value
+                job.error_code = "source_removed"
+                job.error_detail = "Removed from seedbox before it finished"
+                await repo.add_event(
+                    job_id=job.id, severity="error", kind="stage.needs_attention",
+                    stage=JobStage.SOURCE_DOWNLOAD.value, message=job.error_detail,
+                )
+            await session.commit()
+
     async def _record_scan_error(self, source_id: str, exc: object) -> None:
         async with get_session_factory(self.settings)() as session:
             await SourceRepository(session).update(
@@ -212,6 +241,7 @@ class DiscoveryService:
         item_dto: Any,
         label_rules: list[SourceLabelRule],
         counts: dict[str, int],
+        adapter: Any,
     ) -> None:
         factory = get_session_factory(self.settings)
 
@@ -252,7 +282,33 @@ class DiscoveryService:
                 await session.commit()
                 return
 
+            # A job owns the item from here on: discovery only feeds it (see services/jobs.py)
+            active = await job_repo.get_active_for_item(item.id)
+            if active and active.stage == JobStage.SOURCE_DOWNLOAD.value:
+                try:
+                    files = await adapter.get_files(item.remote_id)
+                except Exception as exc:
+                    logger.debug("get_files failed for %s: %s", item.remote_id, exc)
+                    files = None
+                await update_download(session, active, item, files)
+                await session.commit()
+                return
+            if active and active.status == JobStatus.WAITING_LIBRARY.value:
+                active.status = JobStatus.QUEUED.value  # ask the library again
+                await session.commit()
+                return
+
             if await self._classification_settled(session, item):
+                await session.commit()
+                return
+
+            # Still downloading: a job right away, so it shows; the library is asked once it's done.
+            if not item_complete(item):
+                await create_job(
+                    session, item, matched_rule, self.settings,
+                    approved=False, kind="job.discovered", message="Seen on the seedbox",
+                )
+                counts["queued"] += 1
                 await session.commit()
                 return
 
@@ -286,8 +342,10 @@ class DiscoveryService:
                 # A cancelled job means the user said no; only manual queue overrides
                 cancelled = await job_repo.has_cancelled_for_item(item.id)
                 if not existing and not cancelled:
-                    await self._create_job(
-                        session, item, matched_rule, source_id
+                    await create_job(
+                        session, item, matched_rule, self.settings, approved=False,
+                        kind="job.auto_queued",
+                        message=f"Auto-queued after discovery: eligibility={item.last_eligibility}",
                     )
                     counts["queued"] += 1
 
@@ -341,53 +399,3 @@ class DiscoveryService:
         # If top priority is tied between rules with different labels, it's ambiguous
         # but since label is unique per source, ties should be rare; just pick first
         return candidates[0]
-
-    async def _create_job(
-        self,
-        session: AsyncSession,
-        item: SourceItem,
-        rule: SourceLabelRule,
-        source_id: str,
-    ) -> Job:
-        """Create a new job for an eligible item."""
-        from app.database.repositories import SourceRepository
-
-        source_repo = SourceRepository(session)
-        source = await source_repo.get(source_id)
-
-        transfer_id = rule.transfer_override_id or (source.default_transfer_id if source else None)
-
-        config_snapshot = {
-            "source_id": source_id,
-            "source_name": source.name if source else "",
-            "label": rule.label,
-            "transfer_id": transfer_id,
-            "library_instance_id": rule.library_instance_id,
-            "temporary_directory": rule.temporary_directory,
-            "completed_directory": rule.completed_directory,
-            "retry_limit": self.settings.retry_limit,
-            "stage_lease_seconds": self.settings.stage_lease_seconds,
-            "title": item.title,
-        }
-
-        job_repo = JobRepository(session)
-        job = await job_repo.create(
-            source_item_id=item.id,
-            rule_id=rule.id,
-            config_snapshot_json=config_snapshot,
-            priority=rule.priority,
-            status=JobStatus.QUEUED.value,
-            stage=JobStage.CHECK_LIBRARY.value,
-        )
-        await job_repo.add_event(
-            job_id=job.id,
-            severity="info",
-            kind="job.auto_queued",
-            message=f"Auto-queued after discovery: eligibility={item.last_eligibility}",
-            details_json={"eligibility": item.last_eligibility},
-        )
-        logger.info(
-            "Auto-queued job %s (label=%s)",
-            named(item.title, job.id), rule.label,
-        )
-        return job

@@ -24,6 +24,10 @@ class SourceAdapter(Protocol):
         """Return a single normalized item by its remote_id."""
         ...
 
+    async def get_files(self, item_key: str) -> list[RemoteFileDTO]:
+        """Every file of an item, finished or not, with done_bytes set. Errors propagate."""
+        ...
+
     async def get_manifest(self, item_key: str) -> list[RemoteFileDTO]:
         """Return the file manifest (paths, sizes, hashes) for an item."""
         ...

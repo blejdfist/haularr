@@ -109,6 +109,7 @@ async def ignore_item(item_id: str, session: AsyncSession = Depends(get_session)
 async def queue_item(
     item_id: str,
     body: QueueRequest,
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ):
     """Create a job for an item, using the tag rule matching one of its labels.
@@ -146,37 +147,11 @@ async def queue_item(
             detail="No matching label rule for any label on this item",
         )
 
-    # Build config snapshot
-    source_repo = SourceRepository(session)
-    source = await source_repo.get(item.source_id)
+    from app.services.jobs import create_job
 
-    config_snapshot = {
-        "source_id": item.source_id,
-        "source_name": source.name if source else "",
-        "label": rule.label,
-        "transfer_id": rule.transfer_override_id or (source.default_transfer_id if source else None),
-        "library_instance_id": rule.library_instance_id,
-        "temporary_directory": rule.temporary_directory,
-        "completed_directory": rule.completed_directory,
-        "retry_limit": 5,
-        "stage_lease_seconds": 90,
-        "title": item.title,
-    }
-
-    job = await job_repo.create(
-        source_item_id=item_id,
-        rule_id=rule.id,
-        config_snapshot_json=config_snapshot,
-        priority=rule.priority,
-        status="queued",
-        stage=JobStage.CHECK_LIBRARY.value,
-    )
-    await job_repo.add_event(
-        job_id=job.id,
-        severity="info",
-        kind="job.created",
-        message=f"Job created {'(force transfer)' if body.force_transfer else ''}",
-        details_json={"force_transfer": body.force_transfer},
+    job = await create_job(
+        session, item, rule, request.app.state.settings, approved=True, kind="job.created",
+        message=f"Job created by user{' (force transfer)' if body.force_transfer else ''}",
     )
     await session.commit()
     return {"job_id": job.id, "status": job.status, "stage": job.stage}
