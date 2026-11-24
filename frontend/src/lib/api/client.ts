@@ -240,6 +240,7 @@ export const endpoints = {
     restart: (id: string) => api.post<any>(`/jobs/${id}/restart`),
     cancel: (id: string) => api.post<any>(`/jobs/${id}/cancel`),
     retryImport: (id: string) => api.post<any>(`/jobs/${id}/retry-import`),
+    approve: (id: string) => api.post<any>(`/jobs/${id}/approve`),
   },
   libraries: {
     list: () => api.get<Library[]>('/libraries'),

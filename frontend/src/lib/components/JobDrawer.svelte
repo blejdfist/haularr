@@ -44,13 +44,23 @@
     }
   }
 
+  /** The seedbox reports its own download rate; it beats one measured from our polls. */
+  function sourceRate(stage: string, p: { bps: number; bytes_done?: number; bytes_total?: number }) {
+    speeds[stage] = { bps: p.bps, at: Date.now() };
+    if (p.bps && p.bytes_total) etas[stage] = (p.bytes_total - (p.bytes_done ?? 0)) / p.bps;
+    else delete etas[stage];
+  }
+
   async function load(id: string) {
     error = '';
     try {
       job = await endpoints.jobs.get(id);
       events = job.events ?? [];
-      for (const r of job.stage_runs ?? [])
-        if (r.status === 'running') sample(r.stage, r.stage === 'download' ? fetched : bytes(r.progress));
+      for (const r of job.stage_runs ?? []) {
+        if (r.status !== 'running') continue;
+        if (typeof r.progress?.bps === 'number') sourceRate(r.stage, r.progress);
+        else sample(r.stage, r.stage === 'transfer' ? fetched : bytes(r.progress));
+      }
     } catch (e: any) {
       error = e.message;
     }
@@ -120,11 +130,12 @@
   const files = $derived<any[]>(job?.files ?? []);
   const filesTotal = $derived(files.reduce((n, f) => n + (f.size_bytes ?? 0), 0));
   // Release folder shared by every file: shown once above the list, not on each row.
-  const filesRoot = $derived.by(() => {
-    const first = files[0]?.remote_relpath ?? '';
+  function commonRoot(paths: string[]): string {
+    const first = paths[0] ?? '';
     const top = first.includes('/') ? first.slice(0, first.indexOf('/') + 1) : '';
-    return top && files.every((f) => f.remote_relpath.startsWith(top)) ? top : '';
-  });
+    return top && paths.every((x) => x.startsWith(top)) ? top : '';
+  }
+  const filesRoot = $derived(commonRoot(files.map((f) => f.remote_relpath)));
   function took(r: any): string {
     if (!r.started_at) return '';
     const end = r.ended_at ? parseUtc(r.ended_at).getTime() : Date.now();
@@ -144,7 +155,7 @@
     {#each PHASES.find((p) => p.key === s.key)?.stages ?? [] as st (st)}
       {@const r = runs.get(st)}
       {@const kind = r ? runIcon(r.status) : st === job.stage && s.state === 'waiting' ? 'warning' : 'pending'}
-      {@const bar = r?.status !== 'running' ? null : st === 'download' ? fetched : bytes(r.progress)}
+      {@const bar = r?.status !== 'running' ? null : st === 'transfer' ? fetched : bytes(r.progress)}
       <li>
         <div class="flex items-center gap-2">
           <StatusIcon {kind} class="h-4 w-4" />
@@ -166,6 +177,31 @@
               {bar.pct}% · {size(bar.got)} / {size(bar.total)}{#if speeds[st] && now - speeds[st].at < SPEED_STALE_MS && bar.got < bar.total}{` · ${size(speeds[st].bps)}/s`}{/if}{#if etas[st] != null && bar.got < bar.total}{` · ~${dur(etas[st], false)} left`}{/if}
             </div>
           </div>
+        {/if}
+        {#if st === 'source_download' && r?.progress}
+          {@const sf = (r.progress.files ?? []) as any[]}
+          {@const top = commonRoot(sf.map((f) => f.path))}
+          {#if r.progress.message}
+            <p class="mt-1 ms-6 text-xs text-gray-500 dark:text-gray-400">{r.progress.message}</p>
+          {/if}
+          {#if sf.length}
+            <ul class="mt-2 ms-6 space-y-1.5">
+              {#each sf as f (f.path)}
+                {@const pct = f.size_bytes ? Math.round((f.done_bytes / f.size_bytes) * 100) : 100}
+                <li class="text-xs">
+                  <div class="flex items-baseline gap-2">
+                    <span class="flex-1 truncate text-gray-800 dark:text-gray-100" title={f.path}>{f.path.slice(top.length)}</span>
+                    <span class="whitespace-nowrap text-gray-600 tabular-nums dark:text-gray-300"
+                      >{pct}% · {size(f.done_bytes)} / {size(f.size_bytes)}</span
+                    >
+                  </div>
+                  <div class="mt-0.5 h-1 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
+                    <div class="h-full bg-blue-600 transition-[width] duration-700" style="width: {pct}%"></div>
+                  </div>
+                </li>
+              {/each}
+            </ul>
+          {/if}
         {/if}
         {#if r?.error_detail}
           <p class="mt-0.5 ms-6 text-xs text-red-700 dark:text-red-300">{r.error_code}: {r.error_detail}</p>
@@ -222,7 +258,10 @@
           <Button size="xs" disabled={busy} onclick={() => act(endpoints.jobs.retry)}>Retry</Button>
           <Button size="xs" color="alternative" disabled={busy} onclick={() => act(endpoints.jobs.retryImport)}>Retry import</Button>
         {/if}
-        {#if job.status !== 'running' && job.status !== 'queued'}
+        {#if job.status === 'waiting_approval'}
+          <Button size="xs" disabled={busy} onclick={() => act(endpoints.jobs.approve)}>Start</Button>
+        {/if}
+        {#if !['running', 'queued', 'waiting_source'].includes(job.status)}
           <Button
             size="xs"
             color="alternative"
@@ -291,7 +330,7 @@
             {/each}
           </ul>
         {:else}
-          <p class="text-sm text-gray-600 dark:text-gray-300">Files are listed once the download starts.</p>
+          <p class="text-sm text-gray-600 dark:text-gray-300">Files are listed once the transfer starts.</p>
         {/if}
       </section>
 
