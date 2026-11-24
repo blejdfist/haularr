@@ -452,20 +452,37 @@ class JobRunner:
                 transfer_id, transfer.adapter_type, transfer_config
             )
 
-            def progress_cb(received: int, total: int) -> None:
-                nonlocal bytes_done
-                bytes_done = received + (bytes_done - received) if False else bytes_done
-                # We'll persist progress in batch
+            # The callback runs in the transfer thread: only stash the count there,
+            # and let a flusher task write it to the job row every couple of seconds.
+            received_now = resume_offset
 
-            # Transfer the file
-            result = await transfer_adapter.transfer_file(
-                remote_file=file_dto,
-                remote_base_path=item.remote_path,
-                destination_part_path=part_path,
-                resume_offset=resume_offset,
-                progress_callback=progress_cb,
-                path_mappings=endpoint.path_mappings_json if endpoint else None,
-            )
+            def progress_cb(received: int, total: int) -> None:
+                nonlocal received_now
+                received_now = received
+
+            async def flush_progress(base: int) -> None:
+                last = -1
+                while True:
+                    await asyncio.sleep(2)
+                    if received_now != last:
+                        last = received_now
+                        try:
+                            await self._set_download_bytes(base + last)
+                        except Exception as exc:  # progress is cosmetic; never kill the flusher
+                            logger.debug("Progress flush failed: %s", exc)
+
+            flusher = asyncio.create_task(flush_progress(bytes_done))
+            try:
+                result = await transfer_adapter.transfer_file(
+                    remote_file=file_dto,
+                    remote_base_path=item.remote_path,
+                    destination_part_path=part_path,
+                    resume_offset=resume_offset,
+                    progress_callback=progress_cb,
+                    path_mappings=endpoint.path_mappings_json if endpoint else None,
+                )
+            finally:
+                flusher.cancel()
 
             if not result.success:
                 return StageResult(
@@ -925,6 +942,11 @@ class JobRunner:
                     error_detail=error_detail or None,
                 )
             )
+            await session.commit()
+
+    async def _set_download_bytes(self, n: int) -> None:
+        async with get_session_factory(self.settings)() as session:
+            await JobRepository(session).update(self.job_id, download_bytes_done=n)
             await session.commit()
 
     async def _update_progress(self, stage_run_id: str, progress: dict[str, Any]) -> None:
