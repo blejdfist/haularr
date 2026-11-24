@@ -13,7 +13,7 @@ from app.database.models import TransferInstance
 from app.database.repositories import LabelRuleRepository, SourceRepository
 from app.database.session import get_session_factory
 from app.security import OptionalAuth
-from app.services.source_fetch import fetch_to_dict, upsert_source_fetch
+from app.services.source_fetch import fetch_to_dict, resolve_password, upsert_source_fetch
 from app.settings import Settings
 
 sources_router = APIRouter(tags=["sources"])
@@ -40,9 +40,13 @@ class FetchConfig(BaseModel):
     host: str
     port: int = 21
     username: str
-    password: str  # required whenever fetch is sent
+    password: str = ""  # empty => keep the saved password (required if none saved)
     tls_verify: bool = True
     path_mappings: list[PathMapping] = []
+
+
+class FetchTest(FetchConfig):
+    source_id: str | None = None  # blank password => use this source's saved one
 
 
 class SourceCreate(BaseModel):
@@ -235,6 +239,30 @@ async def test_source_config(
     adapter = create_source_adapter("__test__", body.adapter_type, config)
     result = await adapter.test_connection()
     return result
+
+
+@sources_router.post("/sources/fetch-test")
+async def test_fetch_config(
+    body: FetchTest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    user: OptionalAuth = None,
+):
+    """Test an FTP fetch config before saving it."""
+    source = await SourceRepository(session).get(body.source_id) if body.source_id else None
+    transfer_id = source.default_transfer_id if source else None
+    password = await resolve_password(session, transfer_id, body, request.app.state.master_key)
+
+    from app.adapters.transfers.ftps import FTPSAdapter
+    adapter = FTPSAdapter(
+        transfer_id=transfer_id or "__test__",
+        host=body.host,
+        port=body.port,
+        username=body.username,
+        password=password,
+        tls_verify=body.tls_verify,
+    )
+    return await adapter.test_connection()
 
 
 @sources_router.post("/sources/{source_id}/test")

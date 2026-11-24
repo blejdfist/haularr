@@ -6,6 +6,7 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,20 +29,33 @@ async def _endpoint(session: AsyncSession, transfer_id: str) -> TransferEndpoint
     return res.scalar_one_or_none()
 
 
+async def resolve_password(
+    session: AsyncSession, transfer_id: str | None, fetch: FetchConfig, master_key: bytes
+) -> str:
+    """The given password, or the saved one when blank (editing must not force re-entry)."""
+    if fetch.password:
+        return fetch.password
+    ep = await _endpoint(session, transfer_id) if transfer_id else None
+    if ep is None or not ep.credential_ref.startswith("enc:"):
+        raise HTTPException(status_code=422, detail="FTP password is required")
+    return json.loads(decrypt_secret(ep.credential_ref[4:], master_key))["password"]
+
+
 async def upsert_source_fetch(
     session: AsyncSession, source: SourceInstance, fetch: FetchConfig, master_key: bytes
 ) -> None:
     """Create or update the source's transfer + primary endpoint. Does not commit."""
     config = {"tls_mode": "explicit", "tls_verify": fetch.tls_verify}
-    cred = "enc:" + encrypt_secret(
-        json.dumps({"username": fetch.username, "password": fetch.password}), master_key
-    )
     mappings = [m.model_dump() for m in fetch.path_mappings]
 
     transfer = (
         await session.get(TransferInstance, source.default_transfer_id)
         if source.default_transfer_id
         else None
+    )
+    password = await resolve_password(session, transfer.id if transfer else None, fetch, master_key)
+    cred = "enc:" + encrypt_secret(
+        json.dumps({"username": fetch.username, "password": password}), master_key
     )
     if transfer is None:
         transfer = TransferInstance(

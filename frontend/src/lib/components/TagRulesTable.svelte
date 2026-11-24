@@ -1,39 +1,25 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { Button, Input, Label, Select, Toggle, Alert, Badge, Spinner } from 'flowbite-svelte';
+  import { Button, Input, Label, Select, Toggle, Badge } from 'flowbite-svelte';
   import { PenOutline, TrashBinOutline } from 'flowbite-svelte-icons';
-  import { endpoints, type LabelRule, type Library } from '$lib/api/client';
+  import type { LabelRule, Library } from '$lib/api/client';
 
+  // Pure editor: changes stay in `rules` until the parent saves them.
   let {
-    sourceId,
+    rules = $bindable([]),
     libraries,
     seenLabels,
-    onchange,
-    count = $bindable(0),
-  }: { sourceId: string; libraries: Library[]; seenLabels: string[]; onchange?: () => void; count?: number } =
-    $props();
+  }: { rules: LabelRule[]; libraries: Library[]; seenLabels: string[] } = $props();
 
   type Row = { id: string | null; label: string; library: string; tmp: string; done: string; enabled: boolean };
-  let rules = $state<LabelRule[]>([]);
   // Rule id being edited, 'new' for a new tag, null = none (id, not index: rows can be deleted while editing)
   let editing = $state<string | null>(null);
   let draft = $state<Row>({ id: null, label: '', library: '', tmp: '', done: '', enabled: true });
-  let error = $state('');
-  let busy = $state(false);
 
   const libItems = $derived([
     { value: '', name: 'Select library...' },
     ...libraries.map((l) => ({ value: l.id, name: `${l.name} (${l.adapter_type})` })),
   ]);
   const libName = (id: string | null) => libraries.find((l) => l.id === id)?.name ?? '—';
-
-  onMount(async () => {
-    try {
-      rules = await endpoints.sources.labels.list(sourceId);
-    } catch (e: any) {
-      error = e.message;
-    }
-  });
 
   function edit(i: number) {
     const r = rules[i];
@@ -46,58 +32,33 @@
       enabled: r.enabled,
     };
     editing = r.id;
-    error = '';
   }
 
   function add() {
     draft = { id: null, label: '', library: '', tmp: '', done: '', enabled: true };
     editing = 'new';
-    error = '';
   }
 
-  async function save() {
-    busy = true;
-    error = '';
-    try {
-      const body = {
-        label: draft.label.trim(),
-        library_instance_id: draft.library || null,
-        temporary_directory: draft.tmp,
-        completed_directory: draft.done,
-        enabled: draft.enabled,
-        automatic_processing: true,
-      };
-      if (draft.id) {
-        const updated = await endpoints.sources.labels.update(sourceId, draft.id, body);
-        rules = rules.map((r) => (r.id === updated.id ? updated : r));
-      } else {
-        rules.push(await endpoints.sources.labels.create(sourceId, body));
-      }
-      editing = null;
-      onchange?.();
-    } catch (e: any) {
-      error = e.message;
-    } finally {
-      busy = false;
-    }
+  function save() {
+    const fields = {
+      label: draft.label.trim(),
+      library_instance_id: draft.library || null,
+      temporary_directory: draft.tmp,
+      completed_directory: draft.done,
+      enabled: draft.enabled,
+      automatic_processing: true,
+    };
+    rules = draft.id
+      ? rules.map((r) => (r.id === draft.id ? { ...r, ...fields } : r))
+      : [...rules, { ...fields, id: crypto.randomUUID() } as LabelRule];
+    editing = null;
   }
 
-  async function remove(i: number) {
-    error = '';
-    try {
-      const id = rules[i].id;
-      await endpoints.sources.labels.delete(sourceId, id);
-      rules = rules.filter((r) => r.id !== id);
-      if (editing === id) editing = null;
-      onchange?.();
-    } catch (e: any) {
-      error = e.message;
-    }
+  function remove(i: number) {
+    const id = rules[i].id;
+    rules = rules.filter((r) => r.id !== id);
+    if (editing === id) editing = null;
   }
-
-  $effect(() => {
-    count = rules.length;
-  });
 
   const valid = $derived(!!draft.label.trim() && !!draft.library && !!draft.tmp && !!draft.done);
 </script>
@@ -124,8 +85,8 @@
       <Toggle bind:checked={draft.enabled}>Enabled</Toggle>
       <div class="flex gap-2">
         <Button size="xs" color="alternative" onclick={() => (editing = null)}>Cancel</Button>
-        <Button size="xs" disabled={busy || !valid} onclick={save}>
-          {#if busy}<Spinner size="4" class="me-1" />{/if}{draft.id ? 'Save tag' : 'Add tag'}
+        <Button size="xs" disabled={!valid} onclick={save}>
+          {draft.id ? 'Update tag' : 'Add tag'}
         </Button>
       </div>
     </div>
@@ -136,7 +97,6 @@
   <datalist id="seen-labels">
     {#each seenLabels as l}<option value={l}></option>{/each}
   </datalist>
-  {#if error}<Alert color="red">{error}</Alert>{/if}
 
   {#each rules as r, i (r.id)}
     {#if editing === r.id}

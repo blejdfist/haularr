@@ -205,6 +205,7 @@ export const endpoints = {
     testConfig: (data: { adapter_type: string; connection_config: Record<string, any>; credential: string }) =>
       api.post<any>('/sources/test-config', data),
     test: (id: string) => api.post<any>(`/sources/${id}/test`),
+    fetchTest: (data: FetchInput & { source_id?: string }) => api.post<any>('/sources/fetch-test', data),
     scan: (id: string) => api.post<any>(`/sources/${id}/scan`),
     completeOnboarding: (id: string) => api.post<any>(`/sources/${id}/complete-onboarding`),
     labels: {

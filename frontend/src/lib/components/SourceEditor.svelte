@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { Modal, Button, Input, Label, Toggle, Alert, Spinner } from 'flowbite-svelte';
-  import { endpoints, type Source, type Library, type FetchInput } from '$lib/api/client';
+  import { endpoints, type Source, type Library, type FetchInput, type LabelRule } from '$lib/api/client';
   import TagRulesTable from './TagRulesTable.svelte';
 
   let {
@@ -38,26 +39,36 @@
   };
 
   let error = $state('');
-  let testResult = $state<{ ok: boolean; text: string; pending?: boolean } | null>(null);
+  type TestResult = { ok: boolean; text: string };
+  let testResult = $state<TestResult | null>(null); // rTorrent
+  let fetchResult = $state<TestResult | null>(null); // FTP
   let busy = $state(false);
   let confirmOpen = $state(false);
   let seenLabels = $state<string[]>([]);
   let tab = $state<'conn' | 'tags' | 'fetch'>('conn');
-  let tagCount = $state(0);
+  // Tag edits are a draft; Save diffs them against savedTags and writes the changes.
+  let tags = $state<LabelRule[]>([]);
+  let savedTags = $state<LabelRule[]>([]);
   let testing = $state(false);
+  let fetchTesting = $state(false);
 
   // Required fields per tab; a tab with gaps shows a red dot and blocks save.
   const connMissing = $derived(!name.trim() || !host.trim());
   const fetchUsed = $derived(!!(fHost || fUser || fPass));
+  // Empty password keeps the saved one (backend), so only require it when none is saved.
+  const pwSaved = $derived(!!current?.fetch?.has_password);
   const fetchMissing = $derived(
-    fetchUsed && (!fHost.trim() || !fUser.trim() || (!fPass && (fetchTouched || !current?.fetch))),
+    fetchUsed && (!fHost.trim() || !fUser.trim() || (!fPass && !pwSaved)),
   );
 
   // Reset the form each time the editor opens.
   $effect(() => {
     if (!open) return;
-    tab = 'conn';
-    load(source);
+    // untrack: load() reads and writes state; tracking it would re-run this effect forever.
+    untrack(() => {
+      tab = 'conn';
+      load(source);
+    });
   });
 
   function load(s: Source | null) {
@@ -84,9 +95,54 @@
     connTouched = false;
     error = '';
     testResult = null;
+    fetchResult = null;
     seenLabels = [];
-    if (!s) tagCount = 0; // existing sources: TagRulesTable reports the count
-    if (s) loadSeen(s.id);
+    tags = [];
+    savedTags = [];
+    if (s) {
+      loadSeen(s.id);
+      loadTags(s.id);
+    }
+  }
+
+  async function loadTags(id: string) {
+    try {
+      const list = await endpoints.sources.labels.list(id);
+      if (current?.id !== id) return;
+      savedTags = list;
+      tags = list.map((t) => ({ ...t }));
+    } catch (e: any) {
+      error = e.message;
+    }
+  }
+
+  const tagFields = (t: LabelRule) => ({
+    label: t.label,
+    library_instance_id: t.library_instance_id,
+    temporary_directory: t.temporary_directory,
+    completed_directory: t.completed_directory,
+    enabled: t.enabled,
+    automatic_processing: t.automatic_processing,
+  });
+
+  // Writes tag changes; savedTags tracks progress so a retry after a failure redoes only what's left.
+  async function syncTags(sourceId: string) {
+    const keep = new Set(tags.map((t) => t.id));
+    for (const old of savedTags.filter((t) => !keep.has(t.id))) {
+      await endpoints.sources.labels.delete(sourceId, old.id);
+      savedTags = savedTags.filter((t) => t.id !== old.id);
+    }
+    for (const t of tags) {
+      const old = savedTags.find((o) => o.id === t.id);
+      if (!old) {
+        const created = await endpoints.sources.labels.create(sourceId, tagFields(t));
+        tags = tags.map((x) => (x.id === t.id ? created : x));
+        savedTags = [...savedTags, created];
+      } else if (JSON.stringify(tagFields(old)) !== JSON.stringify(tagFields(t))) {
+        const updated = await endpoints.sources.labels.update(sourceId, t.id, tagFields(t));
+        savedTags = savedTags.map((x) => (x.id === t.id ? updated : x));
+      }
+    }
   }
 
   async function loadSeen(id: string) {
@@ -135,6 +191,32 @@
     }
   }
 
+  // Tests the FTP fields as typed; a blank password falls back to the saved one.
+  async function testFetch() {
+    if (!fHost.trim() || !fUser.trim()) {
+      fetchResult = { ok: false, text: 'Enter host and username first' };
+      return;
+    }
+    fetchResult = null;
+    fetchTesting = true;
+    try {
+      const r = await endpoints.sources.fetchTest({
+        host: fHost,
+        port: fPort,
+        username: fUser,
+        password: fPass,
+        tls_verify: fVerify,
+        path_mappings: [],
+        ...(current ? { source_id: current.id } : {}),
+      });
+      fetchResult = r.ok ? { ok: true, text: 'Connected' } : { ok: false, text: r.error ?? 'Connection failed' };
+    } catch (e: any) {
+      fetchResult = { ok: false, text: e.message };
+    } finally {
+      fetchTesting = false;
+    }
+  }
+
   async function save(e: SubmitEvent) {
     e.preventDefault();
     if (connMissing || fetchMissing) {
@@ -163,10 +245,11 @@
         };
         body.fetch = fetch;
       }
-      const saved = current
-        ? await endpoints.sources.update(current.id, body)
-        : await endpoints.sources.create({ ...body, adapter_type: 'rtorrent' });
-      load(saved); // keep editor open on the saved source (reveals the tag table after first save)
+      if (current) await endpoints.sources.update(current.id, body);
+      // Remember a new source so a retry after a failed tag updates it instead of duplicating it.
+      else current = await endpoints.sources.create({ ...body, adapter_type: 'rtorrent' });
+      await syncTags(current.id);
+      open = false;
       onsaved();
     } catch (err: any) {
       error = err.message;
@@ -188,6 +271,19 @@
     }
   }
 </script>
+
+{#snippet tester(run: () => void, busy: boolean, result: TestResult | null)}
+  <div class="flex flex-wrap items-center gap-3 md:col-span-2">
+    <Button size="sm" color="alternative" disabled={busy} onclick={run}>
+      {#if busy}<Spinner size="4" class="me-2" />{/if}Test connection
+    </Button>
+    {#if result}
+      <span class="text-sm {result.ok ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-300'}"
+        >{result.text}</span
+      >
+    {/if}
+  </div>
+{/snippet}
 
 {#snippet tabButton(id: 'conn' | 'tags' | 'fetch', label: string, missing: boolean)}
   <button
@@ -211,7 +307,7 @@
 
     <div role="tablist" class="flex border-b border-gray-200 dark:border-gray-700">
       {@render tabButton('conn', 'Connection', connMissing)}
-      {@render tabButton('tags', `Tags (${tagCount})`, false)}
+      {@render tabButton('tags', `Tags (${tags.length})`, false)}
       {@render tabButton('fetch', 'Fetch (FTP)', fetchMissing)}
     </div>
 
@@ -262,6 +358,7 @@
             </div>
           </div>
         </details>
+        {@render tester(test, testing, testResult)}
       </section>
 
       <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -283,13 +380,13 @@
           <Input id="f-user" bind:value={fUser} autocomplete="off" />
         </div>
         <div>
-          <Label for="f-pass" class="mb-2">Password{fetchUsed && (fetchTouched || !current?.fetch) ? ' *' : ''}</Label>
+          <Label for="f-pass" class="mb-2">Password{fetchUsed && !pwSaved ? ' *' : ''}</Label>
           <Input
             id="f-pass"
             type="password"
             autocomplete="new-password"
             bind:value={fPass}
-            placeholder={current?.fetch?.has_password && !fetchTouched ? '••••• saved' : ''}
+            placeholder={pwSaved ? '••••• saved' : ''}
           />
         </div>
         <div class="space-y-2 md:col-span-2">
@@ -327,26 +424,19 @@
             <div class="flex items-end"><Toggle bind:checked={fVerify}>Verify certificate</Toggle></div>
           </div>
         </details>
+        {@render tester(testFetch, fetchTesting, fetchResult)}
       </section>
     </form>
 
     <div class:hidden={tab !== 'tags'}>
-      {#if current}
-        {#key current.id}
-          <TagRulesTable sourceId={current.id} {libraries} {seenLabels} onchange={onsaved} bind:count={tagCount} />
-        {/key}
-      {:else}
-        <p class="text-sm text-gray-500 dark:text-gray-400">Save the source first to map tags to libraries.</p>
-      {/if}
+      {#key current?.id}
+        <TagRulesTable bind:rules={tags} {libraries} {seenLabels} />
+      {/key}
     </div>
 
-    {#if testResult}<Alert color={testResult.ok ? 'green' : 'red'}>{testResult.text}</Alert>{/if}
     <div class="flex flex-wrap items-center gap-2 border-t border-gray-200 pt-4 dark:border-gray-700">
       {#if current}<Button color="red" outline onclick={() => (confirmOpen = true)}>Delete</Button>{/if}
-      <Button color="alternative" class="ms-auto" disabled={testing} onclick={test}>
-        {#if testing}<Spinner size="4" class="me-2" />{/if}Test connection
-      </Button>
-      <Button color="alternative" onclick={() => (open = false)}>Close</Button>
+      <Button color="alternative" class="ms-auto" onclick={() => (open = false)}>Close</Button>
       <Button type="submit" form="source-form" disabled={busy}>
         {#if busy}<Spinner size="4" class="me-2" />{/if}Save
       </Button>

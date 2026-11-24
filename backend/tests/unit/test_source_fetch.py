@@ -63,10 +63,23 @@ async def test_update_fetch_replaces_endpoint(auth_client, app):
 
 
 @pytest.mark.asyncio
-async def test_update_fetch_requires_password(auth_client):
+async def test_update_fetch_without_password_keeps_saved_password(auth_client, app):
     sid = (await auth_client.post("/api/v1/sources", json=_src(fetch=FETCH))).json()["id"]
-    bad = {k: v for k, v in FETCH.items() if k != "password"}
-    r = await auth_client.patch(f"/api/v1/sources/{sid}", json={"fetch": bad})
+    no_pw = {k: v for k, v in FETCH.items() if k != "password"}
+    r = await auth_client.patch(
+        f"/api/v1/sources/{sid}", json={"fetch": {**no_pw, "tls_verify": False}}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["fetch"]["tls_verify"] is False
+    _, e = await _rows(app)
+    cred = json.loads(decrypt_secret(e[0].credential_ref[4:], app.state.master_key))
+    assert cred == {"username": "ftpuser", "password": "ftp-secret-pw"}
+
+
+@pytest.mark.asyncio
+async def test_create_fetch_requires_password(auth_client):
+    no_pw = {k: v for k, v in FETCH.items() if k != "password"}
+    r = await auth_client.post("/api/v1/sources", json=_src(fetch=no_pw))
     assert r.status_code == 422
 
 
@@ -150,3 +163,33 @@ async def test_delete_library_with_only_history_nulls_refs(auth_client, app):
         for m in (MediaMatch, FileImport):
             rows = (await s.execute(select(m))).scalars().all()
             assert len(rows) == 1 and rows[0].library_instance_id is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_test_uses_saved_password_when_blank(auth_client, monkeypatch):
+    from app.adapters.transfers.ftps import FTPSAdapter
+
+    seen = {}
+
+    async def fake_test(self):
+        seen.update(host=self._host, port=self._port, user=self._username,
+                    pw=self._password, verify=self._tls_verify)
+        return {"ok": True, "adapter": "ftps"}
+
+    monkeypatch.setattr(FTPSAdapter, "test_connection", fake_test)
+    sid = (await auth_client.post("/api/v1/sources", json=_src(fetch=FETCH))).json()["id"]
+    no_pw = {k: v for k, v in FETCH.items() if k != "password"}
+    r = await auth_client.post(
+        "/api/v1/sources/fetch-test", json={"source_id": sid, **no_pw, "tls_verify": False}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["ok"] is True
+    assert seen == {"host": "ftp.example", "port": 21, "user": "ftpuser",
+                    "pw": "ftp-secret-pw", "verify": False}
+
+
+@pytest.mark.asyncio
+async def test_fetch_test_without_any_password_is_rejected(auth_client):
+    no_pw = {k: v for k, v in FETCH.items() if k != "password"}
+    r = await auth_client.post("/api/v1/sources/fetch-test", json=no_pw)
+    assert r.status_code == 422
