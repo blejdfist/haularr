@@ -16,6 +16,8 @@ import logging
 import threading
 from collections import deque
 from datetime import datetime, timezone
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Any
 
 DEFAULT_CAPACITY = 1000
@@ -89,7 +91,9 @@ class LogBufferHandler(logging.Handler):
             items = [
                 e
                 for e in items
-                if needle in e["message"].lower() or needle in e["logger"].lower()
+                if needle in e["message"].lower()
+                or needle in e["logger"].lower()
+                or needle in e.get("exception", "").lower()
             ]
 
         if limit and limit > 0:
@@ -118,6 +122,23 @@ class LogBufferHandler(logging.Handler):
 _handler: LogBufferHandler | None = None
 _install_lock = threading.Lock()
 
+# Root, plus "uvicorn": its config sets propagate=False, so request crashes
+# ("uvicorn.error") would otherwise never reach our handlers. "uvicorn.access"
+# also doesn't propagate and stays out on purpose (one line per request).
+_TARGETS = ("", "uvicorn")
+
+
+def _attach(h: logging.Handler) -> None:
+    for name in _TARGETS:
+        lg = logging.getLogger(name)
+        if h not in lg.handlers:
+            lg.addHandler(h)
+
+
+def _detach(h: logging.Handler) -> None:
+    for name in _TARGETS:
+        logging.getLogger(name).removeHandler(h)
+
 
 def install_log_handler(capacity: int = DEFAULT_CAPACITY) -> LogBufferHandler:
     """Attach the buffer handler to the root logger (idempotent)."""
@@ -125,9 +146,7 @@ def install_log_handler(capacity: int = DEFAULT_CAPACITY) -> LogBufferHandler:
     with _install_lock:
         if _handler is None:
             _handler = LogBufferHandler(capacity)
-        root = logging.getLogger()
-        if _handler not in root.handlers:
-            root.addHandler(_handler)
+        _attach(_handler)
     return _handler
 
 
@@ -136,8 +155,40 @@ def remove_log_handler() -> None:
     global _handler
     with _install_lock:
         if _handler is not None:
-            logging.getLogger().removeHandler(_handler)
+            _detach(_handler)
             _handler = None
+
+
+# ---------------------------------------------------------------------------
+# Rotating log file
+# ---------------------------------------------------------------------------
+
+_file_handler: RotatingFileHandler | None = None
+
+
+def install_file_handler(path: Path, max_bytes: int, backups: int) -> RotatingFileHandler:
+    """Mirror the root logger to ``path``, rotated at ``max_bytes`` keeping ``backups`` old files."""
+    global _file_handler
+    with _install_lock:
+        if _file_handler is None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _file_handler = RotatingFileHandler(
+                path, maxBytes=max_bytes, backupCount=backups, encoding="utf-8"
+            )
+            _file_handler.setFormatter(
+                logging.Formatter("%(asctime)s %(levelname)-7s [%(name)s] %(message)s")
+            )
+            _attach(_file_handler)
+    return _file_handler
+
+
+def remove_file_handler() -> None:
+    global _file_handler
+    with _install_lock:
+        if _file_handler is not None:
+            _detach(_file_handler)
+            _file_handler.close()
+            _file_handler = None
 
 
 def get_log_handler() -> LogBufferHandler | None:

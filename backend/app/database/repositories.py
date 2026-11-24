@@ -5,6 +5,7 @@ Domain/services depend on these interfaces, not raw SQL.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Sequence
@@ -12,6 +13,10 @@ from typing import Any, Sequence
 from sqlalchemy import select, update, func, and_, exists, or_, case, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+
+_event_log = logging.getLogger("app.jobs.events")
+_SEVERITY = {"debug": logging.DEBUG, "info": logging.INFO, "warning": logging.WARNING,
+             "error": logging.ERROR, "critical": logging.CRITICAL}
 
 from app.database.models import (
     AppSetting,
@@ -501,6 +506,15 @@ class JobRepository:
     async def add_event(self, job_id: str, **kwargs: Any) -> JobEvent:
         event = JobEvent(job_id=job_id, **kwargs)
         self.session.add(event)
+        # Mirror into the application log so job activity shows in the logs view and file.
+        _event_log.log(
+            _SEVERITY.get(kwargs.get("severity", "info"), logging.INFO),
+            "job %s %s%s: %s",
+            job_id[:8],
+            kwargs.get("kind", "event"),
+            f" [{kwargs['stage']}]" if kwargs.get("stage") else "",
+            kwargs.get("message", ""),
+        )
         await self.session.flush()
         return event
 

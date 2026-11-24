@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     # Paths
     config_dir: Path = Field(default=Path("/config"))
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    log_file_max_mb: int = 10  # <config_dir>/logs/haularr.log rotates at this size
+    log_file_backups: int = 5  # rotated files kept (haularr.log.1 ... .N)
 
     # Server
     host: str = "0.0.0.0"

@@ -19,6 +19,19 @@ from app.settings import Settings, get_settings
 logger = logging.getLogger(__name__)
 
 
+def _alembic_config(settings: Settings):
+    from pathlib import Path
+
+    from alembic.config import Config
+
+    root = Path(__file__).resolve().parents[2]
+    cfg = Config(str(root / "alembic.ini"))
+    cfg.set_main_option("script_location", str(root / "backend" / "migrations"))
+    # The app owns logging; alembic.ini's config would replace its handlers (log view, file).
+    cfg.attributes["configure_logger"] = False
+    return cfg
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application startup and shutdown lifecycle."""
@@ -32,22 +45,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Ensure config dir exists
     settings.config_dir.mkdir(parents=True, exist_ok=True)
 
+    from app.logging_buffer import install_file_handler, remove_file_handler
+    install_file_handler(
+        settings.config_dir / "logs" / "haularr.log",
+        max_bytes=settings.log_file_max_mb * 1024 * 1024,
+        backups=settings.log_file_backups,
+    )
+
     # Initialize database
     from app.database.session import get_engine, close_engine
     engine = get_engine(settings)
 
     # Run migrations on startup
     logger.info("Running database migrations...")
-    from alembic.config import Config
     from alembic import command
     import asyncio
     import os
-    from pathlib import Path
 
     os.environ.setdefault("HAULARR_CONFIG_DIR", str(settings.config_dir))
-    root = Path(__file__).resolve().parents[2]
-    alembic_cfg = Config(str(root / "alembic.ini"))
-    alembic_cfg.set_main_option("script_location", str(root / "backend" / "migrations"))
+    alembic_cfg = _alembic_config(settings)
     # env.py calls asyncio.run(), which can't nest in this loop; run it in a thread.
     # Failure is fatal: serving on a stale schema corrupts data.
     await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
@@ -104,6 +120,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await scheduler.stop()
     await close_engine()
     remove_log_handler()
+    remove_file_handler()
     logger.info("Haularr stopped.")
 
 
