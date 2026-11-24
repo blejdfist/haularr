@@ -636,3 +636,44 @@ async def test_cancelled_job_not_requeued_on_rescan(app, settings):
 
     async with factory() as session:
         assert len((await session.execute(select(Job))).scalars().all()) == 1
+
+
+@pytest.mark.asyncio
+async def test_rescan_skips_classification_once_item_has_job(app, settings):
+    """An item owned by a job must not hit the library again on every scan."""
+    from app.database.session import get_session_factory
+    from app.services.discovery import DiscoveryService
+    import app.services.classification as classification
+
+    factory = get_session_factory(settings)
+    async with factory() as session:
+        source = await SourceRepository(session).create(
+            name="S", adapter_type="rtorrent",
+            connection_config_json={'xmlrpc_url': 'http://rt.example/RPC2'}, credential_ref='',
+            onboarding_state=OnboardingState.COMPLETED.value,
+        )
+        await LabelRuleRepository(session).create(
+            source_id=source.id, label="tv", temporary_directory="/tmp",
+            completed_directory="/tmp", automatic_processing=True,
+        )
+        await session.commit()
+        source_id = source.id
+
+    fake_items = [SourceItemDTO(
+        remote_id="hash1", name="Test.Show.S01E01.1080p", labels=["tv"],
+        status=SourceStatus.COMPLETED, total_bytes=1000,
+    )]
+    real = classification.classify_item
+    spy = AsyncMock(side_effect=real)
+    with (
+        patch("app.adapters.sources.create_source_adapter") as mock_sa,
+        patch.object(classification, "classify_item", spy),
+    ):
+        mock_adapter = AsyncMock()
+        mock_adapter.test_connection = AsyncMock(return_value={"ok": True})
+        mock_adapter.list_items = AsyncMock(return_value=fake_items)
+        mock_sa.return_value = mock_adapter
+        svc = DiscoveryService(settings, b"\x00" * 32)
+        assert (await svc.run_discovery_for_source(source_id))["queued"] == 1
+        await svc.run_discovery_for_source(source_id)
+        assert spy.await_count == 1

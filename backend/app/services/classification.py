@@ -90,29 +90,22 @@ async def classify_item(
         await session.flush()
         return status
 
-    # Test connection
-    try:
-        conn_result = await adapter.test_connection()
-        if not conn_result.get("ok"):
-            status = EligibilityStatus.WAITING_LIBRARY.value
-            reason = conn_result.get("error", "Library unreachable")
-            await _persist_check(session, item.id, rule.id, status, reason)
-            await item_repo.update(item.id, last_eligibility=status)
-            await session.flush()
-            return status
-    except Exception as exc:
-        status = EligibilityStatus.WAITING_LIBRARY.value
-        await _persist_check(session, item.id, rule.id, status, f"Connection failed: {exc}")
-        await item_repo.update(item.id, last_eligibility=status)
-        await session.flush()
-        return status
-
-    # Parse release name
+    # Parse release name. No separate /system/status probe per item: the
+    # adapters turn HTTP errors into an UNKNOWN match carrying parse_data["error"].
     try:
         match = await adapter.parse(item.title)
     except Exception as exc:
         status = EligibilityStatus.NEEDS_REVIEW.value
         await _persist_check(session, item.id, rule.id, status, f"Parse failed: {exc}")
+        await item_repo.update(item.id, last_eligibility=status)
+        await session.flush()
+        return status
+
+    if match.media_type == MediaType.UNKNOWN and "error" in (match.parse_data or {}):
+        status = EligibilityStatus.WAITING_LIBRARY.value
+        await _persist_check(
+            session, item.id, rule.id, status, f"Library unreachable: {match.parse_data['error']}"
+        )
         await item_repo.update(item.id, last_eligibility=status)
         await session.flush()
         return status

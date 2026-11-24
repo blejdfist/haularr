@@ -13,13 +13,14 @@ For each enabled source:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import (
+    EligibilityCheck,
     LibraryInstance,
     SourceInstance,
     SourceItem,
@@ -44,6 +45,14 @@ _AUTO_QUEUE_STATUSES = {
     EligibilityStatus.PARTIALLY_MISSING.value,
     EligibilityStatus.DOWNLOAD_NEEDED.value,
 }
+
+# Verdicts that only change when the library changes; rechecked on a slow cadence.
+_SETTLED_STATUSES = {
+    EligibilityStatus.ALREADY_AVAILABLE.value,
+    EligibilityStatus.NOT_REGISTERED.value,
+    EligibilityStatus.NEEDS_REVIEW.value,
+}
+_RECHECK_AFTER = timedelta(hours=6)
 
 
 def _utcnow() -> datetime:
@@ -238,6 +247,10 @@ class DiscoveryService:
                 await session.commit()
                 return
 
+            if await self._classification_settled(session, item):
+                await session.commit()
+                return
+
             # Load library if configured
             library: LibraryInstance | None = None
             if matched_rule.library_instance_id:
@@ -274,6 +287,32 @@ class DiscoveryService:
                     counts["queued"] += 1
 
             await session.commit()
+
+    async def _classification_settled(self, session: AsyncSession, item: SourceItem) -> bool:
+        """True when re-asking the library on this scan would be wasted.
+
+        Any job (running, finished, cancelled) owns the item. A settled verdict
+        is only rechecked after _RECHECK_AFTER, so a series added to the
+        library later still gets picked up.
+        """
+        has_job = await session.execute(
+            select(Job.id).where(Job.source_item_id == item.id).limit(1)
+        )
+        if has_job.first() is not None:
+            return True
+        if item.last_eligibility not in _SETTLED_STATUSES:
+            return False
+        last = await session.execute(
+            select(func.max(EligibilityCheck.checked_at)).where(
+                EligibilityCheck.source_item_id == item.id
+            )
+        )
+        checked_at = last.scalar()
+        if checked_at is None:
+            return False
+        if checked_at.tzinfo is None:  # SQLite drops tzinfo
+            checked_at = checked_at.replace(tzinfo=timezone.utc)
+        return _utcnow() - checked_at < _RECHECK_AFTER
 
     def _find_matching_rule(
         self, labels: list[str], rules: list[SourceLabelRule]
