@@ -1,7 +1,10 @@
 export type StatusGroup = 'active' | 'failed' | 'done';
 
 export const STATUS_GROUPS: Record<StatusGroup, string[]> = {
-  active: ['queued', 'running', 'retry_wait', 'waiting_source', 'waiting_external', 'paused'],
+  active: [
+    'queued', 'running', 'retry_wait', 'waiting_source', 'waiting_transfer', 'waiting_library',
+    'waiting_approval', 'waiting_external', 'paused',
+  ],
   failed: ['failed', 'needs_attention'],
   done: ['completed', 'completed_with_warnings', 'skipped', 'cancelled'],
 };
@@ -62,7 +65,7 @@ export type IconKind = 'running' | 'queued' | 'pending' | 'done' | 'failed' | 'w
 
 /** Row icon for a job; `blocked` = the job has a reason it is stuck (shown as a warning). */
 export function jobIcon(status: string, blocked = false): IconKind {
-  if (status === 'running') return 'running';
+  if (status === 'running' || status === 'waiting_source') return 'running'; // waiting_source: downloading on the seedbox
   if (status === 'completed') return 'done';
   if (status === 'failed' || status === 'needs_attention') return 'failed';
   if (status === 'completed_with_warnings') return 'warning';

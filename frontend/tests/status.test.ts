@@ -2,13 +2,15 @@ import { describe, it, expect } from 'vitest';
 import { STATUS_GROUPS, groupOf, badgeColor, sourceHealth } from '../src/lib/status';
 
 const ALL = [
-  'queued', 'running', 'waiting_source', 'waiting_external', 'retry_wait', 'paused',
+  'queued', 'running', 'waiting_source', 'waiting_transfer', 'waiting_library', 'waiting_approval',
+  'waiting_external', 'retry_wait', 'paused',
   'needs_attention', 'failed', 'completed', 'completed_with_warnings', 'cancelled', 'skipped',
 ];
 
 describe('status', () => {
   it('groups statuses', () => {
     expect(groupOf('retry_wait')).toBe('active');
+    expect(groupOf('waiting_approval')).toBe('active');
     expect(groupOf('needs_attention')).toBe('failed');
     expect(groupOf('cancelled')).toBe('done');
     expect(groupOf('bogus')).toBeNull();
@@ -54,8 +56,9 @@ import { jobIcon, runIcon } from '../src/lib/status';
 describe('icons', () => {
   it('maps job statuses', () => {
     expect(jobIcon('running')).toBe('running');
-    expect(jobIcon('waiting_source')).toBe('queued');
-    expect(jobIcon('waiting_source', true)).toBe('warning');
+    expect(jobIcon('waiting_source')).toBe('running'); // downloading on the seedbox
+    expect(jobIcon('waiting_library')).toBe('queued');
+    expect(jobIcon('waiting_transfer', true)).toBe('warning');
     expect(jobIcon('needs_attention')).toBe('failed');
     expect(jobIcon('completed')).toBe('done');
   });
