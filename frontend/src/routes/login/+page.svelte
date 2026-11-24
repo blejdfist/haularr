@@ -35,7 +35,7 @@
   <enhanced:img src={logo} alt="Haularr" class="mx-auto mb-8 h-auto w-64" sizes="256px" />
   {#if setup !== null}
   <Card class="p-6">
-    <h1 class="mb-4 text-xl font-bold">{setup ? 'Create admin account' : 'Sign in'}</h1>
+    {#if setup}<h1 class="mb-4 text-xl font-bold">Create admin account</h1>{/if}
     {#if error}<Alert color="red" class="mb-4">{error}</Alert>{/if}
     <form onsubmit={submit} class="grid gap-4">
       <div>
