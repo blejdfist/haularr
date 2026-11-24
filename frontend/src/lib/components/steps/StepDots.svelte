@@ -14,6 +14,10 @@
     pending: 'bg-gray-400 dark:bg-gray-500',
   };
   const idle = 'bg-gray-300 dark:bg-gray-600';
+  // With progress the pill becomes a neutral well that the front layer fills with blue: gray at 0%,
+  // solid blue at 100%. Different hues (not two blues) keep the fill's front edge easy to find.
+  const well = 'bg-gray-600';
+  const back = (s: Step, i: number) => (i === cur && s.state === 'active' && s.progress != null ? well : fill[s.state]);
 </script>
 
 <!--
@@ -30,15 +34,28 @@
         <span class="h-1 w-3 shrink-0 transition-colors duration-500 {front ? '' : i <= cur ? fill[steps[i - 1].state] : idle}"></span>
       {/if}
       <span
-        class="step {i === cur ? 'cur' : ''} {front ? 'text-white' : `text-transparent ${fill[s.state]}`}"
+        class="step {i === cur ? 'cur' : ''} {front ? 'text-white' : `text-transparent ${back(s, i)}`}"
         title={front && i !== cur ? `${s.label}: ${s.state}` : undefined}
       >
-        {#if front && i === cur && s.state === 'active' && s.progress != null}
-          <!-- progress fills the pill instead of widening it: light fill plus a solid bottom edge -->
+        {#if front}
+          {@const metered = i === cur && s.state === 'active' && s.progress != null}
+          {@const finished = s.state === 'done' || s.state === 'skipped'}
+          <!-- At 0% the extra 2px keeps the front-edge line from peeking in at the pill's left end. -->
+          <!-- Every step keeps its fill element, so a metered stage that finishes fills up, turns green while
+               it shrinks to a dot, then fades into the green dot behind it. The fill is a full-width layer slid
+               in from the left (the pill clips it): a composited transform, not a width change. -->
+          <!-- full: still the active stage but without a percentage (Unpack moves on from extract to move),
+               so the fill completes and fades out over the solid pill instead of sliding back. -->
+          {@const full = !metered && i === cur && s.state === 'active'}
           <span
-            class="absolute inset-y-0 left-0 border-b-2 border-white bg-white/30 transition-[width] duration-700"
-            style="width: {s.progress}%"
+            class="flow {metered ? 'metered' : finished ? 'finished' : full ? 'full' : ''}"
+            style="transform: translateX({metered ? Math.min(100, Math.max(0, s.progress ?? 0)) - 100 : finished || full ? 0 : -100}%) translateX({metered && !s.progress ? '-2px' : '0px'})"
           ></span>
+          {#if i === cur && s.state === 'active'}
+            <!-- Sweeps the whole pill on any active stage: with a percentage it rides over the fill, without
+                 one (verify, import, ...) it is the indeterminate signal that work is still going on. -->
+            <span class="sheen"></span>
+          {/if}
         {/if}
         <span class="label relative">{s.label}</span>
       </span>
@@ -75,10 +92,11 @@
     font-size: 0.75rem;
     font-weight: 600;
     line-height: 1;
+    /* Stage changes wait a beat, so a progress bar finishes filling at full width before the pill shrinks. */
     transition:
-      width 0.5s ease,
-      height 0.4s ease,
-      background-color 0.5s ease;
+      width 0.5s ease 0.25s,
+      height 0.4s ease 0.25s,
+      background-color 0.5s ease 0.25s;
   }
   .step.cur {
     height: 1.25rem;
@@ -90,12 +108,74 @@
   }
   .cur .label {
     opacity: 1;
-    transition-delay: 0.2s;
+    transition-delay: 0.45s;
+  }
+  .flow {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    background-color: var(--color-blue-600);
+    /* A light front edge marks exactly where the progress is. */
+    box-shadow: inset -2px 0 0 var(--color-blue-300);
+    /* Linear and about as long as the gap between progress events, so updates read as one continuous fill.
+       A stage that ends mid-glide is caught by .finished, which fills the rest before the pill shrinks. */
+    transition:
+      transform 1s linear,
+      background-color 0.5s ease,
+      box-shadow 0.3s ease,
+      opacity 0.3s ease;
+  }
+  /* Hidden fills reset only after fading out, so they never visibly slide backwards. */
+  .flow:not(.metered, .finished, .full) {
+    transition:
+      transform 0s 0.3s,
+      opacity 0.3s ease;
+  }
+  .flow.metered {
+    opacity: 1;
+  }
+  /* Fill the rest before the pill starts shrinking (0.25s), turn green alongside the shrink to a dot,
+     then hand over to the dot behind. */
+  .flow.finished {
+    background-color: var(--color-green-600);
+  }
+  .flow.finished,
+  .flow.full {
+    /* The edge line goes as the fill reaches the end, before the pill shrinks and would drag it back. */
+    box-shadow: inset 0 0 0 transparent;
+    transition:
+      transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+      background-color 0.5s ease 0.25s,
+      box-shadow 0.1s ease 0.15s,
+      opacity 0.3s ease 0.75s;
+  }
+  .sheen {
+    position: absolute;
+    inset: 0;
+    width: 2.5rem;
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.2), transparent);
+    transform: translateX(-2.5rem);
+    animation: sheen 2.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+  /* Translate by the pill's full width (4.25rem) so the sweep crosses all of it. */
+  @keyframes sheen {
+    to {
+      transform: translateX(4.25rem);
+    }
   }
   @media (prefers-reduced-motion: reduce) {
     .step,
     .label {
       transition: none;
+    }
+    .flow,
+    .flow.finished,
+    .flow.full,
+    .flow:not(.metered, .finished, .full) {
+      transition: none;
+    }
+    .sheen {
+      display: none;
     }
   }
 </style>

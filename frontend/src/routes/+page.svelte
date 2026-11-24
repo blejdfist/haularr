@@ -146,7 +146,10 @@
 </script>
 
 {#snippet steps(j: Job)}
-  <StepDots steps={jobSteps(j, progress[j.id]?.stage === j.stage ? progress[j.id].pct : undefined)} />
+  <!-- Live progress until the stream sends some; transfer bytes come with the job itself, so a reload doesn't show 0%. -->
+  {@const live = progress[j.id]?.stage === j.stage ? progress[j.id].pct : undefined}
+  {@const listed = j.stage === 'transfer' && j.download_bytes_total ? Math.round((j.download_bytes_done * 100) / j.download_bytes_total) : undefined}
+  <StepDots steps={jobSteps(j, live ?? listed)} />
 {/snippet}
 
 <div class="space-y-5">

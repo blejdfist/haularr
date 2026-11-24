@@ -45,6 +45,11 @@ describe('jobSteps', () => {
     expect(jobSteps({ status: 'running', stage: 'transfer' }, 40)[2].progress).toBe(40);
     expect(jobSteps({ status: 'waiting_transfer', stage: 'transfer' }, 40)[2].progress).toBeUndefined();
   });
+  it('metered stages start at 0 before any progress arrives', () => {
+    expect(jobSteps({ status: 'queued', stage: 'transfer' })[2].progress).toBe(0);
+    expect(jobSteps({ status: 'running', stage: 'move' })[4].progress).toBeUndefined();
+    expect(jobSteps({ status: 'running', stage: 'verify' })[3].progress).toBeUndefined();
+  });
   it('extract progress shows on the unpack phase', () => {
     expect(jobSteps({ status: 'running', stage: 'extract' }, 30)[4].progress).toBe(30);
   });

@@ -26,6 +26,9 @@ const STATE: Record<string, StepState> = {
   cancelled: 'failed',
 };
 
+/** Stages that report byte progress; while active they start at 0% instead of showing no progress. */
+const METERED = ['source_download', 'transfer', 'extract'];
+
 type JobLike = { status: string; stage: string; error_code?: string | null; error_detail?: string | null };
 
 export function reasonFor(job: JobLike): string | undefined {
@@ -47,7 +50,7 @@ export function jobSteps(job: JobLike, progress?: number): Step[] {
     if (!state || i < cur) return { ...base, state: 'done' };
     if (i > cur) return { ...base, state: 'pending' };
     // Live progress (seedbox download, transfer or extract) belongs to whichever phase is running.
-    if (state === 'active') return { ...base, state, progress };
+    if (state === 'active') return { ...base, state, progress: progress ?? (METERED.includes(job.stage) ? 0 : undefined) };
     return { ...base, state, reason: reasonFor(job) };
   });
 }
