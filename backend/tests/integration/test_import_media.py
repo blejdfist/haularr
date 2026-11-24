@@ -145,7 +145,7 @@ async def test_import_pending():
         ),
     )
 
-    result = await run_import_stage(adapter, "/path", match)
+    result = await run_import_stage(adapter, "/path", match, timeout=0)
 
     assert not result.success
     assert result.pending is True

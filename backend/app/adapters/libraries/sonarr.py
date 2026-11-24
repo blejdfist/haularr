@@ -148,11 +148,9 @@ class SonarrAdapter:
             return ImportInspection(all_rejected=True)
 
         try:
-            candidates_raw = await self._get(
-                "/manualimport",
-                folder=ready_path,
-                seriesId=match.catalog_id,
-            )
+            # folder only: with seriesId (and no downloadId) Sonarr ignores folder and
+            # scans the series' library folder instead (500 if it doesn't exist yet).
+            candidates_raw = await self._get("/manualimport", folder=ready_path)
         except Exception as exc:
             logger.error("Sonarr inspect_import failed: %s", exc)
             return ImportInspection(all_rejected=True)
@@ -164,7 +162,9 @@ class SonarrAdapter:
             episode_ids = [ep["id"] for ep in item.get("episodes", []) if ep.get("id")]
             quality = item.get("quality", {}).get("quality", {}).get("name", "")
             custom_formats = [cf.get("name", "") for cf in item.get("customFormats", [])]
-            media_id = match.catalog_id
+            series_id = (item.get("series") or {}).get("id")
+            if series_id != match.catalog_id:
+                rejections.append(f"Matched series {series_id}, expected {match.catalog_id}")
 
             candidates.append(
                 ImportCandidate(
@@ -173,8 +173,11 @@ class SonarrAdapter:
                     quality=quality,
                     custom_formats=custom_formats,
                     rejection_reasons=rejections,
-                    media_id=media_id,
+                    media_id=match.catalog_id,
                     episode_ids=episode_ids,
+                    quality_model=item.get("quality") or {},
+                    languages=item.get("languages") or [],
+                    release_group=item.get("releaseGroup") or "",
                 )
             )
 
@@ -189,10 +192,9 @@ class SonarrAdapter:
                 "path": c.absolute_path,
                 "seriesId": c.media_id,
                 "episodeIds": c.episode_ids,
-                "quality": {"quality": {"id": 0}},  # Let Sonarr determine
-                "languages": [],
-                "releaseGroup": "",
-                "downloadId": None,
+                "quality": c.quality_model,  # as detected by Sonarr in the GET
+                "languages": c.languages,
+                "releaseGroup": c.release_group,
             })
 
         body = {
@@ -227,21 +229,17 @@ class SonarrAdapter:
 
         cmd_status = cmd.get("status", "unknown")
         if cmd_status == "completed":
-            # Check actual episode files in library to confirm
-            if match.catalog_id:
-                try:
-                    ep_files = await self._get(
-                        "/episodefile", seriesId=match.catalog_id
-                    )
-                    imported = [ef.get("path", "") for ef in ep_files]
-                    return ImportOutcome(
-                        success=True,
-                        imported_paths=imported,
-                        details={"command_status": cmd_status},
-                    )
-                except Exception:
-                    pass
-            return ImportOutcome(success=True, details={"command_status": cmd_status})
+            # A completed ManualImport can still have imported nothing: check the episodes.
+            episodes = await self._get("/episode", episodeIds=match.episode_ids) if match.episode_ids else []
+            missing = [e["id"] for e in episodes if not e.get("hasFile")]
+            if missing:
+                return ImportOutcome(
+                    success=False,
+                    details={"command_status": cmd_status, "error": f"Episodes {missing} still have no file"},
+                )
+            return ImportOutcome(
+                success=True, imported_paths=operation.candidates, details={"command_status": cmd_status}
+            )
         elif cmd_status in ("failed", "aborted"):
             return ImportOutcome(
                 success=False,

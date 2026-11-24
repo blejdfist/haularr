@@ -75,6 +75,7 @@ class FTPSAdapter:
         ftp.login(self._username, self._password)
         ftp.prot_p()  # Protect data channel (PBSZ 0, PROT P)
         ftp.set_pasv(self._passive)
+        ftp.voidcmd("TYPE I")  # binary; servers refuse SIZE in ASCII mode ("550 SIZE not allowed")
         return ftp
 
     async def test_connection(self) -> dict:
@@ -143,9 +144,8 @@ class FTPSAdapter:
                                 remote_path, f.size_bytes, size,
                             )
                             found.append(f)
-                    except error_perm:
-                        # File not found
-                        pass
+                    except error_perm as exc:  # usually not found; log so other refusals show up
+                        logger.info("inspect: %s: %s", remote_path, exc)
                     except Exception as exc:
                         logger.debug("inspect: error checking %s: %s", remote_path, exc)
             finally:

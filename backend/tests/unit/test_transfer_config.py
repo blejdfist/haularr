@@ -41,7 +41,11 @@ def test_connect_uses_configured_port(monkeypatch):
         def set_pasv(self, v):
             pass
 
+        def voidcmd(self, cmd):
+            calls["voidcmd"] = cmd
+
     monkeypatch.setattr(ftps, "FTP_TLS", FakeFTPTLS)
     FTPSAdapter(transfer_id="t", host="ftp.x", port=2121, username="u", password="pw")._connect()
     assert calls["connect"] == ("ftp.x", 2121)
     assert calls["login"] == ("u", "pw")
+    assert calls["voidcmd"] == "TYPE I"  # SIZE is refused in ASCII mode

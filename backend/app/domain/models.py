@@ -214,6 +214,10 @@ class ImportCandidate(BaseModel):
     rejection_reasons: list[str] = Field(default_factory=list)
     media_id: int | None = None
     episode_ids: list[int] = Field(default_factory=list)
+    # As the Arr reported them in ManualImport GET; sent back unchanged on submit.
+    quality_model: dict = Field(default_factory=dict)
+    languages: list[dict] = Field(default_factory=list)
+    release_group: str = ""
 
 
 class ImportInspection(BaseModel):

@@ -234,7 +234,8 @@ class JobRunner:
                 })
                 return StageResult(StageRunStatus.SUCCEEDED)
 
-            transfer_config = self._transfer_config(transfer, endpoints[0])
+            endpoint = endpoints[0]
+            transfer_config = self._transfer_config(transfer, endpoint)
 
             from app.adapters.transfers import create_transfer_adapter
             from app.domain.models import SourceItemDTO, SourceStatus

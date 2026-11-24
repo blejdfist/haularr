@@ -141,11 +141,8 @@ class RadarrAdapter:
             return ImportInspection(all_rejected=True)
 
         try:
-            candidates_raw = await self._get(
-                "/manualimport",
-                folder=ready_path,
-                movieId=match.catalog_id,
-            )
+            # folder only: with movieId Radarr ignores folder and scans the movie's library folder.
+            candidates_raw = await self._get("/manualimport", folder=ready_path)
         except Exception as exc:
             logger.error("Radarr inspect_import failed: %s", exc)
             return ImportInspection(all_rejected=True)
@@ -156,7 +153,9 @@ class RadarrAdapter:
             rejections = [r.get("reason", "") for r in item.get("rejections", [])]
             quality = item.get("quality", {}).get("quality", {}).get("name", "")
             custom_formats = [cf.get("name", "") for cf in item.get("customFormats", [])]
-            media_id = match.catalog_id
+            movie_id = (item.get("movie") or {}).get("id")
+            if movie_id != match.catalog_id:
+                rejections.append(f"Matched movie {movie_id}, expected {match.catalog_id}")
 
             candidates.append(
                 ImportCandidate(
@@ -165,7 +164,10 @@ class RadarrAdapter:
                     quality=quality,
                     custom_formats=custom_formats,
                     rejection_reasons=rejections,
-                    media_id=media_id,
+                    media_id=match.catalog_id,
+                    quality_model=item.get("quality") or {},
+                    languages=item.get("languages") or [],
+                    release_group=item.get("releaseGroup") or "",
                 )
             )
 
@@ -179,10 +181,9 @@ class RadarrAdapter:
             files.append({
                 "path": c.absolute_path,
                 "movieId": c.media_id,
-                "quality": {"quality": {"id": 0}},  # Let Radarr determine
-                "languages": [],
-                "releaseGroup": "",
-                "downloadId": None,
+                "quality": c.quality_model,  # as detected by Radarr in the GET
+                "languages": c.languages,
+                "releaseGroup": c.release_group,
             })
 
         body = {
@@ -217,19 +218,18 @@ class RadarrAdapter:
 
         cmd_status = cmd.get("status", "unknown")
         if cmd_status == "completed":
-            if match.catalog_id:
-                try:
-                    movie = await self._get(f"/movie/{match.catalog_id}")
-                    if movie.get("hasFile"):
-                        movie_file_path = movie.get("movieFile", {}).get("path", "")
-                        return ImportOutcome(
-                            success=True,
-                            imported_paths=[movie_file_path] if movie_file_path else [],
-                            details={"command_status": cmd_status},
-                        )
-                except Exception:
-                    pass
-            return ImportOutcome(success=True, details={"command_status": cmd_status})
+            # A completed ManualImport can still have imported nothing: check the movie.
+            movie = await self._get(f"/movie/{match.catalog_id}")
+            if not movie.get("hasFile"):
+                return ImportOutcome(
+                    success=False, details={"command_status": cmd_status, "error": "Movie still has no file"}
+                )
+            movie_file_path = (movie.get("movieFile") or {}).get("path", "")
+            return ImportOutcome(
+                success=True,
+                imported_paths=[movie_file_path] if movie_file_path else [],
+                details={"command_status": cmd_status},
+            )
         elif cmd_status in ("failed", "aborted"):
             return ImportOutcome(
                 success=False,

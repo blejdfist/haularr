@@ -262,6 +262,8 @@ class JobScheduler:
                     worker_token=None,
                     lease_expires_at=None,
                     attempts=0,
+                    error_code=None,  # a retried stage's error no longer applies
+                    error_detail=None,
                 )
                 await repo.add_event(
                     job_id=job_id,

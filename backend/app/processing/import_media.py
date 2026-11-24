@@ -11,6 +11,7 @@ Track per-file outcomes.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -32,6 +33,7 @@ async def run_import_stage(
     library_adapter: Any,
     ready_path: str,
     match: Any,
+    timeout: float = 300,
 ) -> ImportProcessResult:
     """Inspect and submit import for accepted candidates.
 
@@ -73,12 +75,18 @@ async def run_import_stage(
         result.error = f"Submit failed: {e}"
         return result
 
-    # Step 3: Reconcile
-    try:
-        outcome = await library_adapter.reconcile_import(operation, match)
-    except Exception as e:
-        result.error = f"Reconcile failed: {e}"
-        return result
+    # Step 3: Reconcile. The Arr command is queued at first; wait for it here, since a
+    # retry of this stage would re-inspect a folder the Arr has already moved files out of.
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        try:
+            outcome = await library_adapter.reconcile_import(operation, match)
+        except Exception as e:
+            result.error = f"Reconcile failed: {e}"
+            return result
+        if not outcome.details.get("pending") or asyncio.get_running_loop().time() >= deadline:
+            break
+        await asyncio.sleep(2)
 
     if outcome.success:
         result.success = True
