@@ -22,7 +22,7 @@ from app.security import decrypt_secret
 from app.database.repositories import JobRepository
 from app.database.session import get_session_factory
 from app.logging_buffer import job_name
-from app.domain.models import JobStage, StageRunStatus, TransferStatus
+from app.domain.models import EligibilityStatus, JobStage, StageRunStatus, TransferStatus
 from app.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,15 @@ class StageResult:
     error_detail: str = ""
     retryable: bool = True
     progress: dict[str, Any] = None
+
+
+# Library verdicts that stop the job at check_library: (error_code, detail). The scheduler
+# turns the first two into a waiting status / skipped (see scheduler._PARKED).
+_LIBRARY_VERDICTS = {
+    EligibilityStatus.NOT_REGISTERED.value: ("not_registered", "Not in library yet"),
+    EligibilityStatus.ALREADY_AVAILABLE.value: ("already_available", "Already in library"),
+    EligibilityStatus.NEEDS_REVIEW.value: ("needs_review", "Library needs review"),
+}
 
 
 class JobRunner:
@@ -124,6 +133,7 @@ class JobRunner:
     def _get_stage_handler(self) -> Any:
         """Return the handler function for the current stage."""
         handlers = {
+            JobStage.CHECK_LIBRARY.value: self._stage_check_library,
             JobStage.TRANSFER.value: self._stage_transfer,
             JobStage.VERIFY.value: self._stage_verify,
             JobStage.EXTRACT.value: self._stage_extract,
@@ -172,6 +182,40 @@ class JobRunner:
             source_id = job.config_snapshot_json.get("source_id")
             source = await session.get(SourceInstance, source_id) if source_id else None
             return source.default_transfer_id if source else None
+
+    async def _stage_check_library(self, job: Any, stage_run_id: str) -> StageResult:
+        """Ask the library (fresh, no cached verdict) whether this release is wanted, then gate on the rule."""
+        from app.database.models import LibraryInstance, SourceItem, SourceLabelRule
+        from app.services import classification
+
+        async with get_session_factory(self.settings)() as session:
+            item = await session.get(SourceItem, job.source_item_id)
+            rule = await session.get(SourceLabelRule, job.rule_id)
+            if not item or not rule:
+                return StageResult(
+                    StageRunStatus.FAILED, "item_not_found", "Source item or tag rule not found", False
+                )
+            library = (
+                await session.get(LibraryInstance, rule.library_instance_id)
+                if rule.library_instance_id else None
+            )
+            eligibility = await classification.classify_item(
+                session, item, rule, library, self._get_master_key()
+            )
+            automatic = rule.automatic_processing
+            await session.commit()
+
+        await self._update_progress(stage_run_id, {"eligibility": eligibility})
+        if eligibility == EligibilityStatus.WAITING_LIBRARY.value:
+            return StageResult(StageRunStatus.FAILED, "library_unreachable", "Library unreachable", True)
+        parked = _LIBRARY_VERDICTS.get(eligibility)
+        if parked:
+            return StageResult(StageRunStatus.NEEDS_ATTENTION, *parked, False)
+        if not automatic and not job.config_snapshot_json.get("approved"):
+            return StageResult(
+                StageRunStatus.NEEDS_ATTENTION, "awaiting_approval", "Waiting for you to start it", False
+            )
+        return StageResult(StageRunStatus.SUCCEEDED)
 
     async def _stage_transfer(self, job: Any, stage_run_id: str) -> StageResult:
         """Transfer files from the remote endpoint to Path A."""

@@ -175,6 +175,24 @@ async def restart_job(job_id: str, session: AsyncSession = Depends(get_session))
     return {"status": "queued", "job_id": job_id}
 
 
+@router.post("/jobs/{job_id}/approve")
+async def approve_job(job_id: str, session: AsyncSession = Depends(get_session)):
+    """Start a job whose tag rule doesn't process automatically; 409 unless it is waiting for that."""
+    repo = JobRepository(session)
+    job = await repo.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "waiting_approval":
+        raise HTTPException(status_code=409, detail=f"Job is {job.status}, not waiting for approval")
+    await repo.update(
+        job_id, status="queued", error_code=None, error_detail=None,
+        config_snapshot_json={**job.config_snapshot_json, "approved": True},
+    )
+    await repo.add_event(job_id=job_id, severity="info", kind="job.approved", message="Job started by user")
+    await session.commit()
+    return {"status": "queued", "job_id": job_id}
+
+
 @router.post("/jobs/{job_id}/cancel")
 async def cancel_job(job_id: str, session: AsyncSession = Depends(get_session)):
     """Cancel a job."""
