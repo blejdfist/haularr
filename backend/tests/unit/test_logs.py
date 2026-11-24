@@ -126,3 +126,23 @@ async def test_logs_includes_exception_traceback(auth_client):
     entries = response.json()["entries"]
     assert entries and entries[0]["exception"]
     assert "ValueError: boom" in entries[0]["exception"]
+
+
+@pytest.mark.asyncio
+async def test_logs_resolve_ids_to_names(auth_client, settings):
+    """Ids of known sources in messages come back with their display name."""
+    from app.database.repositories import SourceRepository
+    from app.database.session import get_session_factory
+
+    async with get_session_factory(settings)() as session:
+        src = await SourceRepository(session).create(
+            name="Seedbox", adapter_type="rtorrent", connection_config_json={}, credential_ref="",
+        )
+        await session.commit()
+
+    handler = install_log_handler()
+    handler.clear()
+    _logger("test.logs.names").info("Source %s scan done", src.id)
+
+    data = (await auth_client.get("/api/v1/logs")).json()
+    assert data["names"] == {src.id: "Seedbox"}

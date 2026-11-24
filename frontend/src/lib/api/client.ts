@@ -160,6 +160,8 @@ export interface Job {
   config_snapshot: Record<string, any>;
   created_at: string | null;
   ended_at: string | null;
+  download_bytes_done: number;
+  download_bytes_total: number;
 }
 
 export interface LogEntry {
@@ -174,6 +176,8 @@ export interface LogsResponse {
   entries: LogEntry[];
   total: number;
   capacity: number;
+  /** Display names for ids mentioned in messages. */
+  names: Record<string, string>;
 }
 
 type Page<T> = { items: T[]; total: number; offset: number; limit: number };

@@ -510,7 +510,7 @@ class JobRepository:
         _event_log.log(
             _SEVERITY.get(kwargs.get("severity", "info"), logging.INFO),
             "job %s %s%s: %s",
-            job_id[:8],
+            job_id,  # full id: the logs view swaps it for the job title
             kwargs.get("kind", "event"),
             f" [{kwargs['stage']}]" if kwargs.get("stage") else "",
             kwargs.get("message", ""),

@@ -10,6 +10,7 @@
   let entries = $state<LogEntry[]>([]);
   let total = $state(0);
   let capacity = $state(0);
+  let names = $state<Record<string, string>>({});
   let loading = $state(true);
   let error = $state('');
   let autoRefresh = $state(true);
@@ -24,6 +25,7 @@
       entries = data.entries;
       total = data.total;
       capacity = data.capacity;
+      names = data.names ?? {};
       error = '';
     } catch (e: any) {
       error = e.message;
@@ -53,6 +55,9 @@
     return 'gray';
   }
 
+  // Split on ids (capturing group keeps them) so known ones can show as names.
+  const ID = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/;
+
   function fmtTime(s: string): string {
     const d = new Date(s);
     const now = new Date();
@@ -64,7 +69,8 @@
   }
 </script>
 
-<div class="space-y-4">
+<!-- Fill the viewport below the page padding (and the mobile top bar) so the list scrolls, not the page. -->
+<div class="flex h-[calc(100dvh-5.6rem)] flex-col gap-4 lg:h-[calc(100dvh-3rem)]">
   <div class="flex flex-wrap items-end justify-between gap-2">
     <div>
       <h1 class="text-2xl font-bold">Application logs</h1>
@@ -109,7 +115,7 @@
     <p class="py-8 text-center text-gray-500">No log entries match the current filters.</p>
   {:else}
     <div
-      class="max-h-[70vh] overflow-auto rounded-lg border border-gray-200 bg-white font-mono text-sm dark:border-gray-700 dark:bg-gray-800"
+      class="min-h-0 flex-1 overflow-auto rounded-lg border border-gray-200 bg-white font-mono text-sm dark:border-gray-700 dark:bg-gray-800"
     >
       {#each entries as e (e.timestamp + e.message)}
         <div
@@ -121,7 +127,12 @@
               <Badge color={levelColor(e.level)} class="font-mono">{e.level}</Badge>
             </span>
             <span class="shrink-0 truncate text-gray-400" title={e.logger}>{e.logger}</span>
-            <span class="break-all">{e.message}</span>
+            <span class="break-all"
+              >{#each e.message.split(ID) as part}{#if names[part]}<span
+                    class="font-semibold text-primary-600 dark:text-primary-400"
+                    title={part}>{names[part]}</span
+                  >{:else}{part}{/if}{/each}</span
+            >
           </div>
           {#if e.exception}
             <details class="mt-1 pl-[7.75rem]">
