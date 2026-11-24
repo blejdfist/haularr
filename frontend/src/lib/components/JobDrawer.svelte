@@ -19,11 +19,30 @@
   let error = $state('');
   let busy = $state(false);
   let selected = $state<string | undefined>();
+  // Per-stage transfer rate, sampled across polls: seconds left for each running stage with progress.
+  let rates: Record<string, { got: number; t: number; rate?: number }> = {};
+  let etas = $state<Record<string, number>>({});
+
+  function sample(stage: string, p: { got: number; total: number } | null) {
+    if (!p) return;
+    const now = Date.now();
+    const prev = rates[stage];
+    if (!prev || p.got < prev.got) rates[stage] = { got: p.got, t: now };
+    else if (p.got > prev.got) {
+      const r = (p.got - prev.got) / ((now - prev.t) / 1000);
+      // Smooth so one slow poll doesn't make the estimate jump around.
+      rates[stage] = { got: p.got, t: now, rate: prev.rate ? prev.rate * 0.7 + r * 0.3 : r };
+    }
+    const rate = rates[stage].rate;
+    if (rate) etas[stage] = (p.total - p.got) / rate;
+  }
 
   async function load(id: string) {
     error = '';
     try {
       [job, events] = await Promise.all([endpoints.jobs.get(id), endpoints.jobs.events(id)]);
+      for (const r of job.stage_runs ?? [])
+        if (r.status === 'running') sample(r.stage, r.stage === 'download' ? fetched : bytes(r.progress));
     } catch (e: any) {
       error = e.message;
     }
@@ -36,6 +55,8 @@
         job = null;
         events = [];
         selected = undefined;
+        rates = {};
+        etas = {};
         load(id);
       });
       // Live view: refresh while open so stage changes show up without reopening.
@@ -79,8 +100,10 @@
   function took(r: any): string {
     if (!r.started_at) return '';
     const end = r.ended_at ? parseUtc(r.ended_at).getTime() : Date.now();
-    const s = (end - parseUtc(r.started_at).getTime()) / 1000;
-    if (s < 60) return `${s.toFixed(1)}s`;
+    return dur((end - parseUtc(r.started_at).getTime()) / 1000);
+  }
+  function dur(s: number, tenths = true): string {
+    if (s < 60) return tenths ? `${s.toFixed(1)}s` : `${Math.max(1, Math.round(s))}s`;
     if (s < 3600) return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
     return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
   }
@@ -112,7 +135,7 @@
               <div class="h-full bg-blue-600 transition-[width] duration-700" style="width: {bar.pct}%"></div>
             </div>
             <div class="mt-1 text-xs text-gray-600 dark:text-gray-300">
-              {bar.pct}% · {size(bar.got)} / {size(bar.total)}
+              {bar.pct}% · {size(bar.got)} / {size(bar.total)}{#if etas[st] != null && bar.got < bar.total}{` · ~${dur(etas[st], false)} left`}{/if}
             </div>
           </div>
         {/if}

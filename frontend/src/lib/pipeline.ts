@@ -56,7 +56,10 @@ type RunLike = { stage: string; started_at: string | null };
 export function currentRuns<R extends RunLike>(runs: R[]): Map<string, R> {
   const order = PHASES.flatMap((p) => p.stages);
   const latest = new Map<string, R>();
-  const sorted = [...runs].sort((a, b) => (a.started_at ?? '').localeCompare(b.started_at ?? ''));
+  // Same start time (e.g. second resolution): fall back to pipeline order.
+  const sorted = [...runs].sort(
+    (a, b) => (a.started_at ?? '').localeCompare(b.started_at ?? '') || order.indexOf(a.stage) - order.indexOf(b.stage),
+  );
   for (const r of sorted) {
     for (const st of order.slice(order.indexOf(r.stage) + 1)) latest.delete(st);
     latest.set(r.stage, r);

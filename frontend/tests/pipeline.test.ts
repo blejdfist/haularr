@@ -63,4 +63,13 @@ describe('currentRuns', () => {
     expect(m.get('import')?.status).toBe('running');
     expect(m.has('confirm_import')).toBe(false);
   });
+
+  it('runs with the same start time keep pipeline order', () => {
+    const t = '2026-01-01T00:00:00';
+    const runs = currentRuns([
+      { stage: 'download', started_at: t, status: 'running' },
+      { stage: 'resolve_source', started_at: t, status: 'succeeded' },
+    ]);
+    expect(runs.get('download')?.status).toBe('running');
+  });
 });
