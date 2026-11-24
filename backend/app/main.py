@@ -167,7 +167,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title="Haularr",
         description=(
             "Download Orchestrator for self-hosted media automation.\n\n"
-            "All endpoints except `POST /auth/setup`, `POST /auth/login` and `GET /health` "
+            "All endpoints except `/auth/setup`, `POST /auth/login` and `GET /health` "
             "require `Authorization: Bearer <token>`; get a token from `POST /auth/login`.\n\n"
             "Everything is available as plain request/response JSON. The `events` streams are "
             "an optional push channel for UIs: they carry changes only, so a client fetches "
@@ -227,8 +227,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 def cli() -> None:
-    """CLI entry point for `python -m app.main` or `haularr`."""
+    """CLI entry point for `python -m app.main` or `haularr`. Pass `--reload` in development."""
+    import argparse
+
     import uvicorn
+
+    parser = argparse.ArgumentParser(
+        prog="haularr",
+        description="Run the Haularr server. Configure via HAULARR_* environment variables or .env.",
+    )
+    parser.add_argument("--reload", action="store_true", help="restart on code changes (development)")
+    reload = parser.parse_args().reload
     settings = get_settings()
     uvicorn.run(
         "app.main:create_app",
@@ -237,6 +246,8 @@ def cli() -> None:
         port=settings.port,
         workers=1,  # Single process — scheduler is in-process
         log_level=settings.log_level.lower(),
+        reload=reload,
+        reload_dirs=[str(Path(__file__).parent)] if reload else None,
     )
 
 
