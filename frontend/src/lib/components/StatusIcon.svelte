@@ -1,7 +1,13 @@
 <script lang="ts">
   import type { IconKind } from '$lib/status';
 
-  let { kind, tip, class: cls = 'h-5 w-5' }: { kind: IconKind; tip?: string; class?: string } = $props();
+  /** draw: the job just finished in front of the user; the done mark pops and its check draws in. */
+  let {
+    kind,
+    tip,
+    draw = false,
+    class: cls = 'h-5 w-5',
+  }: { kind: IconKind; tip?: string; draw?: boolean; class?: string } = $props();
 
   const LABEL: Record<IconKind, string> = {
     running: 'Running',
@@ -27,8 +33,17 @@
       <circle cx="12" cy="12" r="9" fill="none" stroke-width="3" class="stroke-blue-500/25" />
       <path d="M12 3a9 9 0 0 1 9 9" fill="none" stroke-width="3" stroke-linecap="round" class="stroke-blue-500" />
     {:else if kind === 'done'}
-      <circle cx="12" cy="12" r="10" class="fill-green-600" />
-      <path d="m7.5 12.5 3 3 6-6.5" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+      <circle cx="12" cy="12" r="10" class="fill-green-600 {draw ? 'pop' : ''}" />
+      <path
+        d="m7.5 12.5 3 3 6-6.5"
+        pathLength="1"
+        class={draw ? 'tick' : ''}
+        fill="none"
+        stroke="white"
+        stroke-width="2.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
     {:else if kind === 'failed'}
       <circle cx="12" cy="12" r="10" class="fill-red-600" />
       <path d="m8.5 8.5 7 7m0-7-7 7" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" />
@@ -68,3 +83,34 @@
 {:else}
   <span class="inline-flex" role="img" aria-label={LABEL[kind]}>{@render icon()}</span>
 {/if}
+
+<style>
+  .pop {
+    transform-origin: center;
+    transform-box: fill-box;
+    animation: pop 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @keyframes pop {
+    from {
+      transform: scale(0.5);
+    }
+  }
+  .tick {
+    stroke-dasharray: 1;
+    animation: tick 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.15s backwards;
+  }
+  @keyframes tick {
+    from {
+      stroke-dashoffset: 1;
+    }
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pop,
+    .tick {
+      animation: none;
+    }
+  }
+</style>

@@ -4,7 +4,7 @@
   import { Button, Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell, Alert } from 'flowbite-svelte';
   import { SearchOutline } from 'flowbite-svelte-icons';
   import { endpoints, type Job } from '$lib/api/client';
-  import { STATUS_GROUPS, jobIcon, ago, fmtSize, groupCount as sum } from '$lib/status';
+  import { STATUS_GROUPS, jobIcon, ago, groupCount as sum } from '$lib/status';
   import { subscribe, coalesce, type JobEvent } from '$lib/live';
   import { jobSteps, reasonFor } from '$lib/pipeline';
   import StatusIcon from '$lib/components/StatusIcon.svelte';
@@ -32,6 +32,9 @@
   let error = $state('');
   let search = $state('');
   let progress = $state<Record<string, { stage: string; pct: number }>>({});
+  // Jobs seen finishing while the page is open: their row acknowledges the arrival once.
+  let arrived = $state<Record<string, true>>({});
+  const DONE = ['completed', 'completed_with_warnings'];
   let drawerOpen = $state(false);
   let drawerJob = $state<string | null>(null);
 
@@ -110,7 +113,12 @@
       job: (e: JobEvent) => {
         if (e.progress != null) progress[e.id] = { stage: e.stage, pct: e.progress };
         else delete progress[e.id];
-        if (seen.get(e.id) !== key(e)) {
+        const prev = seen.get(e.id);
+        if (prev && DONE.includes(e.status) && !DONE.includes(prev.split('|')[0])) {
+          arrived[e.id] = true;
+          setTimeout(() => delete arrived[e.id], 2500);
+        }
+        if (prev !== key(e)) {
           seen.set(e.id, key(e));
           refetch();
         }
@@ -239,22 +247,18 @@
           {@const reason = reasonFor(j)}
           {@const kind = jobIcon(j.status, !!reason)}
           {@const problem = kind === 'warning' || kind === 'failed' ? reason : undefined}
-          {@const meta = [j.library_name, j.download_bytes_total ? fmtSize(j.download_bytes_total) : null].filter(Boolean).join(' · ')}
-          <TableBodyRow class="cursor-pointer" onclick={() => openJob(j.id)}>
-            <TableBodyCell class="px-2 sm:px-6"><StatusIcon {kind} tip={problem} /></TableBodyCell>
+          <TableBodyRow class="cursor-pointer {arrived[j.id] ? 'arrived' : ''}" onclick={() => openJob(j.id)}>
+            <TableBodyCell class="px-2 sm:px-6"><StatusIcon {kind} tip={problem} draw={!!arrived[j.id]} /></TableBodyCell>
             <!-- max-w-0 + w-full: the title takes the spare width and truncates instead of widening the table. -->
             <TableBodyCell class="w-full max-w-0 min-w-32 px-2 py-3 sm:px-6">
               <div class="truncate font-medium text-gray-100" title={j.title ?? ''}>{j.title ?? '—'}</div>
-              {#if problem || meta}
+              <!-- Only trouble earns a second line; everything else about the job is in the drawer. -->
+              {#if problem}
                 <div
-                  class="mt-0.5 truncate text-xs font-normal {problem
-                    ? kind === 'failed'
-                      ? 'text-red-400'
-                      : 'text-amber-400'
-                    : 'text-gray-500'}"
+                  class="mt-0.5 truncate text-xs font-normal {kind === 'failed' ? 'text-red-400' : 'text-amber-400'}"
                   title={problem}
                 >
-                  {problem ?? meta}
+                  {problem}
                 </div>
               {/if}
               <!-- Phones: the track is too wide for its own column, so it sits under the title. -->
@@ -270,7 +274,6 @@
                 <TableBodyCell class="px-2 sm:px-6"><div class="h-5 w-5 animate-pulse rounded-full bg-gray-700"></div></TableBodyCell>
                 <TableBodyCell class="px-2 py-3 sm:px-6">
                   <div class="h-3.5 w-2/3 animate-pulse rounded bg-gray-700"></div>
-                  <div class="mt-2 h-2.5 w-1/4 animate-pulse rounded bg-gray-700/60"></div>
                 </TableBodyCell>
                 <TableBodyCell class="hidden sm:table-cell"><div class="h-2.5 w-48 animate-pulse rounded-full bg-gray-700"></div></TableBodyCell>
                 <TableBodyCell class="hidden sm:table-cell"><div class="ml-auto h-3 w-12 animate-pulse rounded bg-gray-700"></div></TableBodyCell>
@@ -294,3 +297,20 @@
 </div>
 
 <JobDrawer jobId={drawerJob} bind:open={drawerOpen} onchanged={load} />
+
+<style>
+  /* A job that finished while you watched: a green wash that settles back into the table. */
+  :global(tr.arrived) {
+    animation: arrived 2.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @keyframes arrived {
+    from {
+      background-color: rgb(34 197 94 / 0.16);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :global(tr.arrived) {
+      animation: none;
+    }
+  }
+</style>
