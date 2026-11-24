@@ -177,7 +177,7 @@ class DiscoveryService:
                 )
                 counts["errors"] += 1
 
-        await self._flag_removed_downloads(source_id_copy, {i.remote_id for i in items_dto})
+        await self._flag_removed(source_id_copy, {i.remote_id for i in items_dto})
 
         # Update source scan timestamps and onboarding
         async with factory() as session:
@@ -207,28 +207,40 @@ class DiscoveryService:
         )
         return counts
 
-    async def _flag_removed_downloads(self, source_id: str, listed: set[str]) -> None:
-        """Downloading jobs whose torrent is no longer on the seedbox need the user."""
+    async def _flag_removed(self, source_id: str, listed: set[str]) -> None:
+        """Jobs whose torrent is gone from the seedbox before the transfer began.
+
+        Mid-download needs the user (it may have been an accident); a job parked at the
+        library check has nothing on disk yet, so it just ends as skipped.
+        """
+        early = (JobStage.SOURCE_DOWNLOAD.value, JobStage.CHECK_LIBRARY.value)
         async with get_session_factory(self.settings)() as session:
             rows = (await session.execute(
                 select(Job, SourceItem.remote_id)
                 .join(SourceItem, Job.source_item_id == SourceItem.id)
                 .where(
                     SourceItem.source_id == source_id,
-                    Job.stage == JobStage.SOURCE_DOWNLOAD.value,
+                    Job.stage.in_(early),
                     Job.ended_at.is_(None),
+                    Job.status.not_in((JobStatus.RUNNING.value, JobStatus.NEEDS_ATTENTION.value)),
                 )
             )).all()
             repo = JobRepository(session)
             for job, remote_id in rows:
-                if remote_id in listed or job.status == JobStatus.NEEDS_ATTENTION.value:
+                if remote_id in listed:
                     continue
-                job.status = JobStatus.NEEDS_ATTENTION.value
                 job.error_code = "source_removed"
-                job.error_detail = "Removed from seedbox before it finished"
+                if job.stage == JobStage.SOURCE_DOWNLOAD.value:
+                    job.status = JobStatus.NEEDS_ATTENTION.value
+                    job.error_detail = "Removed from seedbox before it finished"
+                    severity, kind = "error", "stage.needs_attention"
+                else:
+                    job.status = JobStatus.SKIPPED.value
+                    job.error_detail = "Removed from seedbox"
+                    job.ended_at = _utcnow()
+                    severity, kind = "info", "job.skipped"
                 await repo.add_event(
-                    job_id=job.id, severity="error", kind="stage.needs_attention",
-                    stage=JobStage.SOURCE_DOWNLOAD.value, message=job.error_detail,
+                    job_id=job.id, severity=severity, kind=kind, stage=job.stage, message=job.error_detail,
                 )
             await session.commit()
 

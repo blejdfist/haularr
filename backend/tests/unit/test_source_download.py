@@ -346,3 +346,36 @@ async def test_progress_scan_still_creates_downloading_jobs(seedbox, settings):
 
     [job] = await _jobs(settings)
     assert job.stage == "source_download"
+
+
+@pytest.mark.parametrize("status", ["waiting_library", "waiting_approval", "queued", "retry_wait"])
+async def test_removed_torrent_ends_job_parked_before_transfer(seedbox, settings, status):
+    """Nothing was transferred yet, so a torrent deleted from the seedbox just ends the job."""
+    fake, scan, _ = seedbox
+    fake.items = [_dto()]
+    await scan()
+    async with get_session_factory(settings)() as session:
+        job = (await session.execute(select(Job))).scalar_one()
+        job.stage, job.status = "check_library", status
+        await session.commit()
+    fake.items = []
+    await scan()
+
+    [job] = await _jobs(settings)
+    assert (job.status, job.error_code) == ("skipped", "source_removed")
+    assert job.ended_at is not None
+
+
+async def test_removed_torrent_leaves_running_or_later_jobs(seedbox, settings):
+    fake, scan, _ = seedbox
+    fake.items = [_dto()]
+    await scan()
+    async with get_session_factory(settings)() as session:
+        job = (await session.execute(select(Job))).scalar_one()
+        job.stage, job.status = "transfer", "queued"
+        await session.commit()
+    fake.items = []
+    await scan()
+
+    [job] = await _jobs(settings)
+    assert (job.stage, job.status) == ("transfer", "queued")
