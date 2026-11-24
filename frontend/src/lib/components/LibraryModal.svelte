@@ -2,7 +2,12 @@
   import { Modal, Button, Input, Label, Select, Alert, Spinner } from 'flowbite-svelte';
   import { endpoints, type Library } from '$lib/api/client';
 
-  let { open = $bindable(false), library, onsaved }: { open: boolean; library: Library | null; onsaved: () => void } = $props();
+  let {
+    open = $bindable(false),
+    library,
+    onsaved,
+    ondeleted,
+  }: { open: boolean; library: Library | null; onsaved: () => void; ondeleted: () => void } = $props();
 
   const TYPES = [
     { value: 'sonarr', name: 'Sonarr' },
@@ -18,6 +23,8 @@
   let saving = $state(false);
   let testing = $state(false);
   let testResult = $state<{ ok: boolean; text: string } | null>(null);
+  let tab = $state<'general' | 'paths'>('general');
+  let confirmOpen = $state(false);
 
   // Reset the form each time the modal opens.
   $effect(() => {
@@ -28,6 +35,7 @@
     apiKey = '';
     maps = (library?.options?.path_mappings ?? []).map((m: any) => ({ ...m }));
     error = '';
+    tab = 'general';
   });
 
   // A test result only describes the values it was run with.
@@ -55,6 +63,19 @@
       testResult = { ok: false, text: err.message };
     } finally {
       testing = false;
+    }
+  }
+
+  async function remove() {
+    if (!library) return;
+    try {
+      await endpoints.libraries.delete(library.id);
+      confirmOpen = false;
+      open = false;
+      ondeleted();
+    } catch (err: any) {
+      confirmOpen = false;
+      error = err.message;
     }
   }
 
@@ -94,36 +115,70 @@
   }
 </script>
 
-<Modal bind:open title={library ? 'Edit library' : 'Add library'} size="md">
-  <form onsubmit={save} class="flex flex-col gap-4">
+{#snippet tabButton(id: 'general' | 'paths', label: string)}
+  <button
+    type="button"
+    role="tab"
+    aria-selected={tab === id}
+    class="-mb-px border-b-2 px-4 py-2 text-sm font-medium {tab === id
+      ? 'border-primary-500 text-primary-500'
+      : 'border-transparent text-gray-500 hover:text-gray-300 dark:text-gray-400'}"
+    onclick={() => (tab = id)}>{label}</button
+  >
+{/snippet}
+
+<Modal bind:open title={library ? `Edit library: ${library.name}` : 'Add library'} size="md">
+  <!-- required fields live on General: show it when the browser blocks submit -->
+  <form onsubmit={save} oninvalidcapture={() => (tab = 'general')} class="flex flex-col gap-4">
     {#if error}<Alert color="red">{error}</Alert>{/if}
-    <div>
-      <Label for="lib-name" class="mb-2">Name</Label>
-      <Input id="lib-name" bind:value={name} required />
+    <div role="tablist" class="flex border-b border-gray-200 dark:border-gray-700">
+      {@render tabButton('general', 'General')}
+      {@render tabButton('paths', `Path mappings${maps.length ? ` (${maps.length})` : ''}`)}
     </div>
-    <div>
-      <Label for="lib-type" class="mb-2">Type</Label>
-      <Select id="lib-type" items={TYPES} bind:value={adapterType} disabled={!!library} />
-    </div>
-    <div>
-      <Label for="lib-url" class="mb-2">Base URL</Label>
-      <Input id="lib-url" type="url" bind:value={baseUrl} placeholder="http://sonarr:8989" required />
-    </div>
-    <div>
-      <Label for="lib-key" class="mb-2">API key</Label>
-      <Input
-        id="lib-key"
-        type="password"
-        autocomplete="off"
-        bind:value={apiKey}
-        required={!library}
-        placeholder={library ? 'Leave blank to keep the current key' : ''}
-      />
-    </div>
-    <div class="space-y-2">
-      <Label>Path mappings (Haularr path → path {adapterType === 'radarr' ? 'Radarr' : 'Sonarr'} sees)</Label>
-      <p class="text-xs text-gray-500 dark:text-gray-400">
-        Needed when it runs elsewhere, e.g. in Docker: <code>D:\Temp\haularr\downloads</code> → <code>/downloads</code>.
+    <section class="flex flex-col gap-4" class:hidden={tab !== 'general'}>
+      <div>
+        <Label for="lib-name" class="mb-2">Name</Label>
+        <Input id="lib-name" bind:value={name} required />
+      </div>
+      <div>
+        <Label for="lib-type" class="mb-2">Type</Label>
+        <Select id="lib-type" items={TYPES} bind:value={adapterType} disabled={!!library} />
+      </div>
+      <div>
+        <div class="mb-2 flex items-baseline justify-between">
+          <Label for="lib-url">Base URL</Label>
+          {#if /^https?:\/\//i.test(baseUrl)}
+            <a href={baseUrl} target="_blank" rel="noopener noreferrer" class="text-xs text-primary-500 hover:underline">Open ↗</a>
+          {/if}
+        </div>
+        <Input id="lib-url" type="url" bind:value={baseUrl} placeholder="http://sonarr:8989" required />
+      </div>
+      <div>
+        <Label for="lib-key" class="mb-2">API key</Label>
+        <Input
+          id="lib-key"
+          type="password"
+          autocomplete="off"
+          bind:value={apiKey}
+          required={!library}
+          placeholder={library ? 'Leave blank to keep the current key' : ''}
+        />
+      </div>
+      <div class="flex flex-wrap items-center gap-3">
+        <Button size="sm" color="alternative" disabled={testing || !baseUrl || (!library && !apiKey)} onclick={test}>
+          {#if testing}<Spinner size="4" class="me-2" />{/if}Test connection
+        </Button>
+        {#if testResult}
+          <span class="text-sm {testResult.ok ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-300'}"
+            >{testResult.text}</span
+          >
+        {/if}
+      </div>
+    </section>
+    <section class="space-y-2" class:hidden={tab !== 'paths'}>
+      <p class="text-sm text-gray-500 dark:text-gray-400">
+        Only needed when {adapterType === 'radarr' ? 'Radarr' : 'Sonarr'} sees Haularr's folders under other paths, e.g. in
+        Docker: <code>D:\Temp\haularr\downloads</code> → <code>/downloads</code>.
       </p>
       {#each maps as m, i}
         <div class="flex gap-2">
@@ -135,21 +190,21 @@
       <Button size="xs" color="alternative" onclick={() => maps.push({ local_prefix: '', library_prefix: '' })}
         >Add mapping</Button
       >
-    </div>
-    {#if testResult}<Alert color={testResult.ok ? 'green' : 'red'}>{testResult.text}</Alert>{/if}
-    <div class="flex justify-end gap-2">
-      <Button
-        color="alternative"
-        class="me-auto"
-        disabled={testing || !baseUrl || (!library && !apiKey)}
-        onclick={test}
-      >
-        {#if testing}<Spinner size="4" class="me-2" />{/if}Test connection
-      </Button>
-      <Button color="alternative" onclick={() => (open = false)}>Cancel</Button>
+    </section>
+    <div class="flex flex-wrap items-center gap-2 border-t border-gray-200 pt-4 dark:border-gray-700">
+      {#if library}<Button color="red" outline onclick={() => (confirmOpen = true)}>Delete</Button>{/if}
+      <Button color="alternative" class="ms-auto" onclick={() => (open = false)}>Cancel</Button>
       <Button type="submit" color="primary" disabled={saving}>
         {#if saving}<Spinner size="4" class="me-2" />{/if}Save
       </Button>
     </div>
   </form>
+</Modal>
+
+<Modal bind:open={confirmOpen} title="Delete library" size="xs">
+  <p>Delete <strong>{library?.name}</strong>? This cannot be undone.</p>
+  <div class="mt-4 flex justify-end gap-2">
+    <Button color="alternative" onclick={() => (confirmOpen = false)}>Cancel</Button>
+    <Button color="red" onclick={remove}>Delete</Button>
+  </div>
 </Modal>

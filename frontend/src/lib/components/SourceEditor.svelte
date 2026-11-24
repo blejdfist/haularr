@@ -258,6 +258,23 @@
     }
   }
 
+  let scanning = $state(false);
+  async function scan() {
+    if (!current) return;
+    scanning = true;
+    error = '';
+    try {
+      await endpoints.sources.scan(current.id);
+      // Scans run in the background; refresh once it has had a moment.
+      await new Promise((r) => setTimeout(r, 1500));
+      onsaved();
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      scanning = false;
+    }
+  }
+
   async function remove() {
     if (!current) return;
     try {
@@ -435,7 +452,12 @@
     </div>
 
     <div class="flex flex-wrap items-center gap-2 border-t border-gray-200 pt-4 dark:border-gray-700">
-      {#if current}<Button color="red" outline onclick={() => (confirmOpen = true)}>Delete</Button>{/if}
+      {#if current}
+        <Button color="red" outline onclick={() => (confirmOpen = true)}>Delete</Button>
+        <Button color="alternative" disabled={scanning || !current.enabled} onclick={scan}>
+          {#if scanning}<Spinner size="4" class="me-2" />{/if}Scan now
+        </Button>
+      {/if}
       <Button color="alternative" class="ms-auto" onclick={() => (open = false)}>Close</Button>
       <Button type="submit" form="source-form" disabled={busy}>
         {#if busy}<Spinner size="4" class="me-2" />{/if}Save
