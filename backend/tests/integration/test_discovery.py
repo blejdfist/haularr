@@ -677,3 +677,45 @@ async def test_rescan_skips_classification_once_item_has_job(app, settings):
         assert (await svc.run_discovery_for_source(source_id))["queued"] == 1
         await svc.run_discovery_for_source(source_id)
         assert spy.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_not_registered_is_rechecked_every_scan(app, settings):
+    """A series added to the library after the first check is picked up on the next scan."""
+    from app.database.session import get_session_factory
+    from app.services.discovery import DiscoveryService
+    import app.services.classification as classification
+
+    factory = get_session_factory(settings)
+    async with factory() as session:
+        source = await SourceRepository(session).create(
+            name="S", adapter_type="rtorrent",
+            connection_config_json={'xmlrpc_url': 'http://rt.example/RPC2'}, credential_ref='',
+            onboarding_state=OnboardingState.COMPLETED.value,
+        )
+        await LabelRuleRepository(session).create(
+            source_id=source.id, label="tv", temporary_directory="/tmp",
+            completed_directory="/tmp", automatic_processing=True,
+        )
+        await session.commit()
+        source_id = source.id
+
+    async def not_registered(session, item, *a):
+        item.last_eligibility = EligibilityStatus.NOT_REGISTERED.value
+        return item.last_eligibility
+
+    spy = AsyncMock(side_effect=not_registered)
+    with (
+        patch("app.adapters.sources.create_source_adapter") as mock_sa,
+        patch.object(classification, "classify_item", spy),
+    ):
+        mock_adapter = AsyncMock()
+        mock_adapter.list_items = AsyncMock(return_value=[SourceItemDTO(
+            remote_id="hash1", name="Test.Show.S01E01.1080p", labels=["tv"],
+            status=SourceStatus.COMPLETED, total_bytes=1000,
+        )])
+        mock_sa.return_value = mock_adapter
+        svc = DiscoveryService(settings, b"\x00" * 32)
+        await svc.run_discovery_for_source(source_id)
+        await svc.run_discovery_for_source(source_id)
+        assert spy.await_count == 2

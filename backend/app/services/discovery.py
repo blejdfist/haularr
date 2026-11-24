@@ -47,9 +47,9 @@ _AUTO_QUEUE_STATUSES = {
 }
 
 # Verdicts that only change when the library changes; rechecked on a slow cadence.
+# not_registered is left out: adding the series is the usual fix, so pick it up next scan.
 _SETTLED_STATUSES = {
     EligibilityStatus.ALREADY_AVAILABLE.value,
-    EligibilityStatus.NOT_REGISTERED.value,
     EligibilityStatus.NEEDS_REVIEW.value,
 }
 _RECHECK_AFTER = timedelta(hours=6)
