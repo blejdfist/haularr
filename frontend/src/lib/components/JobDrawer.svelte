@@ -128,14 +128,42 @@
     failed: 'failed',
   };
   const files = $derived<any[]>(job?.files ?? []);
-  const filesTotal = $derived(files.reduce((n, f) => n + (f.size_bytes ?? 0), 0));
+  type FileRow = { key: string; path: string; size: number; done: number; kind: IconKind; bar: boolean; failed: boolean };
+  // Transfer files once the transfer has them; before that, what the seedbox reports.
+  const rows = $derived.by((): FileRow[] => {
+    if (files.length)
+      return files.map((f) => ({
+        key: f.id,
+        path: f.remote_relpath,
+        size: f.size_bytes ?? 0,
+        done: f.bytes_received ?? 0,
+        kind: FILE_ICON[f.transfer_status] ?? 'pending',
+        bar: f.transfer_status === 'in_progress',
+        failed: f.transfer_status === 'failed',
+      }));
+    const run = currentRuns((job?.stage_runs ?? []) as any[]).get('source_download');
+    const live = run?.status === 'running';
+    return ((run?.progress?.files ?? []) as any[]).map((f) => {
+      const finished = f.done_bytes >= f.size_bytes;
+      return {
+        key: f.path,
+        path: f.path,
+        size: f.size_bytes,
+        done: f.done_bytes,
+        kind: finished ? 'done' : live ? 'running' : 'pending',
+        bar: live && !finished,
+        failed: false,
+      };
+    });
+  });
+  const filesTotal = $derived(rows.reduce((n, f) => n + f.size, 0));
   // Release folder shared by every file: shown once above the list, not on each row.
   function commonRoot(paths: string[]): string {
     const first = paths[0] ?? '';
     const top = first.includes('/') ? first.slice(0, first.indexOf('/') + 1) : '';
     return top && paths.every((x) => x.startsWith(top)) ? top : '';
   }
-  const filesRoot = $derived(commonRoot(files.map((f) => f.remote_relpath)));
+  const filesRoot = $derived(commonRoot(rows.map((f) => f.path)));
   function took(r: any): string {
     if (!r.started_at) return '';
     const end = r.ended_at ? parseUtc(r.ended_at).getTime() : Date.now();
@@ -178,30 +206,8 @@
             </div>
           </div>
         {/if}
-        {#if st === 'source_download' && r?.progress}
-          {@const sf = (r.progress.files ?? []) as any[]}
-          {@const top = commonRoot(sf.map((f) => f.path))}
-          {#if r.progress.message}
-            <p class="mt-1 ms-6 text-xs text-gray-500 dark:text-gray-400">{r.progress.message}</p>
-          {/if}
-          {#if sf.length}
-            <ul class="mt-2 ms-6 space-y-1.5">
-              {#each sf as f (f.path)}
-                {@const pct = f.size_bytes ? Math.round((f.done_bytes / f.size_bytes) * 100) : 100}
-                <li class="text-xs">
-                  <div class="flex items-baseline gap-2">
-                    <span class="flex-1 truncate text-gray-800 dark:text-gray-100" title={f.path}>{f.path.slice(top.length)}</span>
-                    <span class="whitespace-nowrap text-gray-600 tabular-nums dark:text-gray-300"
-                      >{pct}% · {size(f.done_bytes)} / {size(f.size_bytes)}</span
-                    >
-                  </div>
-                  <div class="mt-0.5 h-1 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
-                    <div class="h-full bg-blue-600 transition-[width] duration-700" style="width: {pct}%"></div>
-                  </div>
-                </li>
-              {/each}
-            </ul>
-          {/if}
+        {#if st === 'source_download' && r?.progress?.message}
+          <p class="mt-1 ms-6 text-xs text-gray-500 dark:text-gray-400">{r.progress.message}</p>
         {/if}
         {#if r?.error_detail}
           <p class="mt-0.5 ms-6 text-xs text-red-700 dark:text-red-300">{r.error_code}: {r.error_detail}</p>
@@ -284,9 +290,9 @@
       <section>
         <h4 class="mb-2 flex items-baseline gap-2 font-semibold text-gray-900 dark:text-white">
           Files
-          {#if files.length}
+          {#if rows.length}
             <span class="text-sm font-normal text-gray-600 dark:text-gray-300"
-              >{files.length} · {size(filesTotal)}</span
+              >{rows.length} · {size(filesTotal)}</span
             >
           {/if}
         </h4>
@@ -295,34 +301,33 @@
             in {filesRoot.slice(0, -1)}
           </p>
         {/if}
-        {#if files.length}
+        {#if rows.length}
           <ul class="divide-y divide-gray-200 rounded-lg border border-gray-200 text-sm dark:divide-gray-700 dark:border-gray-700">
-            {#each files as f (f.id)}
-              {@const rel = f.remote_relpath.slice(filesRoot.length)}
+            {#each rows as f (f.key)}
+              {@const rel = f.path.slice(filesRoot.length)}
               {@const slash = rel.lastIndexOf('/')}
-              {@const active = f.transfer_status === 'in_progress'}
-              {@const pct = f.size_bytes ? Math.round(((f.bytes_received ?? 0) / f.size_bytes) * 100) : 0}
+              {@const pct = f.size ? Math.round((f.done / f.size) * 100) : 0}
               <li class="flex items-start gap-2.5 px-3 py-2">
-                <StatusIcon kind={FILE_ICON[f.transfer_status] ?? 'pending'} class="mt-0.5 h-4 w-4" />
+                <StatusIcon kind={f.kind} class="mt-0.5 h-4 w-4" />
                 <div class="min-w-0 flex-1">
                   <div class="flex items-baseline gap-2">
-                    <span class="flex-1 truncate font-medium text-gray-900 dark:text-white" title={f.remote_relpath}
+                    <span class="flex-1 truncate font-medium text-gray-900 dark:text-white" title={f.path}
                       >{rel.slice(slash + 1)}</span
                     >
                     <span class="whitespace-nowrap text-xs text-gray-600 tabular-nums dark:text-gray-300"
-                      >{active ? `${size(f.bytes_received)} / ` : ''}{size(f.size_bytes)}</span
+                      >{f.bar ? `${pct}% · ${size(f.done)} / ` : ''}{size(f.size)}</span
                     >
                   </div>
                   {#if slash > 0}
-                    <div class="truncate text-xs text-gray-500 dark:text-gray-400" title={f.remote_relpath}>
+                    <div class="truncate text-xs text-gray-500 dark:text-gray-400" title={f.path}>
                       {rel.slice(0, slash)}
                     </div>
                   {/if}
-                  {#if active}
+                  {#if f.bar}
                     <div class="mt-1.5 h-1 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
                       <div class="h-full bg-blue-600 transition-[width] duration-700" style="width: {pct}%"></div>
                     </div>
-                  {:else if f.transfer_status === 'failed'}
+                  {:else if f.failed}
                     <div class="text-xs text-red-700 dark:text-red-300">Transfer failed</div>
                   {/if}
                 </div>
@@ -330,7 +335,9 @@
             {/each}
           </ul>
         {:else}
-          <p class="text-sm text-gray-600 dark:text-gray-300">Files are listed once the transfer starts.</p>
+          <p class="text-sm text-gray-600 dark:text-gray-300">
+            {job.stage === 'source_download' ? 'Files are listed once the seedbox reports them.' : 'Files are listed once the transfer starts.'}
+          </p>
         {/if}
       </section>
 
