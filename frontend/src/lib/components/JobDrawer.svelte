@@ -280,15 +280,13 @@
                     </div>
                   {:else if f.transfer_status === 'failed'}
                     <div class="text-xs text-red-700 dark:text-red-300">Transfer failed</div>
-                  {:else if f.verified_at}
-                    <div class="text-xs text-green-700 dark:text-green-400">Verified</div>
                   {/if}
                 </div>
               </li>
             {/each}
           </ul>
         {:else}
-          <p class="text-sm text-gray-600 dark:text-gray-300">No files yet.</p>
+          <p class="text-sm text-gray-600 dark:text-gray-300">Files are listed once the download starts.</p>
         {/if}
       </section>
 

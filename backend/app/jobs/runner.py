@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.processing.publication import long_path, plain_path
 from app.security import decrypt_secret
@@ -399,11 +399,29 @@ class JobRunner:
                     True,
                 )
 
-            # Create job_files records
+            # One job_files row per manifest file up front, so every expected file shows
+            # (pending) before its transfer starts. Rows from earlier attempts are reused.
             job_repo = JobRepository(session)
             from app.database.models import JobFile
 
-            existing_files = {f.remote_relpath: f for f in job.job_files} if hasattr(job, 'job_files') else {}
+            rows = {
+                f.remote_relpath: f
+                for f in (await session.execute(
+                    select(JobFile).where(JobFile.job_id == self.job_id)
+                )).scalars()
+            }
+            for file_dto in manifest:
+                row = rows.get(file_dto.relative_path)
+                if row is None:
+                    row = JobFile(job_id=self.job_id, remote_relpath=file_dto.relative_path)
+                    session.add(row)
+                    rows[file_dto.relative_path] = row
+                if row.transfer_status != TransferStatus.COMPLETED.value:
+                    row.transfer_status = TransferStatus.PENDING.value
+                    row.bytes_received = 0
+                row.size_bytes = file_dto.size_bytes
+            await session.flush()
+            existing_files = {rel: row.id for rel, row in rows.items()}
 
             total_bytes = sum(f.size_bytes for f in manifest)
             await job_repo.update(self.job_id, download_bytes_total=total_bytes)
@@ -458,6 +476,9 @@ class JobRunner:
             # The callback runs in the transfer thread: only stash the count there,
             # and let a flusher task write it to the job row every couple of seconds.
             received_now = resume_offset
+            file_id = existing_files[file_dto.relative_path]
+            await self._set_file(file_id, transfer_status=TransferStatus.IN_PROGRESS.value,
+                                 bytes_received=resume_offset)
 
             def progress_cb(received: int, total: int) -> None:
                 nonlocal received_now
@@ -470,7 +491,7 @@ class JobRunner:
                     if received_now != last:
                         last = received_now
                         try:
-                            await self._set_download_bytes(base + last)
+                            await self._set_download_bytes(base + last, file_id, last)
                         except Exception as exc:  # progress is cosmetic; never kill the flusher
                             logger.debug("Progress flush failed: %s", exc)
 
@@ -484,10 +505,14 @@ class JobRunner:
                     progress_callback=progress_cb,
                     path_mappings=endpoint.path_mappings_json if endpoint else None,
                 )
+            except Exception:
+                await self._set_file(file_id, transfer_status=TransferStatus.FAILED.value)
+                raise
             finally:
                 flusher.cancel()
 
             if not result.success:
+                await self._set_file(file_id, transfer_status=TransferStatus.FAILED.value)
                 return StageResult(
                     StageRunStatus.FAILED,
                     "transfer_failed",
@@ -503,6 +528,7 @@ class JobRunner:
                         "Size mismatch for %s: expected %d got %d",
                         file_dto.relative_path, file_dto.size_bytes, actual_size
                     )
+                    await self._set_file(file_id, transfer_status=TransferStatus.FAILED.value)
                     return StageResult(
                         StageRunStatus.FAILED,
                         "size_mismatch",
@@ -526,8 +552,8 @@ class JobRunner:
 
         bytes_done += file_dto.size_bytes
         async with get_session_factory(self.settings)() as session:
-            prev = existing_files.get(file_dto.relative_path)
-            job_file = await session.get(JobFile, prev.id) if prev else None
+            prev_id = existing_files.get(file_dto.relative_path)
+            job_file = await session.get(JobFile, prev_id) if prev_id else None
             if job_file is None:
                 job_file = JobFile(job_id=self.job_id, remote_relpath=file_dto.relative_path)
                 session.add(job_file)
@@ -976,9 +1002,20 @@ class JobRunner:
             )
             await session.commit()
 
-    async def _set_download_bytes(self, n: int) -> None:
+    async def _set_download_bytes(self, n: int, file_id: str, file_bytes: int) -> None:
+        """Progress of the job and of the file being transferred, in one write."""
+        from app.database.models import JobFile
+
         async with get_session_factory(self.settings)() as session:
             await JobRepository(session).update(self.job_id, download_bytes_done=n)
+            await session.execute(update(JobFile).where(JobFile.id == file_id).values(bytes_received=file_bytes))
+            await session.commit()
+
+    async def _set_file(self, file_id: str, **values: Any) -> None:
+        from app.database.models import JobFile
+
+        async with get_session_factory(self.settings)() as session:
+            await session.execute(update(JobFile).where(JobFile.id == file_id).values(**values))
             await session.commit()
 
     async def _update_progress(self, stage_run_id: str, progress: dict[str, Any]) -> None:

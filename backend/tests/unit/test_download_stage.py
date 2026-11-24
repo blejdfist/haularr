@@ -159,3 +159,29 @@ async def test_extract_records_byte_progress(stage, settings, monkeypatch):
     assert run_row.progress_json["bytes_total"] == 2 * len(DATA)
     assert run_row.progress_json["bytes_done"] == run_row.progress_json["bytes_total"]
     assert run_row.progress_json["extracted"] == ["ep.mkv"]
+
+
+@pytest.mark.asyncio
+async def test_every_expected_file_is_listed_with_its_own_status(stage, settings, monkeypatch):
+    from app.adapters.transfers.ftps import FTPSAdapter
+
+    setup, run, _, _, names = stage
+    names[:] = ["a.mkv", "b.mkv", "c.mkv"]
+    job_id = await setup()
+    seen_during_a = {}
+
+    async def transfer(self, remote_file, remote_base_path, destination_part_path, **kw):
+        if remote_file.relative_path == "a.mkv":
+            seen_during_a.update({f.remote_relpath: f.transfer_status for f in await _files(settings, job_id)})
+            with open(destination_part_path, "wb") as f:
+                f.write(DATA)
+            return TransferResult(success=True, bytes_transferred=len(DATA), endpoint_name="h")
+        return TransferResult(success=False, bytes_transferred=0, endpoint_name="h", error="boom")
+
+    monkeypatch.setattr(FTPSAdapter, "transfer_file", transfer)
+    assert (await run()).status == StageRunStatus.FAILED
+
+    # All files exist before the first transfer finishes; the active one is marked.
+    assert seen_during_a == {"a.mkv": "in_progress", "b.mkv": "pending", "c.mkv": "pending"}
+    after = {f.remote_relpath: f.transfer_status for f in await _files(settings, job_id)}
+    assert after == {"a.mkv": "completed", "b.mkv": "failed", "c.mkv": "pending"}
