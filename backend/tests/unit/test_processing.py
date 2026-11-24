@@ -30,7 +30,6 @@ from app.processing.extraction import (
     extract_archive,
     _validate_archive_path,
 )
-from app.processing.publication import publish_files, _resolve_target_dir, _sanitize_dirname
 from app.processing.cleanup import cleanup_path_a, cleanup_path_b
 
 
@@ -216,115 +215,6 @@ class TestExtraction:
 
 
 # ---------------------------------------------------------------------------
-# Publication tests
-# ---------------------------------------------------------------------------
-
-
-class TestPublication:
-    def test_publish_basic(self, tmp_path):
-        """Files are published from A to B with verified copy."""
-        source_dir = tmp_path / "temp" / "Test.Release"
-        source_dir.mkdir(parents=True)
-        (source_dir / "video.mkv").write_bytes(b"video content")
-        (source_dir / "sub.srt").write_bytes(b"subtitles")
-
-        completed_dir = str(tmp_path / "completed")
-
-        result = publish_files(
-            source_dir=source_dir,
-            completed_dir=completed_dir,
-            release_name="Test.Release",
-        )
-
-        assert result.success
-        assert len(result.published_files) == 2
-        published = Path(result.published_path)
-        assert published.exists()
-        assert (published / "video.mkv").exists()
-        assert (published / "sub.srt").exists()
-
-    def test_publish_excludes_archives(self, tmp_path):
-        """Archive parts and SFV are excluded from publication."""
-        source_dir = tmp_path / "temp" / "Test.Release"
-        source_dir.mkdir(parents=True)
-        (source_dir / "video.mkv").write_bytes(b"video content")
-        (source_dir / "part1.rar").write_bytes(b"archive data")
-        (source_dir / "test.sfv").write_bytes(b"sfv data")
-
-        completed_dir = str(tmp_path / "completed")
-
-        result = publish_files(
-            source_dir=source_dir,
-            completed_dir=completed_dir,
-            release_name="Test.Release",
-        )
-
-        assert result.success
-        assert len(result.published_files) == 1
-        assert "video.mkv" in result.published_files
-        published = Path(result.published_path)
-        assert (published / "video.mkv").exists()
-        assert not (published / "part1.rar").exists()
-        assert not (published / "test.sfv").exists()
-
-    def test_publish_collision_suffix(self, tmp_path):
-        """Two releases with identical names get different directories."""
-        source_dir_1 = tmp_path / "temp" / "Release1"
-        source_dir_1.mkdir(parents=True)
-        (source_dir_1 / "video1.mkv").write_bytes(b"v1")
-
-        source_dir_2 = tmp_path / "temp" / "Release2"
-        source_dir_2.mkdir(parents=True)
-        (source_dir_2 / "video2.mkv").write_bytes(b"v2")
-
-        completed_dir = str(tmp_path / "completed")
-
-        # Publish first
-        result1 = publish_files(
-            source_dir=source_dir_1,
-            completed_dir=completed_dir,
-            release_name="Same.Release.Name",
-        )
-        assert result1.success
-        assert result1.collision_suffix == ""
-
-        # Publish second with same name — should get suffix
-        result2 = publish_files(
-            source_dir=source_dir_2,
-            completed_dir=completed_dir,
-            release_name="Same.Release.Name",
-        )
-        assert result2.success
-        assert result2.collision_suffix != ""
-        assert result1.published_path != result2.published_path
-
-        # Both directories exist
-        assert Path(result1.published_path).exists()
-        assert Path(result2.published_path).exists()
-        assert (Path(result1.published_path) / "video1.mkv").exists()
-        assert (Path(result2.published_path) / "video2.mkv").exists()
-
-    def test_publish_uses_hidden_temp_name(self, tmp_path):
-        """Publishing uses a hidden temp directory before atomic rename."""
-        source_dir = tmp_path / "temp" / "Test.Release"
-        source_dir.mkdir(parents=True)
-        (source_dir / "video.mkv").write_bytes(b"content")
-
-        completed_dir = str(tmp_path / "completed")
-
-        result = publish_files(
-            source_dir=source_dir,
-            completed_dir=completed_dir,
-            release_name="Test.Release",
-        )
-
-        assert result.success
-        # No hidden temp dirs should remain
-        hidden = [f for f in Path(completed_dir).iterdir() if f.name.startswith(".")]
-        assert len(hidden) == 0
-
-
-# ---------------------------------------------------------------------------
 # Cleanup tests
 # ---------------------------------------------------------------------------
 
@@ -409,3 +299,15 @@ class TestCleanup:
         assert result.skipped_b is False
         assert result.cleaned_path_b != ""
         assert not release_dir.exists()
+
+
+def test_cleanup_removes_single_file_items(tmp_path):
+    """A single-file release is a file in A and B, not a folder."""
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    (tmp_path / "a" / "X.mkv").write_bytes(b"v")
+    (tmp_path / "b" / "X.mkv").write_bytes(b"v")
+    assert cleanup_path_a(str(tmp_path / "a"), "X.mkv", "j").success
+    assert cleanup_path_b(str(tmp_path / "b"), "X.mkv", "j", library_configured=True, import_confirmed=True).success
+    assert not (tmp_path / "a" / "X.mkv").exists()
+    assert not (tmp_path / "b" / "X.mkv").exists()

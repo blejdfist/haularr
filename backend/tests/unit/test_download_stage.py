@@ -15,17 +15,20 @@ DATA = b"0123456789"
 
 @pytest.fixture
 def stage(app, settings, tmp_path, monkeypatch):
-    """A download job for item 'T' with one 10-byte file a.mkv; returns (run, transfer_calls)."""
+    """A download job for item 'T'; remote files are ``names`` (default one 10-byte a.mkv).
+
+    Downloads land in tmp/in, publish moves to tmp/done."""
     from app.adapters import sources
     from app.adapters.transfers.ftps import FTPSAdapter
     from app.jobs.runner import JobRunner
 
     class FakeSource:
         async def get_manifest(self, key):
-            return [RemoteFileDTO(relative_path="a.mkv", size_bytes=len(DATA))]
+            return [RemoteFileDTO(relative_path=n, size_bytes=len(DATA)) for n in names]
 
     monkeypatch.setattr(sources, "create_source_adapter", lambda *a, **k: FakeSource())
     calls = []
+    names = ["a.mkv"]
 
     async def fake_transfer(self, remote_file, remote_base_path, destination_part_path, **kw):
         calls.append(remote_file.relative_path)
@@ -35,8 +38,8 @@ def stage(app, settings, tmp_path, monkeypatch):
 
     monkeypatch.setattr(FTPSAdapter, "transfer_file", fake_transfer)
 
-    async def run():
-        return await JobRunner(settings, job_id, "download", "tok").execute()
+    async def run(stage="download"):
+        return await JobRunner(settings, job_id, stage, "tok").execute()
 
     async def setup():
         nonlocal job_id
@@ -48,12 +51,13 @@ def stage(app, settings, tmp_path, monkeypatch):
             session.add(TransferEndpoint(transfer_id=t.id, name="p", host="h", port=21, credential_ref=""))
             job = await session.get(Job, job_id)
             job.config_snapshot_json = {**job.config_snapshot_json, "transfer_id": t.id,
-                                        "temporary_directory": str(tmp_path)}
+                                        "title": "T", "temporary_directory": str(tmp_path / "in"),
+                                        "completed_directory": str(tmp_path / "done")}
             await session.commit()
         return job_id
 
     job_id = None
-    return setup, run, calls, tmp_path / "T" / "a.mkv"
+    return setup, run, calls, tmp_path / "in" / "T" / "a.mkv", names
 
 
 async def _files(settings, job_id):
@@ -63,7 +67,7 @@ async def _files(settings, job_id):
 
 @pytest.mark.asyncio
 async def test_rerun_skips_finished_file_and_keeps_one_row(stage, settings):
-    setup, run, calls, final = stage
+    setup, run, calls, final, _ = stage
     job_id = await setup()
 
     assert (await run()).status == StageRunStatus.SUCCEEDED
@@ -76,7 +80,7 @@ async def test_rerun_skips_finished_file_and_keeps_one_row(stage, settings):
 
 @pytest.mark.asyncio
 async def test_stale_final_file_is_replaced(stage, settings):
-    setup, run, calls, final = stage
+    setup, run, calls, final, _ = stage
     await setup()
     final.parent.mkdir(parents=True)
     final.write_bytes(b"short")  # wrong size: must be re-fetched and overwrite it
@@ -84,3 +88,49 @@ async def test_stale_final_file_is_replaced(stage, settings):
     assert (await run()).status == StageRunStatus.SUCCEEDED
     assert calls == ["a.mkv"]
     assert final.read_bytes() == DATA
+
+
+async def _pipeline(run):
+    for st in ("download", "verify", "extract", "publish"):
+        r = await run(st)
+        assert r.status in (StageRunStatus.SUCCEEDED, StageRunStatus.SKIPPED), (st, r)
+
+
+@pytest.mark.asyncio
+async def test_single_file_release_downloads_flat_and_moves(stage, tmp_path):
+    setup, run, calls, _, names = stage
+    names[:] = ["T"]  # single-file torrent: the file is named like the item
+    await setup()
+    await _pipeline(run)
+    assert (tmp_path / "done" / "T").read_bytes() == DATA  # a file, no extra folder
+    assert not (tmp_path / "in" / "T").exists()
+
+
+@pytest.mark.asyncio
+async def test_folder_release_moves_whole_folder(stage, tmp_path):
+    setup, run, calls, _, names = stage
+    names[:] = ["a.mkv", "Subs/en.srt"]
+    await setup()
+    await _pipeline(run)
+    assert (tmp_path / "done" / "T" / "a.mkv").read_bytes() == DATA
+    assert (tmp_path / "done" / "T" / "Subs" / "en.srt").exists()
+    assert not (tmp_path / "in" / "T").exists()
+
+
+@pytest.mark.asyncio
+async def test_rar_release_extracts_in_place_and_moves_only_extracted(stage, tmp_path, monkeypatch):
+    from app.processing import extraction
+    from app.processing.extraction import ExtractionResult
+
+    def fake_extract(archive, dest):
+        assert dest == archive.parent  # in place, no extra folder
+        (dest / "ep.mkv").write_bytes(b"video")
+        return ExtractionResult(success=True, extracted_files=["ep.mkv"])
+
+    monkeypatch.setattr(extraction, "extract_archive", fake_extract)
+    setup, run, calls, _, names = stage
+    names[:] = ["t.rar", "t.r00", "t.nfo"]
+    await setup()
+    await _pipeline(run)
+    assert sorted(p.name for p in (tmp_path / "done" / "T").iterdir()) == ["ep.mkv"]
+    assert (tmp_path / "in" / "T" / "t.rar").exists()  # left for cleanup

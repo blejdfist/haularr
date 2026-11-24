@@ -13,6 +13,7 @@
   let adapterType = $state('sonarr');
   let baseUrl = $state('');
   let apiKey = $state('');
+  let maps = $state<{ local_prefix: string; library_prefix: string }[]>([]);
   let error = $state('');
   let saving = $state(false);
   let testing = $state(false);
@@ -25,6 +26,7 @@
     adapterType = library?.adapter_type ?? 'sonarr';
     baseUrl = library?.base_url ?? '';
     apiKey = '';
+    maps = (library?.options?.path_mappings ?? []).map((m: any) => ({ ...m }));
     error = '';
   });
 
@@ -61,11 +63,16 @@
     saving = true;
     error = '';
     try {
+      const options = {
+        ...(library?.options ?? {}),
+        path_mappings: maps.filter((m) => m.local_prefix && m.library_prefix),
+      };
       if (library) {
         // Blank key = keep stored one: omit the field (backend ignores nulls).
         await endpoints.libraries.update(library.id, {
           name,
           base_url: baseUrl,
+          options,
           ...(apiKey ? { api_key_secret_ref: apiKey } : {}),
         });
       } else {
@@ -74,6 +81,7 @@
           adapter_type: adapterType as 'sonarr' | 'radarr',
           base_url: baseUrl,
           api_key_secret_ref: apiKey,
+          options,
         });
       }
       open = false;
@@ -111,6 +119,22 @@
         required={!library}
         placeholder={library ? 'Leave blank to keep the current key' : ''}
       />
+    </div>
+    <div class="space-y-2">
+      <Label>Path mappings (Haularr path → path {adapterType === 'radarr' ? 'Radarr' : 'Sonarr'} sees)</Label>
+      <p class="text-xs text-gray-500 dark:text-gray-400">
+        Needed when it runs elsewhere, e.g. in Docker: <code>D:\Temp\haularr\downloads</code> → <code>/downloads</code>.
+      </p>
+      {#each maps as m, i}
+        <div class="flex gap-2">
+          <Input placeholder="D:\downloads" aria-label="Haularr path" bind:value={m.local_prefix} />
+          <Input placeholder="/downloads" aria-label="Library path" bind:value={m.library_prefix} />
+          <Button size="xs" color="alternative" onclick={() => maps.splice(i, 1)}>Remove</Button>
+        </div>
+      {/each}
+      <Button size="xs" color="alternative" onclick={() => maps.push({ local_prefix: '', library_prefix: '' })}
+        >Add mapping</Button
+      >
     </div>
     {#if testResult}<Alert color={testResult.ok ? 'green' : 'red'}>{testResult.text}</Alert>{/if}
     <div class="flex justify-end gap-2">

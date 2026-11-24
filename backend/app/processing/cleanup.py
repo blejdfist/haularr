@@ -52,6 +52,16 @@ def _is_safe_to_delete(path: Path, allowed_roots: list[str]) -> bool:
         return False
 
 
+def _remove(target: Path) -> None:
+    """Delete an item: a folder, or a single-file release's file. Long paths included."""
+    from app.processing.publication import long_path
+
+    if target.is_dir():
+        shutil.rmtree(long_path(target))
+    else:
+        target.unlink()
+
+
 def cleanup_path_a(
     temp_dir: str,
     release_name: str,
@@ -80,14 +90,8 @@ def cleanup_path_a(
         result.error = f"Path {target} failed safety check"
         return result
 
-    # Verify it's a directory, not a file
-    if not target.is_dir():
-        result.success = False
-        result.error = f"Path {target} is not a directory"
-        return result
-
     try:
-        shutil.rmtree(str(target))
+        _remove(target)
         result.cleaned_path_a = str(target)
         logger.info("Cleaned Path A: %s", result.cleaned_path_a)
     except Exception as e:
@@ -133,13 +137,8 @@ def cleanup_path_b(
         result.error = f"Path {target} failed safety check"
         return result
 
-    if not target.is_dir():
-        result.success = False
-        result.error = f"Path {target} is not a directory"
-        return result
-
     try:
-        shutil.rmtree(str(target))
+        _remove(target)
         result.cleaned_path_b = str(target)
         logger.info("Cleaned Path B: %s", result.cleaned_path_b)
     except Exception as e:

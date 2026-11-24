@@ -17,6 +17,7 @@ from typing import Any
 
 from sqlalchemy import select
 
+from app.processing.publication import long_path, plain_path
 from app.security import decrypt_secret
 from app.database.repositories import JobRepository
 from app.database.session import get_session_factory
@@ -407,23 +408,26 @@ class JobRunner:
 
         # Download each file
         # Use the transfer adapter to download files to Path A
-        sanitized_title = _sanitize_dirname(item.title)
-        local_base = Path(temp_dir) / sanitized_title
-        local_base.mkdir(parents=True, exist_ok=True)
+        # Mirror the remote item: a single-file torrent is just that file in the
+        # in-progress folder, a multi-file one is its folder.
+        local_base = Path(temp_dir) / _sanitize_dirname(item.title)
+        single = len(manifest) == 1 and manifest[0].relative_path == item.title
 
         bytes_done = 0
         for file_dto in manifest:
             if self._cancelled:
                 return StageResult(StageRunStatus.FAILED, "cancelled", "Download cancelled", False)
 
-            local_path = local_base / file_dto.relative_path
+            local_path = local_base if single else local_base / file_dto.relative_path
+            local_rel = local_path.relative_to(temp_dir).as_posix()
+            local_path = long_path(local_path)
             local_path.parent.mkdir(parents=True, exist_ok=True)
             part_path = str(local_path) + ".part"
 
             # Finished by an earlier attempt (e.g. one that crashed afterwards): don't fetch again.
             if local_path.exists() and local_path.stat().st_size == file_dto.size_bytes:
                 logger.info("Already downloaded: %s", file_dto.relative_path)
-                bytes_done = await self._record_file(file_dto, existing_files, bytes_done, total_bytes, stage_run_id)
+                bytes_done = await self._record_file(file_dto, local_rel, existing_files, bytes_done, total_bytes, stage_run_id)
                 continue
 
             # Check for existing .part file for resume
@@ -489,12 +493,13 @@ class JobRunner:
                 # Atomic .part → final; replace (not rename) so a stale final file can't block it on Windows
                 os.replace(part_path, str(local_path))
 
-            bytes_done = await self._record_file(file_dto, existing_files, bytes_done, total_bytes, stage_run_id)
+            bytes_done = await self._record_file(file_dto, local_rel, existing_files, bytes_done, total_bytes, stage_run_id)
 
         return StageResult(StageRunStatus.SUCCEEDED)
 
     async def _record_file(
-        self, file_dto: Any, existing_files: dict, bytes_done: int, total_bytes: int, stage_run_id: str
+        self, file_dto: Any, local_rel: str, existing_files: dict, bytes_done: int, total_bytes: int,
+        stage_run_id: str,
     ) -> int:
         """Mark a file downloaded (one row per file across retries); returns the new bytes_done."""
         from app.database.models import JobFile
@@ -507,7 +512,7 @@ class JobRunner:
                 job_file = JobFile(job_id=self.job_id, remote_relpath=file_dto.relative_path)
                 session.add(job_file)
             job_file.size_bytes = file_dto.size_bytes
-            job_file.local_relpath = file_dto.relative_path
+            job_file.local_relpath = local_rel  # relative to the in-progress folder
             job_file.bytes_received = file_dto.size_bytes
             job_file.transfer_status = TransferStatus.COMPLETED.value
             job_file.verified_at = _utcnow()
@@ -525,19 +530,15 @@ class JobRunner:
         """Verify transferred files (SFV CRC32 check, size check)."""
         from app.processing.verification import find_sfv_files, parse_sfv, verify_files
 
-        config = job.config_snapshot_json
-        temp_dir = config.get("temporary_directory", "/tmp")
-        sanitized_title = _sanitize_dirname(item_title_from_job(job))
-        local_dir = Path(temp_dir) / sanitized_title
-
-        if not local_dir.exists():
+        item = long_path(_item_path(job))
+        if not item.exists():
             return StageResult(
                 StageRunStatus.NEEDS_ATTENTION, "no_files",
-                f"Local directory not found: {local_dir}", False,
+                f"Downloaded item not found: {plain_path(item)}", False,
             )
 
         # Find SFV files
-        sfv_files = find_sfv_files(local_dir)
+        sfv_files = find_sfv_files(item) if item.is_dir() else []
         sfv_entries: list = []
         for sfv_file in sfv_files:
             sfv_entries.extend(parse_sfv(sfv_file))
@@ -552,7 +553,7 @@ class JobRunner:
             for f in job.job_files
         ]
 
-        result = verify_files(local_dir, job_files, sfv_entries if sfv_entries else None)
+        result = verify_files(item.parent, job_files, sfv_entries if sfv_entries else None)
 
         # Update progress
         await self._update_progress(stage_run_id, {
@@ -584,22 +585,20 @@ class JobRunner:
         """Extract archives (ZIP, RAR, multipart RAR) safely."""
         from app.processing.extraction import detect_archives, extract_archive
 
-        config = job.config_snapshot_json
-        temp_dir = config.get("temporary_directory", "/tmp")
-        sanitized_title = _sanitize_dirname(item_title_from_job(job))
-        local_dir = Path(temp_dir) / sanitized_title
-
+        local_dir = long_path(_item_path(job))
         if not local_dir.exists():
             return StageResult(
                 StageRunStatus.FAILED, "no_files",
-                f"Local directory not found: {local_dir}", False,
+                f"Downloaded item not found: {plain_path(local_dir)}", False,
             )
+        if local_dir.is_file():
+            return StageResult(StageRunStatus.SKIPPED)
 
         archives = detect_archives(local_dir)
         if not archives:
             return StageResult(StageRunStatus.SKIPPED)
 
-        extract_dir = local_dir / "extracted"
+        extract_dir = local_dir  # in place; publish moves only the files that weren't downloaded
 
         for archive in archives:
             result = extract_archive(archive, extract_dir)
@@ -619,45 +618,18 @@ class JobRunner:
         return StageResult(StageRunStatus.SUCCEEDED)
 
     async def _stage_publish(self, job: Any, stage_run_id: str) -> StageResult:
-        """Publish prepared files from Path A to Path B with copy + atomic rename."""
-        from app.processing.publication import publish_files
+        """Move the downloaded item (or, for archives, the extracted files) to the completed folder."""
+        from app.processing.publication import publish_item
 
-        config = job.config_snapshot_json
-        temp_dir = config.get("temporary_directory", "/tmp")
-        completed_dir = config.get("completed_directory", "/tmp")
-        sanitized_title = _sanitize_dirname(item_title_from_job(job))
-
-        source_dir = Path(temp_dir) / sanitized_title
-        if not source_dir.exists():
-            return StageResult(
-                StageRunStatus.FAILED, "no_source",
-                f"Source directory not found: {source_dir}", False,
-            )
-
-        # Identify archive files to exclude from publishing
-        archive_exts = {".rar", ".r00", ".r01", ".r02", ".r03", ".r04", ".r05",
-                         ".r06", ".r07", ".r08", ".r09", ".r10", ".r11", ".r12",
-                         ".r13", ".r14", ".r15", ".r16", ".r17", ".r18", ".r19",
-                         ".r20", ".r21", ".r22", ".r23", ".r24", ".r25",
-                         ".r26", ".r27", ".r28", ".r29", ".sfv"}
-        archive_files = {
-            str(f.relative_to(source_dir))
-            for f in source_dir.rglob("*")
-            if f.is_file() and f.suffix.lower() in archive_exts
-        }
-
-        result = publish_files(
-            source_dir=source_dir,
-            completed_dir=completed_dir,
-            release_name=item_title_from_job(job),
-            source_item_hash=job.source_item_id[:8],
-            archive_files=archive_files,
+        result = publish_item(
+            _item_path(job),
+            job.config_snapshot_json.get("completed_directory", "/tmp"),
+            downloaded={f.local_relpath or f.remote_relpath for f in job.job_files},
         )
 
         await self._update_progress(stage_run_id, {
             "published_path": result.published_path,
             "files": result.published_files,
-            "collision_suffix": result.collision_suffix,
         })
 
         if not result.success:
@@ -726,7 +698,9 @@ class JobRunner:
             # The ready path is the published directory in Path B
             completed_dir = config.get("completed_directory", "/tmp")
             sanitized_title = _sanitize_dirname(item_title_from_job(job))
-            ready_path = str(Path(completed_dir) / sanitized_title)
+            ready_path = _library_path(
+                str(Path(completed_dir) / sanitized_title), (library.options_json or {}).get("path_mappings")
+            )
 
             try:
                 inspection = await adapter.inspect_import(ready_path, match)
@@ -820,7 +794,9 @@ class JobRunner:
 
             completed_dir = config.get("completed_directory", "/tmp")
             sanitized_title = _sanitize_dirname(item_title_from_job(job))
-            ready_path = str(Path(completed_dir) / sanitized_title)
+            ready_path = _library_path(
+                str(Path(completed_dir) / sanitized_title), (library.options_json or {}).get("path_mappings")
+            )
 
             result = await run_import_stage(adapter, ready_path, match)
 
@@ -975,6 +951,30 @@ def _sanitize_dirname(name: str) -> str:
     # Remove leading/trailing whitespace and dots
     sanitized = sanitized.strip(". ")
     return sanitized[:200]  # Limit length
+
+
+def _library_path(path: str, mappings: list[dict] | None) -> str:
+    """Translate a local path into the path the library sees, e.g. Sonarr in a container:
+    D:\\Temp\\downloads\\tv\\X.mkv -> /downloads/tv/X.mkv for {local_prefix: D:\\Temp\\downloads,
+    library_prefix: /downloads}. Unmapped paths pass through unchanged."""
+    norm = path.replace("\\", "/")
+    for m in mappings or []:
+        local = (m.get("local_prefix") or "").replace("\\", "/").rstrip("/")
+        lib = (m.get("library_prefix") or "").rstrip("/")
+        if not local:
+            continue
+        head, rest = norm[: len(local)], norm[len(local):]
+        if head.lower() == local.lower() and (not rest or rest.startswith("/")):
+            if "/" not in lib:  # Windows-style library prefix: keep backslashes
+                return lib + rest.replace("/", "\\")
+            return lib + rest
+    return path
+
+
+def _item_path(job: Any) -> Path:
+    """The item as downloaded into the in-progress folder: one file or one folder."""
+    temp_dir = job.config_snapshot_json.get("temporary_directory", "/tmp")
+    return Path(temp_dir) / _sanitize_dirname(item_title_from_job(job))
 
 
 def item_title_from_job(job: Any) -> str:
