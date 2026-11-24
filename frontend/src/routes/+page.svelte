@@ -157,31 +157,27 @@
   {:else}
     <Table hoverable>
       <TableHead>
-        <TableHeadCell class="w-8"></TableHeadCell>
-        <TableHeadCell>Title</TableHeadCell>
-        <TableHeadCell>Route</TableHeadCell>
-        <TableHeadCell>Status</TableHeadCell>
-        <TableHeadCell>When</TableHeadCell>
+        <TableHeadCell class="w-8 px-2 sm:px-6"></TableHeadCell>
+        <TableHeadCell class="w-full px-2 sm:px-6">Title</TableHeadCell>
+        <TableHeadCell class="px-2 sm:px-6">Status</TableHeadCell>
+        <TableHeadCell class="hidden sm:table-cell">When</TableHeadCell>
       </TableHead>
       <TableBody>
         {#each shownJobs as j (j.id)}
           {@const reason = reasonFor(j)}
           {@const kind = jobIcon(j.status, !!reason)}
           <TableBodyRow class="cursor-pointer" onclick={() => openJob(j.id)}>
-            <TableBodyCell
+            <TableBodyCell class="px-2 sm:px-6"
               ><StatusIcon {kind} tip={kind === 'warning' || kind === 'failed' ? reason : undefined} /></TableBodyCell
             >
-            {@const route = `${j.config_snapshot?.source_name ?? '—'} · ${j.config_snapshot?.label ?? '—'} → ${j.library_name ?? '—'}`}
-            <TableBodyCell class="font-medium">
-              <div class="max-w-xs truncate" title={j.title ?? ''}>{j.title ?? '—'}</div>
+            <!-- max-w-0 + w-full: the title takes the spare width and truncates instead of widening the table. -->
+            <TableBodyCell class="w-full max-w-0 min-w-32 px-2 font-medium sm:px-6">
+              <div class="truncate" title={j.title ?? ''}>{j.title ?? '—'}</div>
             </TableBodyCell>
-            <TableBodyCell>
-              <div class="max-w-xs truncate" title={route}>{route}</div>
-            </TableBodyCell>
-            <TableBodyCell>
+            <TableBodyCell class="px-2 sm:px-6">
               <StepDots steps={jobSteps(j, progress[j.id]?.stage === j.stage ? progress[j.id].pct : undefined)} />
             </TableBodyCell>
-            <TableBodyCell>{ago(j.ended_at ?? j.created_at)}</TableBodyCell>
+            <TableBodyCell class="hidden sm:table-cell">{ago(j.ended_at ?? j.created_at)}</TableBodyCell>
           </TableBodyRow>
         {/each}
       </TableBody>
