@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { Drawer, Button, Alert } from 'flowbite-svelte';
   import { endpoints } from '$lib/api/client';
+  import { onChange } from '$lib/live';
   import { groupOf, parseUtc, ago, runIcon } from '$lib/status';
   import StatusIcon from '$lib/components/StatusIcon.svelte';
   import { PHASES, jobSteps, currentRuns, trackRate, type RateSample } from '$lib/pipeline';
@@ -53,9 +54,12 @@
         etas = {};
         load(id);
       });
-      // Live view: refresh while open so stage changes show up without reopening.
-      const t = setInterval(() => load(id), 3000);
-      return () => clearInterval(t);
+      // Live view over SSE: reload when any job changed (stage, status, download bytes) or
+      // this job's progress moved (extract progress only lives on its stage run).
+      return onChange(
+        (s) => `${s.version}|${s.jobs.find((j) => j.id === id)?.progress ?? ''}`,
+        () => load(id),
+      );
     }
   });
 

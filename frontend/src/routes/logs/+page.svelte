@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { Alert, Badge, Button, Input, Spinner } from 'flowbite-svelte';
   import { endpoints, type LogEntry } from '$lib/api/client';
+  import { onChange } from '$lib/live';
 
   const LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR'] as const;
 
@@ -36,11 +37,10 @@
 
   onMount(load);
 
-  // Poll for new logs while auto-refresh is on.
+  // Reload when the server reports new log records, while auto-refresh is on.
   $effect(() => {
     if (!autoRefresh) return;
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
+    return onChange((s) => s.logs, () => load());
   });
 
   function onSearch(e: Event) {

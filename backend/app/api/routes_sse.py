@@ -70,8 +70,12 @@ async def events(request: Request) -> StreamingResponse:
                         select(func.count(Job.id), func.max(Job.updated_at))
                     )).one()
 
+                    from app.logging_buffer import get_log_handler
+                    log_handler = get_log_handler()
+
                     snapshot = {
                         "version": f"{count}:{newest.isoformat() if newest else ''}",
+                        "logs": log_handler.seq if log_handler else 0,
                         "jobs": [
                             {
                                 "id": j.id,

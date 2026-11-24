@@ -43,6 +43,8 @@ class LogBufferHandler(logging.Handler):
         super().__init__()
         self._buffer: deque[dict[str, Any]] = deque(maxlen=capacity)
         self._lock = threading.Lock()
+        # Bumped on every record: lets clients (SSE) notice new logs without fetching them.
+        self.seq = 0
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -63,6 +65,7 @@ class LogBufferHandler(logging.Handler):
             return
         with self._lock:
             self._buffer.append(entry)
+            self.seq += 1
 
     def snapshot(
         self,
