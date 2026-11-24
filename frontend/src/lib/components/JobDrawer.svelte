@@ -1,11 +1,15 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { Drawer, Button, Alert } from 'flowbite-svelte';
-  import { ChevronRightOutline, FolderSolid } from 'flowbite-svelte-icons';
+  import { ChevronRightOutline } from 'flowbite-svelte-icons';
   import { endpoints } from '$lib/api/client';
   import { subscribe, coalesce, type JobEvent } from '$lib/live';
-  import { groupOf, parseUtc, ago, runIcon, fmtSize, SPEED_STALE_MS, type IconKind } from '$lib/status';
+  import { groupOf, parseUtc, ago, runIcon, fmtSize, SPEED_STALE_MS } from '$lib/status';
+  import { stageList } from '$lib/stages';
   import StatusIcon from '$lib/components/StatusIcon.svelte';
+  import FileList from '$lib/components/FileList.svelte';
+  import EventTimeline from '$lib/components/EventTimeline.svelte';
+  import LibraryVerdict from '$lib/components/LibraryVerdict.svelte';
   import { PHASES, jobSteps, currentRuns, trackRate, type RateSample } from '$lib/pipeline';
   import StepTrack from '$lib/components/steps/StepTrack.svelte';
   import { currentIndex, type Step } from '$lib/components/steps/types';
@@ -138,125 +142,9 @@
   const fetched = $derived(job ? bytes({ bytes_done: job.download_bytes_done, bytes_total: job.download_bytes_total }) : null);
 
   const DONE = ['completed', 'completed_with_warnings'];
-  /** Event time: clock time today, date and time otherwise. The full stamp is in the tooltip. */
-  function when(s: string): string {
-    const d = parseUtc(s);
-    const today = d.toDateString() === new Date().toDateString();
-    return d.toLocaleString(undefined, today ? { hour: '2-digit', minute: '2-digit' } : { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  }
-  const hasDetails = (d: unknown) => d != null && (typeof d !== 'object' || Object.keys(d).length > 0);
-  /** A file's error repeats its path first; the row already shows the path. */
-  const unprefix = (detail: string, path: string) => {
-    const head = [path, basename(path)].find((p) => detail.startsWith(`${p}: `));
-    return head ? detail.slice(head.length + 2) : detail;
-  };
   const size = fmtSize;
-  const FILE_ICON: Record<string, IconKind> = {
-    pending: 'pending',
-    in_progress: 'running',
-    completed: 'done',
-    verified: 'done',
-    failed: 'failed',
-  };
-  const VERIFY_ICON: Record<string, IconKind> = {
-    checking: 'running',
-    'crc32 ok': 'done',
-    'size ok': 'done',
-    failed: 'failed',
-    missing: 'failed',
-  };
   const files = $derived<any[]>(job?.files ?? []);
-  // Every stage's list uses one row shape, so they all render alike (see the fileList snippet).
-  type Row = { key: string; path: string; kind: IconKind; meta?: string; note?: string; tone?: 'error' | 'warn'; pct?: number };
-  type List = { caption: string[]; rows: Row[]; empty?: string };
 
-  function sizeRow(key: string, path: string, kind: IconKind, total: number, done: number, live: boolean): Row {
-    const pct = total ? Math.round((done / total) * 100) : 0;
-    return { key, path, kind, meta: live ? `${pct}% · ${size(done)} / ${size(total)}` : size(total), pct: live ? pct : undefined };
-  }
-  const basename = (f: string) => f.slice(f.lastIndexOf('/') + 1);
-
-  /** The list under a stage: what it worked on, file by file. Null when it has none. */
-  function stageList(st: string, r: any): List | null {
-    const p = r?.progress;
-    if (st === 'source_download' || st === 'transfer') {
-      const live = r?.status === 'running';
-      const rows: Row[] =
-        st === 'transfer'
-          ? files.map((f) => ({
-              ...sizeRow(f.id, f.remote_relpath, FILE_ICON[f.transfer_status] ?? 'pending', f.size_bytes ?? 0, f.bytes_received ?? 0, f.transfer_status === 'in_progress'),
-              ...(f.transfer_status === 'failed' && { note: 'Transfer failed', tone: 'error' as const }),
-            }))
-          : ((p?.files ?? []) as any[]).map((f) => {
-              const finished = f.done_bytes >= f.size_bytes;
-              return sizeRow(f.path, f.path, finished ? 'done' : live ? 'running' : 'pending', f.size_bytes, f.done_bytes, live && !finished);
-            });
-      const total = st === 'transfer' ? files.reduce((n, f) => n + (f.size_bytes ?? 0), 0) : ((p?.files ?? []) as any[]).reduce((n, f) => n + f.size_bytes, 0);
-      return {
-        // While running, the stage bar above already shows the total.
-        caption: rows.length ? [live ? `${rows.length} files` : `${rows.length} files · ${size(total)}`] : [],
-        rows,
-        empty: st === 'transfer' ? 'Files are listed once the transfer starts.' : 'Files are listed once the seedbox reports them.',
-      };
-    }
-    if (st === 'verify' && p?.files?.length)
-      return {
-        caption: [],
-        rows: p.files.map((f: any) => {
-          const bad = f.result === 'failed' || f.result === 'missing';
-          return { key: f.path, path: f.path, kind: VERIFY_ICON[f.result] ?? 'pending', meta: bad ? undefined : f.detail || f.result, ...(bad && { note: unprefix(f.detail || f.result, f.path), tone: 'error' }) };
-        }),
-      };
-    if (st === 'extract' && p?.archives?.length)
-      return {
-        caption: [],
-        rows: p.archives.map((a: any) => ({
-          key: a.archive,
-          path: a.archive,
-          kind: a.files ? 'done' : r.status === 'running' ? 'running' : 'failed',
-          meta: a.files ? `${a.files.length} out` : undefined,
-          note: a.files?.map(basename).join(', '),
-        })),
-      };
-    if (st === 'move' && p?.files?.length)
-      return { caption: [`To ${p.published_path}`], rows: p.files.map((f: string) => ({ key: f, path: f, kind: 'done' })) };
-    if (st === 'inspect_import' && Array.isArray(p?.candidates))
-      return {
-        caption: [],
-        rows: p.candidates.map((c: any) => ({
-          key: c.path,
-          path: basename(c.path),
-          kind: c.rejection_reasons?.length ? 'warning' : 'done',
-          meta: c.quality || undefined,
-          ...(c.rejection_reasons?.length && { note: c.rejection_reasons.join('; '), tone: 'warn' }),
-        })),
-      };
-    if (st === 'import' && p)
-      return {
-        caption: [
-          p.pending && 'Library still importing',
-          p.rejected?.length && `${p.rejected.length} rejected by the library, left in place`,
-          p.skipped?.length && `${p.skipped.length} skipped`,
-        ].filter(Boolean),
-        rows: (p.imported ?? []).map((f: string) => ({ key: f, path: f, kind: 'done' })),
-      };
-    if (st === 'cleanup' && p)
-      return {
-        caption: [
-          p.cleaned_a && `In progress: deleted ${p.deleted_a?.count ?? 0} files · ${size(p.deleted_a?.bytes ?? 0)}`,
-          p.cleaned_b && `Completed: deleted ${p.deleted_b?.files?.length ?? 0} files the library left · ${size(p.deleted_b?.bytes ?? 0)}`,
-          !p.cleaned_b && p.skipped_b && 'Completed folder kept: no library',
-        ].filter(Boolean),
-        rows: p.cleaned_b ? (p.deleted_b?.files ?? []).map((f: string) => ({ key: f, path: f, kind: 'done' })) : [],
-      };
-    return null;
-  }
-  // Release folder shared by every file: shown once above the list, not on each row.
-  function commonRoot(paths: string[]): string {
-    const first = paths[0] ?? '';
-    const top = first.includes('/') ? first.slice(0, first.indexOf('/') + 1) : '';
-    return top && paths.every((x) => x.startsWith(top)) ? top : '';
-  }
   function took(r: any): string {
     if (!r.started_at) return '';
     const end = r.ended_at ? parseUtc(r.ended_at).getTime() : Date.now();
@@ -268,56 +156,6 @@
     return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
   }
 </script>
-
-{#snippet fileList(list: List)}
-  {@const root = commonRoot(list.rows.map((f) => f.path))}
-  <div class="mt-1.5 ms-6 text-xs">
-    {#each list.caption as line}
-      <p class="mb-1 truncate text-gray-600 dark:text-gray-300" title={line}>{line}</p>
-    {/each}
-    {#if list.rows.length}
-      <ul class="divide-y divide-gray-200 overflow-hidden rounded-md border border-gray-200 bg-white dark:divide-gray-700 dark:border-gray-700 dark:bg-gray-800">
-        {#if root}
-          <!-- The release folder every file sits in, as the list's header. -->
-          <li class="flex items-center gap-2 bg-gray-50 px-2.5 py-1.5 text-gray-600 dark:bg-gray-900/40 dark:text-gray-300">
-            <FolderSolid class="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-gray-500" aria-hidden="true" />
-            <span class="min-w-0 truncate" title={root.slice(0, -1)}>{root.slice(0, -1)}</span>
-          </li>
-        {/if}
-        {#each list.rows as f (f.key)}
-          {@const rel = f.path.slice(root.length)}
-          {@const slash = rel.lastIndexOf('/')}
-          <li class="flex items-start gap-2 px-2.5 py-1.5">
-            <StatusIcon kind={f.kind} class="mt-px h-3.5 w-3.5 shrink-0" />
-            <div class="min-w-0 flex-1">
-              <div class="flex items-baseline gap-2">
-                <!-- Folder and name on one line; a long folder shrinks before the name does. -->
-                <span class="flex min-w-0 flex-1 text-gray-900 dark:text-white" title={f.path}>
-                  {#if slash > 0}<span class="min-w-0 shrink-[999] truncate text-gray-500 dark:text-gray-400"
-                      >{rel.slice(0, slash + 1)}</span
-                    >{/if}<span class="min-w-0 truncate">{rel.slice(slash + 1)}</span>
-                </span>
-                {#if f.meta}<span class="whitespace-nowrap text-gray-600 tabular-nums dark:text-gray-300">{f.meta}</span>{/if}
-              </div>
-              {#if f.pct != null}
-                <div class="mt-1 h-1 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
-                  <div class="h-full bg-blue-600 transition-[width] duration-700" style="width: {f.pct}%"></div>
-                </div>
-              {/if}
-              {#if f.note}
-                <p class={f.tone === 'error' ? 'text-red-700 dark:text-red-300' : f.tone === 'warn' ? 'text-amber-700 dark:text-amber-300' : 'text-gray-500 dark:text-gray-400'}>
-                  {f.note}
-                </p>
-              {/if}
-            </div>
-          </li>
-        {/each}
-      </ul>
-    {:else if list.empty}
-      <p class="text-gray-500 dark:text-gray-400">{list.empty}</p>
-    {/if}
-  </div>
-{/snippet}
 
 {#snippet phaseCard(s: Step)}
   {@const runs = currentRuns((job.stage_runs ?? []) as any[])}
@@ -335,7 +173,7 @@
               ? 'queued'
               : 'pending'}
       {@const bar = r?.status !== 'running' ? null : st === 'transfer' ? fetched : bytes(r.progress)}
-      {@const list = stageList(st, r)}
+      {@const list = stageList(st, r, files)}
       <li>
         <div class="flex items-center gap-2">
           <StatusIcon {kind} class="h-4 w-4" />
@@ -367,38 +205,8 @@
         {#if st === 'source_download' && r?.progress?.message}
           <p class="mt-1 ms-6 text-xs text-gray-500 dark:text-gray-400">{r.progress.message}</p>
         {/if}
-        {#if st === 'check_library' && r?.progress?.eligibility}
-          {@const p = r.progress}
-          {@const parsed = p.match?.parsed ?? {}}
-          <dl class="mt-1 ms-6 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
-            {#if p.eligibility === 'skipped_by_user'}
-              <dt class="text-gray-500 dark:text-gray-400">Verdict</dt><dd class="text-gray-800 dark:text-gray-100">Skipped by you</dd>
-            {:else}
-              {#if p.library}<dt class="text-gray-500 dark:text-gray-400">Library</dt><dd class="text-gray-800 dark:text-gray-100">{p.library}</dd>{/if}
-              <dt class="text-gray-500 dark:text-gray-400">Verdict</dt>
-              <dd class="text-gray-800 dark:text-gray-100">{p.eligibility.replaceAll('_', ' ')}{#if p.reason}<span class="text-gray-500 dark:text-gray-400">{` · ${p.reason}`}</span>{/if}</dd>
-              {#if p.match}
-                <dt class="text-gray-500 dark:text-gray-400">Parsed as</dt>
-                <dd class="text-gray-800 dark:text-gray-100">
-                  {parsed.title ?? '—'}{#if parsed.year}{` (${parsed.year})`}{/if}{#if parsed.season != null}{` · S${String(parsed.season).padStart(2, '0')}`}{/if}{#if parsed.episodes}{` E${parsed.episodes.join(', E')}`}{:else if parsed.full_season}{' · full season'}{/if}{#if parsed.edition}{` · ${parsed.edition}`}{/if}
-                </dd>
-                {#if parsed.quality || parsed.group}
-                  <dt class="text-gray-500 dark:text-gray-400">Release</dt>
-                  <dd class="text-gray-800 dark:text-gray-100">{[parsed.quality, parsed.group].filter(Boolean).join(' · ')}</dd>
-                {/if}
-                <dt class="text-gray-500 dark:text-gray-400">Matched</dt>
-                <dd class="text-gray-800 dark:text-gray-100">
-                  {p.match.catalog_id != null ? `${p.match.media_type} #${p.match.catalog_id}` : 'no library entry'}{#if p.match.episode_ids}{` · ${p.match.episode_ids} episodes`}{/if}
-                </dd>
-              {/if}
-              {#if p.evidence?.has_file != null}
-                <dt class="text-gray-500 dark:text-gray-400">In library</dt>
-                <dd class="text-gray-800 dark:text-gray-100">{p.evidence.has_file ? 'has a file' : 'no file'}{#if p.evidence.missing_episode_ids?.length}{` · ${p.evidence.missing_episode_ids.length} episodes missing`}{/if}</dd>
-              {/if}
-            {/if}
-          </dl>
-        {/if}
-        {#if list}{@render fileList(list)}{/if}
+        {#if st === 'check_library' && r?.progress?.eligibility}<LibraryVerdict progress={r.progress} />{/if}
+        {#if list}<FileList {list} />{/if}
         <!-- The phase's banner below already says it when it is the job's own reason. -->
         {#if r?.error_detail && r.error_detail !== s.reason}
           <p class="mt-1 ms-6 text-xs text-red-700 dark:text-red-300" title={r.error_code}>{r.error_detail}</p>
@@ -504,43 +312,7 @@
         {/if}
       </div>
 
-      <details class="group border-t border-gray-200 pt-4 dark:border-gray-700">
-        <summary
-          class="flex cursor-pointer list-none items-center gap-1.5 rounded-md text-sm font-semibold text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-white [&::-webkit-details-marker]:hidden"
-        >
-          <ChevronRightOutline
-            class="h-4 w-4 text-gray-500 transition-transform group-open:rotate-90 motion-reduce:transition-none dark:text-gray-400"
-            aria-hidden="true"
-          />
-          Events
-          <span class="font-normal text-gray-500 tabular-nums dark:text-gray-400">{events.length}</span>
-        </summary>
-        {#if events.length}
-          <!-- A timeline: one rail, a dot per event colored by severity. -->
-          <ol class="mt-3 ms-2 border-s border-gray-200 text-sm dark:border-gray-700">
-            {#each events as e}
-              <li class="relative ps-4 pb-3 last:pb-0">
-                <span
-                  class="absolute -start-1 top-1.5 h-2 w-2 rounded-full ring-4 ring-white dark:ring-gray-800 {e.severity === 'error'
-                    ? 'bg-red-500'
-                    : e.severity === 'warning'
-                      ? 'bg-amber-500'
-                      : 'bg-gray-400 dark:bg-gray-500'}"
-                ></span>
-                <time class="block text-xs text-gray-500 tabular-nums dark:text-gray-400" datetime={e.created_at} title={parseUtc(e.created_at).toLocaleString()}
-                  >{when(e.created_at)}</time
-                >
-                <p class="break-words {e.severity === 'error' ? 'text-red-700 dark:text-red-300' : 'text-gray-800 dark:text-gray-100'}" title={e.kind}>{e.message}</p>
-                {#if e.severity === 'error' && hasDetails(e.details)}
-                  <pre class="mt-1 overflow-x-auto rounded bg-gray-50 p-2 text-xs whitespace-pre-wrap text-gray-700 dark:bg-gray-900/40 dark:text-gray-300">{JSON.stringify(e.details, null, 2)}</pre>
-                {/if}
-              </li>
-            {/each}
-          </ol>
-        {:else}
-          <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">Nothing logged yet.</p>
-        {/if}
-      </details>
+      <EventTimeline {events} />
     </div>
   {:else if error}
     <Alert color="red">{error}</Alert>
