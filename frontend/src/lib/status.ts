@@ -34,6 +34,21 @@ export function parseUtc(s: string): Date {
   return new Date(/(Z|[+-]\d{2}:?\d{2})$/i.test(s) ? s : s + 'Z');
 }
 
+/** Byte count in a fitting unit: 512 B, 54 KB, 921.6 MB, 2.4 GB. */
+export function fmtSize(n: number | null | undefined): string {
+  if (n == null) return '';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024;
+    i++;
+  }
+  return `${n.toFixed(i < 2 ? 0 : 1)} ${units[i]}`;
+}
+
+/** Speeds older than this are hidden: no new bytes reported means the transfer stalled. */
+export const SPEED_STALE_MS = 10_000;
+
 export function ago(s: string | null): string {
   if (!s) return '';
   const sec = Math.max(0, (Date.now() - parseUtc(s).getTime()) / 1000);

@@ -3,7 +3,7 @@
   import { Drawer, Button, Alert } from 'flowbite-svelte';
   import { endpoints } from '$lib/api/client';
   import { subscribe, coalesce, type JobEvent } from '$lib/live';
-  import { groupOf, parseUtc, ago, runIcon, type IconKind } from '$lib/status';
+  import { groupOf, parseUtc, ago, runIcon, fmtSize, SPEED_STALE_MS, type IconKind } from '$lib/status';
   import StatusIcon from '$lib/components/StatusIcon.svelte';
   import { PHASES, jobSteps, currentRuns, trackRate, type RateSample } from '$lib/pipeline';
   import StepTrack from '$lib/components/steps/StepTrack.svelte';
@@ -23,13 +23,25 @@
   // Per-stage byte samples across polls: seconds left for each running stage with progress.
   let rates: Record<string, RateSample[]> = {};
   let etas = $state<Record<string, number>>({});
+  let speeds = $state<Record<string, { bps: number; at: number }>>({});
+  // Ticks so a speed goes stale when no new bytes arrive (local clock, no requests).
+  let now = $state(Date.now());
+  $effect(() => {
+    const t = setInterval(() => (now = Date.now()), 2000);
+    return () => clearInterval(t);
+  });
 
   function sample(stage: string, p: { got: number; total: number } | null) {
     if (!p) return;
     const { samples, rate } = trackRate(rates[stage] ?? [], p.got, Date.now());
     rates[stage] = samples;
-    if (rate) etas[stage] = (p.total - p.got) / rate;
-    else delete etas[stage];
+    if (rate) {
+      etas[stage] = (p.total - p.got) / rate;
+      speeds[stage] = { bps: rate, at: Date.now() };
+    } else {
+      delete etas[stage];
+      delete speeds[stage];
+    }
   }
 
   async function load(id: string) {
@@ -52,6 +64,7 @@
         selected = undefined;
         rates = {};
         etas = {};
+        speeds = {};
         load(id);
       });
       // Live view: refetch this job whenever the stream reports a change to it, and on
@@ -95,16 +108,7 @@
   const fetched = $derived(job ? bytes({ bytes_done: job.download_bytes_done, bytes_total: job.download_bytes_total }) : null);
 
   const fmt = (s: string | null) => (s ? parseUtc(s).toLocaleString() : '');
-  function size(n: number | null): string {
-    if (n == null) return '';
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let i = 0;
-    while (n >= 1024 && i < units.length - 1) {
-      n /= 1024;
-      i++;
-    }
-    return `${n.toFixed(i < 2 ? 0 : 1)} ${units[i]}`;
-  }
+  const size = fmtSize;
   const FILE_ICON: Record<string, IconKind> = {
     pending: 'pending',
     in_progress: 'running',
@@ -158,7 +162,7 @@
               <div class="h-full bg-blue-600 transition-[width] duration-700" style="width: {bar.pct}%"></div>
             </div>
             <div class="mt-1 text-xs text-gray-600 dark:text-gray-300">
-              {bar.pct}% · {size(bar.got)} / {size(bar.total)}{#if etas[st] != null && bar.got < bar.total}{` · ~${dur(etas[st], false)} left`}{/if}
+              {bar.pct}% · {size(bar.got)} / {size(bar.total)}{#if speeds[st] && now - speeds[st].at < SPEED_STALE_MS && bar.got < bar.total}{` · ${size(speeds[st].bps)}/s`}{/if}{#if etas[st] != null && bar.got < bar.total}{` · ~${dur(etas[st], false)} left`}{/if}
             </div>
           </div>
         {/if}
