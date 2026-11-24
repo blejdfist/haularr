@@ -68,6 +68,9 @@ async def get_job(job_id: str, session: AsyncSession = Depends(get_session)):
     if not obj:
         raise HTTPException(status_code=404, detail="Job not found")
     result = _job_to_dict(obj)
+    library_id = (obj.config_snapshot_json or {}).get("library_instance_id")
+    library = await session.get(LibraryInstance, library_id) if library_id else None
+    result["library_name"] = library.name if library else None
     result["stage_runs"] = [
         {
             "id": r.id,

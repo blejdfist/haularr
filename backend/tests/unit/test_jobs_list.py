@@ -73,3 +73,10 @@ async def test_list_library_name_null_when_library_missing(auth_client, settings
     r = await auth_client.get("/api/v1/jobs")
     assert r.status_code == 200
     assert r.json()["items"][0]["library_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_get_job_includes_library_name(auth_client, settings):
+    await _seed(settings, [("completed", 1)])
+    job_id = (await auth_client.get("/api/v1/jobs")).json()["items"][0]["id"]
+    assert (await auth_client.get(f"/api/v1/jobs/{job_id}")).json()["library_name"] == "My Sonarr"
