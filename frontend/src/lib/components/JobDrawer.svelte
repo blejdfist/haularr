@@ -116,7 +116,14 @@
       lastStatus = st;
     });
   });
-  const steps = $derived(job ? jobSteps(job) : []);
+  // The running stage's percentage, so the track's connector fills along with the stage bar.
+  const stagePct = $derived.by(() => {
+    if (!job) return undefined;
+    const r = currentRuns((job.stage_runs ?? []) as any[]).get(job.stage);
+    if (r?.status !== 'running') return undefined;
+    return (job.stage === 'transfer' ? fetched : bytes(r.progress))?.pct;
+  });
+  const steps = $derived(job ? jobSteps(job, stagePct) : []);
   // Follow the job: when it moves to another phase, drop any manual selection.
   const currentKey = $derived(steps.length ? steps[currentIndex(steps)].key : undefined);
   $effect(() => {
@@ -318,7 +325,15 @@
   <ul class="space-y-2.5 text-sm">
     {#each PHASES.find((p) => p.key === s.key)?.stages ?? [] as st (st)}
       {@const r = runs.get(st)}
-      {@const kind = r ? runIcon(r.status) : st === job.stage && s.state === 'waiting' ? 'warning' : 'pending'}
+      {@const kind = r
+        ? runIcon(r.status)
+        : st !== job.stage
+          ? 'pending'
+          : s.state === 'waiting'
+            ? 'warning'
+            : s.state === 'active'
+              ? 'queued'
+              : 'pending'}
       {@const bar = r?.status !== 'running' ? null : st === 'transfer' ? fetched : bytes(r.progress)}
       {@const list = stageList(st, r)}
       <li>
@@ -334,12 +349,18 @@
           {/if}
         </div>
         {#if bar}
+          {@const live = speeds[st] && now - speeds[st].at < SPEED_STALE_MS && bar.got < bar.total}
           <div class="mt-1.5 ms-6">
             <div class="h-1.5 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
               <div class="h-full bg-blue-600 transition-[width] duration-700" style="width: {bar.pct}%"></div>
             </div>
-            <div class="mt-1 text-xs text-gray-600 dark:text-gray-300">
-              {bar.pct}% · {size(bar.got)} / {size(bar.total)}{#if speeds[st] && now - speeds[st].at < SPEED_STALE_MS && bar.got < bar.total}{` · ${size(speeds[st].bps)}/s`}{/if}{#if etas[st] != null && bar.got < bar.total}{` · ~${dur(etas[st], false)} left`}{/if}
+            <!-- Where it stands on the left, when it lands on the right. -->
+            <div class="mt-1 flex items-baseline gap-x-1.5 text-xs text-gray-600 tabular-nums dark:text-gray-300">
+              <span class="font-semibold text-gray-900 dark:text-white">{bar.pct}%</span>
+              <span class="min-w-0 truncate">{[`${size(bar.got)} / ${size(bar.total)}`, live && `${size(speeds[st].bps)}/s`].filter(Boolean).join(' · ')}</span>
+              {#if etas[st] != null && bar.got < bar.total}
+                <span class="ms-auto ps-3 whitespace-nowrap">~{dur(etas[st], false)} left</span>
+              {/if}
             </div>
           </div>
         {/if}
