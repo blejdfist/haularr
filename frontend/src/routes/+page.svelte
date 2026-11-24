@@ -30,7 +30,7 @@
   let dash = $state<any>(null);
   let error = $state('');
   let search = $state('');
-  let progress = $state<Record<string, number>>({});
+  let progress = $state<Record<string, { stage: string; pct: number }>>({});
   let drawerOpen = $state(false);
   let drawerJob = $state<string | null>(null);
 
@@ -82,9 +82,9 @@
     const es = new EventSource('/api/v1/events');
     es.addEventListener('snapshot', (ev) => {
       try {
-        const next: Record<string, number> = {};
+        const next: Record<string, { stage: string; pct: number }> = {};
         for (const j of JSON.parse((ev as MessageEvent).data).jobs)
-          if (j.bytes_total) next[j.id] = Math.round((j.bytes_done / j.bytes_total) * 100);
+          if (j.progress != null) next[j.id] = { stage: j.stage, pct: j.progress };
         progress = next;
       } catch {
         /* ignore malformed snapshot */
@@ -175,7 +175,7 @@
               <div class="max-w-xs truncate" title={route}>{route}</div>
             </TableBodyCell>
             <TableBodyCell>
-              <StepDots steps={jobSteps(j, progress[j.id])} />
+              <StepDots steps={jobSteps(j, progress[j.id]?.stage === j.stage ? progress[j.id].pct : undefined)} />
             </TableBodyCell>
             <TableBodyCell>{ago(j.ended_at ?? j.created_at)}</TableBodyCell>
           </TableBodyRow>

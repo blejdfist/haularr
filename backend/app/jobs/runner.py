@@ -617,21 +617,50 @@ class JobRunner:
 
         extract_dir = local_dir  # in place; publish moves only the files that weren't downloaded
 
-        for archive in archives:
-            result = extract_archive(archive, extract_dir)
-            if not result.success:
-                return StageResult(
-                    StageRunStatus.NEEDS_ATTENTION,
-                    "extraction_failed",
-                    result.error,
-                    not result.success,  # Some extraction errors are retryable
-                )
+        # Progress = bytes of new files vs the downloaded size.
+        # ponytail: assumes output ~ input (scene RARs are stored, not compressed); clamped to total.
+        before = {f for f in local_dir.rglob("*") if f.is_file()}
+        total = sum(f.stat().st_size for f in before) or 1
 
-            await self._update_progress(stage_run_id, {
-                "archive": str(archive.name),
-                "extracted": result.extracted_files,
-            })
+        def written() -> int:
+            n = 0
+            for f in local_dir.rglob("*"):
+                if f not in before:
+                    try:
+                        n += f.stat().st_size if f.is_file() else 0
+                    except OSError:  # file renamed or removed by the extractor mid-scan
+                        pass
+            return min(n, total)
 
+        async def flush_progress() -> None:
+            while True:
+                await asyncio.sleep(2)
+                try:
+                    done = await asyncio.to_thread(written)
+                    await self._update_progress(stage_run_id, {"bytes_done": done, "bytes_total": total})
+                except Exception as exc:  # progress is cosmetic; never kill the flusher
+                    logger.debug("Extract progress flush failed: %s", exc)
+
+        extracted: list[str] = []
+        flusher = asyncio.create_task(flush_progress())
+        try:
+            for archive in archives:
+                # Off the event loop: unrar can run for minutes and would stall heartbeats.
+                result = await asyncio.to_thread(extract_archive, archive, extract_dir)
+                if not result.success:
+                    return StageResult(
+                        StageRunStatus.NEEDS_ATTENTION,
+                        "extraction_failed",
+                        result.error,
+                        not result.success,  # Some extraction errors are retryable
+                    )
+                extracted += result.extracted_files
+        finally:
+            flusher.cancel()
+
+        await self._update_progress(stage_run_id, {
+            "bytes_done": total, "bytes_total": total, "extracted": extracted,
+        })
         return StageResult(StageRunStatus.SUCCEEDED)
 
     async def _stage_publish(self, job: Any, stage_run_id: str) -> StageResult:

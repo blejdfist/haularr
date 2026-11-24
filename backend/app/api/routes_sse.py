@@ -37,7 +37,7 @@ async def events(request: Request) -> StreamingResponse:
             try:
                 from app.database.session import get_session_factory
                 from sqlalchemy import select, func
-                from app.database.models import Job
+                from app.database.models import Job, StageRun
 
                 factory = get_session_factory(settings)
                 async with factory() as session:
@@ -45,6 +45,25 @@ async def events(request: Request) -> StreamingResponse:
                         select(Job).where(Job.status == "running").limit(50)
                     )
                     running_jobs = result.scalars().all()
+
+                    # Extract progress lives on the running stage run; download progress on the job.
+                    runs = (await session.execute(
+                        select(StageRun.job_id, StageRun.progress_json).where(
+                            StageRun.job_id.in_([j.id for j in running_jobs if j.stage == "extract"]),
+                            StageRun.status == "running",
+                        )
+                    )).all()
+                    extract = {jid: p for jid, p in runs}
+
+                    def pct(j: Job) -> int | None:
+                        if j.stage == "download":
+                            done, total = j.download_bytes_done, j.download_bytes_total
+                        elif j.stage == "extract":
+                            p = extract.get(j.id) or {}
+                            done, total = p.get("bytes_done", 0), p.get("bytes_total", 0)
+                        else:
+                            return None
+                        return round(done * 100 / total) if total else None
 
                     snapshot = {
                         "jobs": [
@@ -54,6 +73,7 @@ async def events(request: Request) -> StreamingResponse:
                                 "stage": j.stage,
                                 "bytes_done": j.download_bytes_done,
                                 "bytes_total": j.download_bytes_total,
+                                "progress": pct(j),
                             }
                             for j in running_jobs
                         ]

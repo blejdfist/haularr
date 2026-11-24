@@ -39,8 +39,8 @@ export function jobSteps(job: JobLike, progress?: number): Step[] {
     // Unknown status (completed, skipped, ...) means the job is finished.
     if (!state || i < cur) return { ...base, state: 'done' };
     if (i > cur) return { ...base, state: 'pending' };
-    // Live progress only exists for download (fetch phase).
-    if (state === 'active') return { ...base, state, progress: p.key === 'fetch' ? progress : undefined };
+    // Live progress (download or extract) belongs to whichever phase is running.
+    if (state === 'active') return { ...base, state, progress };
     return { ...base, state, reason: reasonFor(job) };
   });
 }

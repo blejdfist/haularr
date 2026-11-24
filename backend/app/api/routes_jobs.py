@@ -78,6 +78,7 @@ async def get_job(job_id: str, session: AsyncSession = Depends(get_session)):
             "ended_at": r.ended_at.isoformat() if r.ended_at else None,
             "error_code": r.error_code,
             "error_detail": r.error_detail,
+            "progress": r.progress_json,
         }
         for r in obj.stage_runs
     ]

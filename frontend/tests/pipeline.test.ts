@@ -36,9 +36,8 @@ describe('jobSteps', () => {
     expect(jobSteps({ status: 'running', stage: 'download' }, 40)[0].progress).toBe(40);
     expect(jobSteps({ status: 'waiting_source', stage: 'download' }, 40)[0].progress).toBeUndefined();
   });
-  it('progress ignored outside the fetch phase', () => {
-    // SSE keeps sending download bytes after download finished.
-    expect(jobSteps({ status: 'running', stage: 'extract' }, 100)[2].progress).toBeUndefined();
+  it('extract progress shows on the unpack phase', () => {
+    expect(jobSteps({ status: 'running', stage: 'extract' }, 30)[2].progress).toBe(30);
   });
   it('unknown stage falls back to first phase', () => {
     expect(jobSteps({ status: 'running', stage: 'bogus' })[0].state).toBe('active');

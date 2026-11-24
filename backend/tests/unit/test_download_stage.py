@@ -134,3 +134,28 @@ async def test_rar_release_extracts_in_place_and_moves_only_extracted(stage, tmp
     await _pipeline(run)
     assert sorted(p.name for p in (tmp_path / "done" / "T").iterdir()) == ["ep.mkv"]
     assert (tmp_path / "in" / "T" / "t.rar").exists()  # left for cleanup
+
+
+@pytest.mark.asyncio
+async def test_extract_records_byte_progress(stage, settings, monkeypatch):
+    from app.database.models import StageRun
+    from app.processing import extraction
+    from app.processing.extraction import ExtractionResult
+
+    def fake_extract(archive, dest):
+        (dest / "ep.mkv").write_bytes(b"video")
+        return ExtractionResult(success=True, extracted_files=["ep.mkv"])
+
+    monkeypatch.setattr(extraction, "extract_archive", fake_extract)
+    setup, run, _, _, names = stage
+    names[:] = ["t.rar", "t.r00"]
+    job_id = await setup()
+    for st in ("download", "verify", "extract"):
+        await run(st)
+    async with get_session_factory(settings)() as session:
+        run_row = (await session.execute(
+            select(StageRun).where(StageRun.job_id == job_id, StageRun.stage == "extract")
+        )).scalars().one()
+    assert run_row.progress_json["bytes_total"] == 2 * len(DATA)
+    assert run_row.progress_json["bytes_done"] == run_row.progress_json["bytes_total"]
+    assert run_row.progress_json["extracted"] == ["ep.mkv"]

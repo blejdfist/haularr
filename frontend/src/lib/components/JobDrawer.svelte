@@ -67,11 +67,12 @@
     currentKey;
     untrack(() => (selected = undefined));
   });
-  const fetched = $derived.by(() => {
-    const total = job?.download_bytes_total ?? 0;
-    const got = job?.download_bytes_done ?? 0;
+  const bytes = (p?: { bytes_done?: number; bytes_total?: number }) => {
+    const total = p?.bytes_total ?? 0;
+    const got = p?.bytes_done ?? 0;
     return total ? { pct: Math.round((got / total) * 100), got, total } : null;
-  });
+  };
+  const fetched = $derived(job ? bytes({ bytes_done: job.download_bytes_done, bytes_total: job.download_bytes_total }) : null);
 
   const fmt = (s: string | null) => (s ? parseUtc(s).toLocaleString() : '');
   const size = (n: number | null) => (n == null ? '' : `${(n / 1048576).toFixed(1)} MB`);
@@ -92,6 +93,7 @@
     {#each PHASES.find((p) => p.key === s.key)?.stages ?? [] as st (st)}
       {@const r = runs.get(st)}
       {@const kind = r ? runIcon(r.status) : st === job.stage && s.state === 'waiting' ? 'warning' : 'pending'}
+      {@const bar = r?.status !== 'running' ? null : st === 'download' ? fetched : bytes(r.progress)}
       <li>
         <div class="flex items-center gap-2">
           <StatusIcon {kind} class="h-4 w-4" />
@@ -104,13 +106,13 @@
             >
           {/if}
         </div>
-        {#if st === 'download' && r?.status === 'running' && fetched}
+        {#if bar}
           <div class="mt-1.5 ms-6">
             <div class="h-1.5 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
-              <div class="h-full bg-blue-600 transition-[width] duration-700" style="width: {fetched.pct}%"></div>
+              <div class="h-full bg-blue-600 transition-[width] duration-700" style="width: {bar.pct}%"></div>
             </div>
             <div class="mt-1 text-xs text-gray-600 dark:text-gray-300">
-              {fetched.pct}% · {size(fetched.got)} / {size(fetched.total)}
+              {bar.pct}% · {size(bar.got)} / {size(bar.total)}
             </div>
           </div>
         {/if}
