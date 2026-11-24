@@ -3,7 +3,7 @@
   import { Drawer, Button, Alert } from 'flowbite-svelte';
   import { endpoints } from '$lib/api/client';
   import { subscribe, coalesce, type JobEvent } from '$lib/live';
-  import { groupOf, parseUtc, ago, runIcon } from '$lib/status';
+  import { groupOf, parseUtc, ago, runIcon, type IconKind } from '$lib/status';
   import StatusIcon from '$lib/components/StatusIcon.svelte';
   import { PHASES, jobSteps, currentRuns, trackRate, type RateSample } from '$lib/pipeline';
   import StepTrack from '$lib/components/steps/StepTrack.svelte';
@@ -95,7 +95,31 @@
   const fetched = $derived(job ? bytes({ bytes_done: job.download_bytes_done, bytes_total: job.download_bytes_total }) : null);
 
   const fmt = (s: string | null) => (s ? parseUtc(s).toLocaleString() : '');
-  const size = (n: number | null) => (n == null ? '' : `${(n / 1048576).toFixed(1)} MB`);
+  function size(n: number | null): string {
+    if (n == null) return '';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0;
+    while (n >= 1024 && i < units.length - 1) {
+      n /= 1024;
+      i++;
+    }
+    return `${n.toFixed(i < 2 ? 0 : 1)} ${units[i]}`;
+  }
+  const FILE_ICON: Record<string, IconKind> = {
+    pending: 'pending',
+    in_progress: 'running',
+    completed: 'done',
+    verified: 'done',
+    failed: 'failed',
+  };
+  const files = $derived<any[]>(job?.files ?? []);
+  const filesTotal = $derived(files.reduce((n, f) => n + (f.size_bytes ?? 0), 0));
+  // Release folder shared by every file: shown once above the list, not on each row.
+  const filesRoot = $derived.by(() => {
+    const first = files[0]?.remote_relpath ?? '';
+    const top = first.includes('/') ? first.slice(0, first.indexOf('/') + 1) : '';
+    return top && files.every((f) => f.remote_relpath.startsWith(top)) ? top : '';
+  });
   function took(r: any): string {
     if (!r.started_at) return '';
     const end = r.ended_at ? parseUtc(r.ended_at).getTime() : Date.now();
@@ -198,17 +222,58 @@
       </div>
 
       <section>
-        <h4 class="mb-2 font-semibold text-gray-900 dark:text-white">Files</h4>
-        <ul class="space-y-1 text-sm">
-          {#each job.files ?? [] as f}
-            <li class="flex justify-between gap-2">
-              <span class="break-all text-gray-800 dark:text-gray-100">{f.remote_relpath}</span>
-              <span class="whitespace-nowrap text-gray-600 dark:text-gray-300">{f.transfer_status} · {size(f.bytes_received)} / {size(f.size_bytes)}</span>
-            </li>
-          {:else}
-            <li class="text-gray-600 dark:text-gray-300">No files.</li>
-          {/each}
-        </ul>
+        <h4 class="mb-2 flex items-baseline gap-2 font-semibold text-gray-900 dark:text-white">
+          Files
+          {#if files.length}
+            <span class="text-sm font-normal text-gray-600 dark:text-gray-300"
+              >{files.length} · {size(filesTotal)}</span
+            >
+          {/if}
+        </h4>
+        {#if filesRoot}
+          <p class="-mt-1 mb-2 truncate text-xs text-gray-500 dark:text-gray-400" title={filesRoot}>
+            in {filesRoot.slice(0, -1)}
+          </p>
+        {/if}
+        {#if files.length}
+          <ul class="divide-y divide-gray-200 rounded-lg border border-gray-200 text-sm dark:divide-gray-700 dark:border-gray-700">
+            {#each files as f (f.id)}
+              {@const rel = f.remote_relpath.slice(filesRoot.length)}
+              {@const slash = rel.lastIndexOf('/')}
+              {@const active = f.transfer_status === 'in_progress'}
+              {@const pct = f.size_bytes ? Math.round(((f.bytes_received ?? 0) / f.size_bytes) * 100) : 0}
+              <li class="flex items-start gap-2.5 px-3 py-2">
+                <StatusIcon kind={FILE_ICON[f.transfer_status] ?? 'pending'} class="mt-0.5 h-4 w-4" />
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-baseline gap-2">
+                    <span class="flex-1 truncate font-medium text-gray-900 dark:text-white" title={f.remote_relpath}
+                      >{rel.slice(slash + 1)}</span
+                    >
+                    <span class="whitespace-nowrap text-xs text-gray-600 tabular-nums dark:text-gray-300"
+                      >{active ? `${size(f.bytes_received)} / ` : ''}{size(f.size_bytes)}</span
+                    >
+                  </div>
+                  {#if slash > 0}
+                    <div class="truncate text-xs text-gray-500 dark:text-gray-400" title={f.remote_relpath}>
+                      {rel.slice(0, slash)}
+                    </div>
+                  {/if}
+                  {#if active}
+                    <div class="mt-1.5 h-1 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
+                      <div class="h-full bg-blue-600 transition-[width] duration-700" style="width: {pct}%"></div>
+                    </div>
+                  {:else if f.transfer_status === 'failed'}
+                    <div class="text-xs text-red-700 dark:text-red-300">Transfer failed</div>
+                  {:else if f.verified_at}
+                    <div class="text-xs text-green-700 dark:text-green-400">Verified</div>
+                  {/if}
+                </div>
+              </li>
+            {/each}
+          </ul>
+        {:else}
+          <p class="text-sm text-gray-600 dark:text-gray-300">No files yet.</p>
+        {/if}
       </section>
 
       <details>
