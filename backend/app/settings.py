@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     retry_limit: int = 5
     stage_lease_seconds: int = 90
 
+    # Demo mode: fake sources/libraries/jobs, no real background services (see app/demo.py)
+    demo: bool = False
+
     # Static frontend
     static_dir: Path = Field(default=Path("frontend/build"))
 

@@ -42,6 +42,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from app.logging_buffer import install_log_handler, remove_log_handler
     install_log_handler()
 
+    if settings.demo:
+        # Throwaway database: a fresh OS temp folder per run, deleted on shutdown.
+        import tempfile
+        settings.config_dir = Path(tempfile.mkdtemp(prefix="haularr-demo-"))
+        os.environ["HAULARR_CONFIG_DIR"] = str(settings.config_dir)  # migrations read it
+
     # Ensure config dir exists
     settings.config_dir.mkdir(parents=True, exist_ok=True)
 
@@ -59,8 +65,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Run migrations on startup
     logger.info("Running database migrations...")
     from alembic import command
-    import asyncio
-    import os
 
     os.environ.setdefault("HAULARR_CONFIG_DIR", str(settings.config_dir))
     alembic_cfg = _alembic_config(settings)
@@ -77,9 +81,31 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Load persisted settings from DB (overrides env/file defaults)
     await _load_persisted_settings(settings)
 
-    # Initialize and start scheduler
     from app.jobs.scheduler import JobScheduler
     from app.jobs.recovery import Recovery
+
+    if settings.demo:
+        # Fake data only: nothing may run against the made-up hosts. The scheduler and
+        # supervisor exist (routes use them) but never start.
+        from app.demo import run_ticker, seed
+        await seed(settings, app.state.master_key)
+        from app.jobs.supervisor import DiscoverySupervisor
+        app.state.scheduler = JobScheduler(settings)
+        app.state.supervisor = DiscoverySupervisor(settings, app.state.master_key)
+        demo_task = asyncio.create_task(run_ticker(settings))
+        logger.warning("DEMO MODE: showing fake data; background services are off")
+        yield
+        demo_task.cancel()
+        try:
+            await demo_task
+        except asyncio.CancelledError:
+            pass
+        await close_engine()
+        remove_log_handler()
+        remove_file_handler()
+        import shutil
+        shutil.rmtree(settings.config_dir, ignore_errors=True)
+        return
 
     # Recover expired leases first
     recovery = Recovery(settings)
