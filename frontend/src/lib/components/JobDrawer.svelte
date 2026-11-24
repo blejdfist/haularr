@@ -1,10 +1,11 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { Drawer, Button, Alert } from 'flowbite-svelte';
   import { endpoints } from '$lib/api/client';
   import { groupOf, parseUtc, ago } from '$lib/status';
   import { PHASES, jobSteps } from '$lib/pipeline';
   import StepTrack from '$lib/components/steps/StepTrack.svelte';
-  import type { Step } from '$lib/components/steps/types';
+  import { currentIndex, type Step } from '$lib/components/steps/types';
 
   let { jobId, open = $bindable(false), onchanged }: {
     jobId: string | null;
@@ -29,10 +30,16 @@
 
   $effect(() => {
     if (open && jobId) {
-      job = null;
-      events = [];
-      selected = undefined;
-      load(jobId);
+      const id = jobId;
+      untrack(() => {
+        job = null;
+        events = [];
+        selected = undefined;
+        load(id);
+      });
+      // Live view: refresh while open so stage changes show up without reopening.
+      const t = setInterval(() => load(id), 3000);
+      return () => clearInterval(t);
     }
   });
 
@@ -53,6 +60,12 @@
 
   const group = $derived(job ? groupOf(job.status) : null);
   const steps = $derived(job ? jobSteps(job) : []);
+  // Follow the job: when it moves to another phase, drop any manual selection.
+  const currentKey = $derived(steps.length ? steps[currentIndex(steps)].key : undefined);
+  $effect(() => {
+    currentKey;
+    untrack(() => (selected = undefined));
+  });
   const fetched = $derived.by(() => {
     const files = job?.files ?? [];
     const total = files.reduce((n: number, f: any) => n + (f.size_bytes ?? 0), 0);
@@ -64,17 +77,25 @@
   const size = (n: number | null) => (n == null ? '' : `${(n / 1048576).toFixed(1)} MB`);
   function took(r: any): string {
     if (!r.started_at) return '';
-    if (!r.ended_at) return 'running';
-    const s = (parseUtc(r.ended_at).getTime() - parseUtc(r.started_at).getTime()) / 1000;
+    const end = r.ended_at ? parseUtc(r.ended_at).getTime() : Date.now();
+    const s = (end - parseUtc(r.started_at).getTime()) / 1000;
     if (s < 60) return `${s.toFixed(1)}s`;
     if (s < 3600) return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
     return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
   }
   const runColor = (status: string) =>
     status === 'failed' ? 'text-red-700 dark:text-red-300' : status === 'running' ? 'text-blue-700 dark:text-blue-300' : 'text-gray-600 dark:text-gray-300';
+  // Latest run per stage only: the card shows current status, not attempt history.
   const runsFor = (s: Step) => {
     const stages = PHASES.find((p) => p.key === s.key)?.stages ?? [];
-    return (job?.stage_runs ?? []).filter((r: any) => stages.includes(r.stage));
+    const latest = new Map<string, any>();
+    for (const r of job?.stage_runs ?? []) {
+      if (!stages.includes(r.stage)) continue;
+      const prev = latest.get(r.stage);
+      if (!prev || r.attempt > prev.attempt || (r.attempt === prev.attempt && (r.started_at ?? '') > (prev.started_at ?? '')))
+        latest.set(r.stage, r);
+    }
+    return stages.filter((st) => latest.has(st)).map((st) => latest.get(st));
   };
 </script>
 
@@ -89,8 +110,10 @@
       {#each runs as r}
         <li>
           <div class="flex justify-between gap-2">
-            <span class="text-gray-800 dark:text-gray-100">{r.stage.replaceAll('_', ' ')}{#if r.attempt > 1}<span class="text-gray-600 dark:text-gray-300">{` · attempt ${r.attempt}`}</span>{/if}</span>
-            <span class="whitespace-nowrap font-mono text-xs {runColor(r.status)}">{r.status} · {took(r)}</span>
+            <span class="text-gray-800 dark:text-gray-100">{r.stage.replaceAll('_', ' ')}</span>
+            <span class="whitespace-nowrap font-mono text-xs {runColor(r.status)}"
+              >{r.status}{#if took(r)}{` · ${r.ended_at ? '' : 'for '}${took(r)}`}{/if}{#if r.attempt > 1}{` · try ${r.attempt}`}{/if}</span
+            >
           </div>
           {#if r.error_detail}
             <p class="mt-0.5 text-xs text-red-700 dark:text-red-300">{r.error_code}: {r.error_detail}</p>
