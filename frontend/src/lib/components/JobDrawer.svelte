@@ -187,9 +187,25 @@
     <div class="space-y-5">
       <div class="pr-8">
         <h3 class="text-lg font-semibold break-words text-gray-900 dark:text-white">{job.config_snapshot?.title ?? '—'}</h3>
-        <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">
-          {job.config_snapshot?.source_name ?? '—'} · {job.config_snapshot?.label ?? '—'} → {job.library_name ?? '—'} · created {ago(job.created_at)}
-        </p>
+        <!-- Route: where the release comes from and which library it goes to. -->
+        <div class="mt-2 flex flex-wrap items-center gap-1.5 text-sm">
+          {#each [['Source', job.config_snapshot?.source_name], ['Label', job.config_snapshot?.label], ['Library', job.library_name]] as [what, value], i}
+            {#if i}
+              <svg viewBox="0 0 20 20" class="h-4 w-4 shrink-0 text-gray-400" aria-hidden="true"
+                ><path fill="currentColor" d="M7.3 4.3a1 1 0 0 1 1.4 0l5 5a1 1 0 0 1 0 1.4l-5 5a1 1 0 1 1-1.4-1.4L11.6 10 7.3 5.7a1 1 0 0 1 0-1.4Z" /></svg
+              >
+            {/if}
+            <span class="inline-flex items-baseline gap-1.5 rounded-md bg-gray-100 px-2 py-0.5 dark:bg-gray-700">
+              <span class="text-xs text-gray-500 dark:text-gray-400">{what}</span>
+              {#if value}
+                <span class="font-medium text-gray-900 dark:text-white">{value}</span>
+              {:else}
+                <span class="text-gray-500 italic dark:text-gray-400">none</span>
+              {/if}
+            </span>
+          {/each}
+        </div>
+        <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">Created {ago(job.created_at)}</p>
       </div>
 
       {#if error}<Alert color="red">{error}</Alert>{/if}
