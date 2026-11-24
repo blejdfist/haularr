@@ -71,8 +71,24 @@
     return 'gray';
   }
 
-  // Split on ids (capturing group keeps them) so known ones can show as names.
-  const ID = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/;
+  // Ids in a message show as highlighted names (id in the tooltip): either `"Name" (id)` as the
+  // backend writes it, or a bare id the server resolved in `names`.
+  const TOKEN =
+    /"([^"]*)" \(([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\)|([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/g;
+
+  function segments(msg: string): { text: string; id?: string }[] {
+    const out: { text: string; id?: string }[] = [];
+    let last = 0;
+    for (const m of msg.matchAll(TOKEN)) {
+      if (m.index > last) out.push({ text: msg.slice(last, m.index) });
+      const id = m[2] ?? m[3];
+      const name = m[1] ?? names[id];
+      out.push(name ? { text: name, id } : { text: m[0] });
+      last = m.index + m[0].length;
+    }
+    if (last < msg.length) out.push({ text: msg.slice(last) });
+    return out;
+  }
 
   function fmtTime(s: string): string {
     const d = new Date(s);
@@ -144,10 +160,10 @@
             </span>
             <span class="shrink-0 truncate text-gray-400" title={e.logger}>{e.logger}</span>
             <span class="break-all"
-              >{#each e.message.split(ID) as part}{#if names[part] && !e.message.includes(`"${names[part]}"`)}<span
+              >{#each segments(e.message) as seg}{#if seg.id}<span
                     class="font-semibold text-primary-600 dark:text-primary-400"
-                    title={part}>{names[part]}</span
-                  >{:else}{part}{/if}{/each}</span
+                    title={seg.id}>{seg.text}</span
+                  >{:else}{seg.text}{/if}{/each}</span
             >
           </div>
           {#if e.exception}
