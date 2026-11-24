@@ -138,151 +138,29 @@ class JobRunner:
     # Stage implementations
     # -----------------------------------------------------------------------
 
-    async def _stage_resolve_source(self, job: Any, stage_run_id: str) -> StageResult:
-        """Validate that files are available on the transfer endpoint."""
-        config = job.config_snapshot_json
-        transfer_id = config.get("transfer_id")
-        if not transfer_id:
-            # No transfer configured — skip to download (may be configured differently)
-            return StageResult(StageRunStatus.SUCCEEDED)
+    async def _files_not_visible(self, transfer: Any, endpoint: Any, item: Any, manifest: list) -> str | None:
+        """Why the manifest's files can't all be seen on the endpoint yet, or None when they can."""
+        from app.adapters.transfers import create_transfer_adapter
+        from app.domain.models import SourceItemDTO, SourceStatus
 
-        factory = get_session_factory(self.settings)
-        async with factory() as session:
-            from app.database.repositories import SourceItemRepository, SourceRepository, TransferRepository
-            item_repo = SourceItemRepository(session)
-            item = await item_repo.get(job.source_item_id)
-            if not item:
-                return StageResult(
-                    StageRunStatus.FAILED, "item_not_found", "Source item not found", False
-                )
-
-            # Check source reports completed
-            if item.source_status not in ("completed", "stopped"):
-                return StageResult(
-                    StageRunStatus.FAILED,
-                    "source_not_complete",
-                    f"Source item status is '{item.source_status}', expected completed",
-                    True,
-                )
-
-            # Get source adapter and fetch file manifest
-            import json
-            from app.adapters.sources import create_source_adapter
-            from app.security import decrypt_secret
-
-            source_repo = SourceRepository(session)
-            source = await source_repo.get(item.source_id)
-            if not source:
-                return StageResult(
-                    StageRunStatus.FAILED, "source_not_found", "Source not found", False
-                )
-
-            # Build adapter config: non-secret config + decrypted credential
-            source_config = dict(source.connection_config_json or {})
-            cred_ref = source.credential_ref or ""
-            if cred_ref.startswith("enc:"):
-                try:
-                    plaintext = decrypt_secret(cred_ref[4:], self._get_master_key())
-                    try:
-                        creds = json.loads(plaintext)
-                        if isinstance(creds, dict):
-                            source_config.update(creds)
-                        else:
-                            source_config["password"] = plaintext
-                    except json.JSONDecodeError:
-                        source_config["password"] = plaintext
-                except Exception:
-                    pass
-            elif cred_ref:
-                try:
-                    creds = json.loads(cred_ref)
-                    if isinstance(creds, dict):
-                        source_config.update(creds)
-                except json.JSONDecodeError:
-                    source_config["password"] = cred_ref
-
-            source_adapter = create_source_adapter(source.id, source.adapter_type, source_config)
-            try:
-                manifest = await source_adapter.get_manifest(item.remote_id)
-            except Exception as exc:
-                return StageResult(
-                    StageRunStatus.FAILED, "manifest_error",
-                    f"Failed to get file manifest: {exc}", True,
-                )
-
-            if not manifest:
-                return StageResult(
-                    StageRunStatus.FAILED,
-                    "source_not_ready",
-                    "No completed files found in source manifest — files may still be transferring",
-                    True,
-                )
-
-            # Inspect files on transfer endpoint to confirm they're visible
-            transfer_repo = TransferRepository(session)
-            transfer = await transfer_repo.get(transfer_id)
-            if not transfer:
-                return StageResult(
-                    StageRunStatus.FAILED, "transfer_not_found", "Transfer config not found", False
-                )
-
-            endpoints = list(transfer.endpoints) if transfer.endpoints else []
-            if not endpoints:
-                # No endpoints configured — skip FTP verification, proceed to download
-                await self._update_progress(stage_run_id, {
-                    "status": "no_endpoints_to_inspect",
-                    "files": len(manifest),
-                })
-                return StageResult(StageRunStatus.SUCCEEDED)
-
-            endpoint = endpoints[0]
-            transfer_config = self._transfer_config(transfer, endpoint)
-
-            from app.adapters.transfers import create_transfer_adapter
-            from app.domain.models import SourceItemDTO, SourceStatus
-            transfer_adapter = create_transfer_adapter(
-                transfer_id, transfer.adapter_type, transfer_config
-            )
-
-            source_item_dto = SourceItemDTO(
-                remote_id=item.remote_id,
-                name=item.title,
-                labels=item.labels_json,
-                status=SourceStatus.COMPLETED,
-                remote_base_path=item.remote_path,
-            )
-
-            try:
-                remote_manifest = await transfer_adapter.inspect(
-                    source_item_dto,
-                    manifest,
-                    path_mappings=endpoint.path_mappings_json,
-                )
-            except Exception as exc:
-                # inspect failure means files not visible on FTP — wait
-                return StageResult(
-                    StageRunStatus.FAILED,
-                    "waiting_for_source",
-                    f"Files not yet visible on transfer endpoint: {exc}",
-                    True,
-                )
-
-            # Check all expected files are present
-            if len(remote_manifest.files) < len(manifest):
-                missing_count = len(manifest) - len(remote_manifest.files)
-                return StageResult(
-                    StageRunStatus.FAILED,
-                    "waiting_for_source",
-                    f"{missing_count} of {len(manifest)} files not yet visible on transfer endpoint",
-                    True,
-                )
-
-            await self._update_progress(stage_run_id, {
-                "status": "resolved",
-                "files_confirmed": len(remote_manifest.files),
-                "endpoint": remote_manifest.endpoint_name,
-            })
-            return StageResult(StageRunStatus.SUCCEEDED)
+        adapter = create_transfer_adapter(
+            transfer.id, transfer.adapter_type, self._transfer_config(transfer, endpoint)
+        )
+        source_item = SourceItemDTO(
+            remote_id=item.remote_id,
+            name=item.title,
+            labels=item.labels_json,
+            status=SourceStatus.COMPLETED,
+            remote_base_path=item.remote_path,
+        )
+        try:
+            remote = await adapter.inspect(source_item, manifest, path_mappings=endpoint.path_mappings_json)
+        except Exception as exc:
+            return f"Files not yet visible on transfer endpoint: {exc}"
+        missing = len(manifest) - len(remote.files)
+        if missing > 0:
+            return f"{missing} of {len(manifest)} files not yet visible on transfer endpoint"
+        return None
 
     async def _live_transfer_id(self, job: Any) -> str | None:
         from app.database.models import SourceInstance, SourceLabelRule
@@ -395,6 +273,13 @@ class JobRunner:
                     "No completed files found in source manifest",
                     True,
                 )
+
+            # Seedbox done doesn't mean the files are reachable yet (e.g. a mover still
+            # copying them); wait and retry rather than failing transfers one by one.
+            if endpoints:
+                waiting = await self._files_not_visible(transfer, endpoints[0], item, manifest)
+                if waiting:
+                    return StageResult(StageRunStatus.FAILED, "waiting_for_source", waiting, True)
 
             # One job_files row per manifest file up front, so every expected file shows
             # (pending) before its transfer starts. Rows from earlier attempts are reused.

@@ -2,19 +2,27 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 from sqlalchemy import select
 
 from app.database.models import Job, JobFile, TransferEndpoint, TransferInstance
 from app.database.session import get_session_factory
-from app.domain.models import RemoteFileDTO, StageRunStatus, TransferResult
+from app.domain.models import RemoteFileDTO, RemoteManifest, StageRunStatus, TransferResult
 from tests.unit.test_waiting_fetch import _job
 
 DATA = b"0123456789"
 
 
 @pytest.fixture
-def stage(app, settings, tmp_path, monkeypatch):
+def hidden():
+    """Remote files the transfer endpoint can't see yet; "*" makes inspect raise."""
+    return []
+
+
+@pytest.fixture
+def stage(app, settings, tmp_path, monkeypatch, hidden):
     """A download job for item 'T'; remote files are ``names`` (default one 10-byte a.mkv).
 
     Downloads land in tmp/in, publish moves to tmp/done."""
@@ -37,6 +45,14 @@ def stage(app, settings, tmp_path, monkeypatch):
         return TransferResult(success=True, bytes_transferred=len(DATA), endpoint_name="h")
 
     monkeypatch.setattr(FTPSAdapter, "transfer_file", fake_transfer)
+
+    async def fake_inspect(self, source_item, manifest, **kw):
+        if "*" in hidden:
+            raise ConnectionError("550 no such directory")
+        files = [f for f in manifest if f.relative_path not in hidden]
+        return RemoteManifest(endpoint_name="h", files=files, checked_at=datetime.now(timezone.utc))
+
+    monkeypatch.setattr(FTPSAdapter, "inspect", fake_inspect)
 
     async def run(stage="transfer"):
         return await JobRunner(settings, job_id, stage, "tok").execute()
@@ -185,3 +201,30 @@ async def test_every_expected_file_is_listed_with_its_own_status(stage, settings
     assert seen_during_a == {"a.mkv": "in_progress", "b.mkv": "pending", "c.mkv": "pending"}
     after = {f.remote_relpath: f.transfer_status for f in await _files(settings, job_id)}
     assert after == {"a.mkv": "completed", "b.mkv": "failed", "c.mkv": "pending"}
+
+
+@pytest.mark.asyncio
+async def test_transfer_waits_when_files_not_visible(stage, hidden, settings):
+    setup, run, calls, _, names = stage
+    names.append("b.mkv")
+    hidden.append("b.mkv")
+    await setup()
+
+    result = await run()
+    assert result.status == StageRunStatus.FAILED
+    assert result.error_code == "waiting_for_source"
+    assert result.error_detail == "1 of 2 files not yet visible on transfer endpoint"
+    assert result.retryable is True
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_transfer_waits_when_inspect_raises(stage, hidden):
+    setup, run, calls, _, _ = stage
+    hidden.append("*")
+    await setup()
+
+    result = await run()
+    assert (result.status, result.error_code, result.retryable) == (StageRunStatus.FAILED, "waiting_for_source", True)
+    assert "550 no such directory" in result.error_detail
+    assert calls == []
