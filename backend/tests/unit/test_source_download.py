@@ -349,8 +349,8 @@ async def test_progress_scan_still_creates_downloading_jobs(seedbox, settings):
 
 
 @pytest.mark.parametrize("status", ["waiting_library", "waiting_approval", "queued", "retry_wait"])
-async def test_removed_torrent_ends_job_parked_before_transfer(seedbox, settings, status):
-    """Nothing was transferred yet, so a torrent deleted from the seedbox just ends the job."""
+async def test_removed_torrent_deletes_job_parked_before_transfer(seedbox, settings, status):
+    """Nothing was transferred yet, so a torrent deleted from the seedbox takes its job with it."""
     fake, scan, _ = seedbox
     fake.items = [_dto()]
     await scan()
@@ -361,9 +361,10 @@ async def test_removed_torrent_ends_job_parked_before_transfer(seedbox, settings
     fake.items = []
     await scan()
 
-    [job] = await _jobs(settings)
-    assert (job.status, job.error_code) == ("skipped", "source_removed")
-    assert job.ended_at is not None
+    assert await _jobs(settings) == []
+    async with get_session_factory(settings)() as session:
+        assert (await session.execute(select(SourceItem))).scalars().all() == []
+        assert (await session.execute(select(StageRun))).scalars().all() == []
 
 
 async def test_removed_torrent_leaves_running_or_later_jobs(seedbox, settings):
@@ -379,3 +380,52 @@ async def test_removed_torrent_leaves_running_or_later_jobs(seedbox, settings):
 
     [job] = await _jobs(settings)
     assert (job.stage, job.status) == ("transfer", "queued")
+
+
+async def test_removed_item_without_job_is_dropped(seedbox, settings, monkeypatch):
+    from app.services import classification
+
+    async def available(*a, **k):
+        return "already_available"
+
+    monkeypatch.setattr(classification, "classify_item", available)
+    fake, scan, _ = seedbox
+    fake.items = [_dto(done=1000, status=SourceStatus.COMPLETED, complete=True)]
+    await scan()  # inventoried, skipped: no job
+    fake.items = []
+    await scan()
+    async with get_session_factory(settings)() as session:
+        assert (await session.execute(select(SourceItem))).scalars().all() == []
+
+
+async def test_removed_item_keeps_finished_job_history(seedbox, settings):
+    fake, scan, _ = seedbox
+    fake.items = [_dto()]
+    await scan()
+    async with get_session_factory(settings)() as session:
+        job = (await session.execute(select(Job))).scalar_one()
+        job.stage, job.status = "cleanup", "completed"
+        from datetime import datetime, timezone
+        job.ended_at = datetime.now(timezone.utc)
+        await session.commit()
+    fake.items = []
+    await scan()
+
+    [job] = await _jobs(settings)
+    assert job.status == "completed"
+
+
+async def test_job_skipped_by_earlier_build_is_cleaned_up(seedbox, settings):
+    from datetime import datetime, timezone
+
+    fake, scan, _ = seedbox
+    fake.items = [_dto()]
+    await scan()
+    async with get_session_factory(settings)() as session:
+        job = (await session.execute(select(Job))).scalar_one()
+        job.stage, job.status, job.error_code = "check_library", "skipped", "source_removed"
+        job.ended_at = datetime.now(timezone.utc)
+        await session.commit()
+    fake.items = []
+    await scan()
+    assert await _jobs(settings) == []

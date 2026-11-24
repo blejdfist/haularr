@@ -91,42 +91,7 @@ class RetentionJob:
             job_ids = [j.id for j in jobs_to_prune]
             counts["jobs"] = len(job_ids)
 
-            # Delete child rows first (foreign keys)
-            # stage_runs
-            result = await session.execute(
-                delete(StageRun).where(StageRun.job_id.in_(job_ids))
-            )
-            counts["stage_runs"] = result.rowcount or 0
-
-            # job_files
-            result = await session.execute(
-                delete(JobFile).where(JobFile.job_id.in_(job_ids))
-            )
-            counts["job_files"] = result.rowcount or 0
-
-            # file_imports
-            result = await session.execute(
-                delete(FileImport).where(FileImport.job_id.in_(job_ids))
-            )
-            counts["file_imports"] = result.rowcount or 0
-
-            # job_events
-            result = await session.execute(
-                delete(JobEvent).where(JobEvent.job_id.in_(job_ids))
-            )
-            counts["events"] = result.rowcount or 0
-
-            # notification_deliveries
-            result = await session.execute(
-                delete(NotificationDelivery).where(NotificationDelivery.job_id.in_(job_ids))
-            )
-            counts["notifications"] = result.rowcount or 0
-
-            # Finally delete the jobs themselves
-            await session.execute(
-                delete(Job).where(Job.id.in_(job_ids))
-            )
-
+            counts.update(await delete_jobs(session, job_ids))
             await session.commit()
 
             logger.info(
@@ -148,3 +113,19 @@ class RetentionJob:
             except Exception:
                 logger.exception("Retention job error")
             await asyncio.sleep(interval_seconds)
+
+
+async def delete_jobs(session: AsyncSession, job_ids: list[str]) -> dict[str, int]:
+    """Delete jobs and every row that hangs off them (children first, for the foreign keys)."""
+    counts: dict[str, int] = {}
+    for key, model in (
+        ("stage_runs", StageRun),
+        ("job_files", JobFile),
+        ("file_imports", FileImport),
+        ("events", JobEvent),
+        ("notifications", NotificationDelivery),
+    ):
+        result = await session.execute(delete(model).where(model.job_id.in_(job_ids)))
+        counts[key] = result.rowcount or 0
+    await session.execute(delete(Job).where(Job.id.in_(job_ids)))
+    return counts

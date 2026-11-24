@@ -208,11 +208,14 @@ class DiscoveryService:
         return counts
 
     async def _flag_removed(self, source_id: str, listed: set[str]) -> None:
-        """Jobs whose torrent is gone from the seedbox before the transfer began.
+        """Clean up after torrents that are gone from the seedbox.
 
-        Mid-download needs the user (it may have been an accident); a job parked at the
-        library check has nothing on disk yet, so it just ends as skipped.
+        Mid-download needs the user (it may have been an accident). A job that never got
+        past the library check did nothing worth keeping, so it goes; so do items with no
+        job left. Finished jobs stay as history.
         """
+        from app.jobs.retention import delete_jobs
+
         early = (JobStage.SOURCE_DOWNLOAD.value, JobStage.CHECK_LIBRARY.value)
         async with get_session_factory(self.settings)() as session:
             rows = (await session.execute(
@@ -221,27 +224,40 @@ class DiscoveryService:
                 .where(
                     SourceItem.source_id == source_id,
                     Job.stage.in_(early),
-                    Job.ended_at.is_(None),
                     Job.status.not_in((JobStatus.RUNNING.value, JobStatus.NEEDS_ATTENTION.value)),
+                    # Open jobs, plus ones an earlier build ended as skipped for this reason.
+                    Job.ended_at.is_(None) | (Job.error_code == "source_removed"),
                 )
             )).all()
             repo = JobRepository(session)
+            gone: list[str] = []
             for job, remote_id in rows:
                 if remote_id in listed:
                     continue
-                job.error_code = "source_removed"
-                if job.stage == JobStage.SOURCE_DOWNLOAD.value:
+                if job.stage == JobStage.SOURCE_DOWNLOAD.value and job.ended_at is None:
                     job.status = JobStatus.NEEDS_ATTENTION.value
+                    job.error_code = "source_removed"
                     job.error_detail = "Removed from seedbox before it finished"
-                    severity, kind = "error", "stage.needs_attention"
+                    await repo.add_event(
+                        job_id=job.id, severity="error", kind="stage.needs_attention",
+                        stage=job.stage, message=job.error_detail,
+                    )
                 else:
-                    job.status = JobStatus.SKIPPED.value
-                    job.error_detail = "Removed from seedbox"
-                    job.ended_at = _utcnow()
-                    severity, kind = "info", "job.skipped"
-                await repo.add_event(
-                    job_id=job.id, severity=severity, kind=kind, stage=job.stage, message=job.error_detail,
+                    gone.append(job.id)
+                    logger.info("Removed job %s: its torrent left the seedbox", named(job.config_snapshot_json.get("title", ""), job.id))
+            if gone:
+                await delete_jobs(session, gone)
+                session.expunge_all()
+
+            orphans = (await session.execute(
+                select(SourceItem).where(
+                    SourceItem.source_id == source_id,
+                    SourceItem.remote_id.not_in(listed),
+                    ~select(Job.id).where(Job.source_item_id == SourceItem.id).exists(),
                 )
+            )).scalars().all()
+            for item in orphans:
+                await session.delete(item)
             await session.commit()
 
     async def _record_scan_error(self, source_id: str, exc: object) -> None:
