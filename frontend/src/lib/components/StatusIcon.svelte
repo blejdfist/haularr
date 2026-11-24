@@ -1,7 +1,15 @@
 <script lang="ts">
   import type { IconKind } from '$lib/status';
+  import { Spinner } from 'flowbite-svelte';
+  import {
+    CheckCircleSolid,
+    CloseCircleSolid,
+    ExclamationCircleSolid,
+    ClockOutline,
+    CircleMinusSolid,
+  } from 'flowbite-svelte-icons';
 
-  /** draw: the job just finished in front of the user; the done mark pops and its check draws in. */
+  /** draw: the job just finished in front of the user; the done mark pops in. */
   let {
     kind,
     tip,
@@ -28,45 +36,29 @@
 </script>
 
 {#snippet icon()}
-  <svg viewBox="0 0 24 24" class="{cls} shrink-0 {kind === 'running' ? 'animate-spin' : ''}" aria-hidden="true">
-    {#if kind === 'running'}
-      <circle cx="12" cy="12" r="9" fill="none" stroke-width="3" class="stroke-blue-500/25" />
-      <path d="M12 3a9 9 0 0 1 9 9" fill="none" stroke-width="3" stroke-linecap="round" class="stroke-blue-500" />
-    {:else if kind === 'done'}
-      <circle cx="12" cy="12" r="10" class="fill-green-600 {draw ? 'pop' : ''}" />
-      <path
-        d="m7.5 12.5 3 3 6-6.5"
-        pathLength="1"
-        class={draw ? 'tick' : ''}
-        fill="none"
-        stroke="white"
-        stroke-width="2.5"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    {:else if kind === 'failed'}
-      <circle cx="12" cy="12" r="10" class="fill-red-600" />
-      <path d="m8.5 8.5 7 7m0-7-7 7" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" />
-    {:else if kind === 'warning'}
-      <path d="M10.3 3.4a2 2 0 0 1 3.4 0l8.4 14.6a2 2 0 0 1-1.7 3H3.6a2 2 0 0 1-1.7-3z" class="fill-amber-500" />
-      <path d="M12 9v4.5m0 3.2v.1" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" />
-    {:else if kind === 'queued'}
-      <circle cx="12" cy="12" r="9" fill="none" stroke-width="2" class="stroke-gray-400" />
-      <path d="M12 7.5V12l3 2" fill="none" stroke-width="2" stroke-linecap="round" class="stroke-gray-400" />
-    {:else if kind === 'skipped'}
-      <circle cx="12" cy="12" r="10" class="fill-gray-400 dark:fill-gray-500" />
-      <path d="M8 12h8" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" />
-    {:else}
-      <circle cx="12" cy="12" r="8" fill="none" stroke-width="2" class="stroke-gray-300 dark:stroke-gray-600" />
-    {/if}
-  </svg>
+  {#if kind === 'running'}
+    <!-- flowbite icons draw a 20/24 glyph; the spinner fills its box, so shrink it to match -->
+    <Spinner color="blue" class="{cls} m-0 shrink-0 scale-[0.84] text-blue-500/25 dark:text-blue-500/25" />
+  {:else if kind === 'done'}
+    <CheckCircleSolid class="{cls} shrink-0 text-green-600 {draw ? 'status-pop' : ''}" />
+  {:else if kind === 'failed'}
+    <CloseCircleSolid class="{cls} shrink-0 text-red-600" />
+  {:else if kind === 'warning'}
+    <ExclamationCircleSolid class="{cls} shrink-0 text-amber-500" />
+  {:else if kind === 'queued'}
+    <ClockOutline class="{cls} shrink-0 text-gray-400" />
+  {:else if kind === 'skipped'}
+    <CircleMinusSolid class="{cls} shrink-0 text-gray-400 dark:text-gray-500" />
+  {:else}
+    <span class="{cls} inline-block shrink-0 scale-75 rounded-full border-2 border-gray-300 dark:border-gray-600"></span>
+  {/if}
 {/snippet}
 
 {#if tip}
   <button
     type="button"
     aria-label="{LABEL[kind]}: {tip}"
-    class="inline-flex cursor-help rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+    class="flex cursor-help rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
     onclick={(e) => e.stopPropagation()}
     onmouseenter={show}
     onfocus={show}
@@ -81,35 +73,20 @@
     >
   {/if}
 {:else}
-  <span class="inline-flex" role="img" aria-label={LABEL[kind]}>{@render icon()}</span>
+  <span class="flex" role="img" aria-label={LABEL[kind]}>{@render icon()}</span>
 {/if}
 
 <style>
-  .pop {
-    transform-origin: center;
-    transform-box: fill-box;
-    animation: pop 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  :global(.status-pop) {
+    animation: status-pop 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   }
-  @keyframes pop {
+  @keyframes -global-status-pop {
     from {
       transform: scale(0.5);
     }
   }
-  .tick {
-    stroke-dasharray: 1;
-    animation: tick 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.15s backwards;
-  }
-  @keyframes tick {
-    from {
-      stroke-dashoffset: 1;
-    }
-    to {
-      stroke-dashoffset: 0;
-    }
-  }
   @media (prefers-reduced-motion: reduce) {
-    .pop,
-    .tick {
+    :global(.status-pop) {
       animation: none;
     }
   }

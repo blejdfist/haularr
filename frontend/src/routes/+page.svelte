@@ -240,8 +240,7 @@
   {:else}
     <Table hoverable>
       <TableHead>
-        <TableHeadCell class="w-8 px-2 sm:px-6"></TableHeadCell>
-        <TableHeadCell class="w-full px-2 sm:px-6">Title</TableHeadCell>
+        <TableHeadCell class="w-full px-2 sm:px-6"><span class="pl-8">Title</span></TableHeadCell>
         <TableHeadCell class="hidden sm:table-cell">Status</TableHeadCell>
         <TableHeadCell class="hidden text-right sm:table-cell">When</TableHeadCell>
       </TableHead>
@@ -251,21 +250,26 @@
           {@const kind = jobIcon(j.status, !!reason)}
           {@const problem = kind === 'warning' || kind === 'failed' ? reason : undefined}
           <TableBodyRow class="cursor-pointer {arrived[j.id] ? 'arrived' : ''}" onclick={() => openJob(j.id)}>
-            <TableBodyCell class="px-2 sm:px-6"><StatusIcon {kind} tip={problem} draw={!!arrived[j.id]} /></TableBodyCell>
             <!-- max-w-0 + w-full: the title takes the spare width and truncates instead of widening the table. -->
             <TableBodyCell class="w-full max-w-0 min-w-32 px-2 py-3 sm:px-6">
-              <div class="truncate font-medium text-gray-100" title={j.title ?? ''}>{j.title ?? '—'}</div>
-              <!-- Only trouble earns a second line; everything else about the job is in the drawer. -->
-              {#if problem}
-                <div
-                  class="mt-0.5 truncate text-xs font-normal {kind === 'failed' ? 'text-red-400' : 'text-amber-400'}"
-                  title={problem}
-                >
-                  {problem}
+              <!-- icon shares the title's flex row so it sits on the title line, not the middle of the whole cell -->
+              <div class="flex items-start gap-3">
+                <StatusIcon {kind} tip={problem} draw={!!arrived[j.id]} />
+                <div class="min-w-0 flex-1">
+                  <div class="truncate font-medium text-gray-100" title={j.title ?? ''}>{j.title ?? '—'}</div>
+                  <!-- Only trouble earns a second line; everything else about the job is in the drawer. -->
+                  {#if problem}
+                    <div
+                      class="mt-0.5 truncate text-xs font-normal {kind === 'failed' ? 'text-red-400' : 'text-amber-400'}"
+                      title={problem}
+                    >
+                      {problem}
+                    </div>
+                  {/if}
+                  <!-- Phones: the track is too wide for its own column, so it sits under the title. -->
+                  <div class="mt-2 sm:hidden">{@render steps(j)}</div>
                 </div>
-              {/if}
-              <!-- Phones: the track is too wide for its own column, so it sits under the title. -->
-              <div class="mt-2 sm:hidden">{@render steps(j)}</div>
+              </div>
             </TableBodyCell>
             <TableBodyCell class="hidden sm:table-cell">{@render steps(j)}</TableBodyCell>
             <TableBodyCell class="hidden text-right text-gray-400 tabular-nums sm:table-cell">{ago(j.ended_at ?? j.created_at)}</TableBodyCell>
@@ -274,9 +278,11 @@
           {#if !loaded}
             {#each [0, 1, 2] as _}
               <TableBodyRow>
-                <TableBodyCell class="px-2 sm:px-6"><div class="h-5 w-5 animate-pulse rounded-full bg-gray-700"></div></TableBodyCell>
                 <TableBodyCell class="px-2 py-3 sm:px-6">
-                  <div class="h-3.5 w-2/3 animate-pulse rounded bg-gray-700"></div>
+                  <div class="flex items-center gap-3">
+                    <div class="h-5 w-5 shrink-0 animate-pulse rounded-full bg-gray-700"></div>
+                    <div class="h-3.5 w-2/3 animate-pulse rounded bg-gray-700"></div>
+                  </div>
                 </TableBodyCell>
                 <TableBodyCell class="hidden sm:table-cell"><div class="h-2.5 w-48 animate-pulse rounded-full bg-gray-700"></div></TableBodyCell>
                 <TableBodyCell class="hidden sm:table-cell"><div class="ml-auto h-3 w-12 animate-pulse rounded bg-gray-700"></div></TableBodyCell>
