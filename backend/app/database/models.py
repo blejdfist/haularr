@@ -309,7 +309,7 @@ class Job(Base):
     config_snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="queued")
-    stage: Mapped[str] = mapped_column(String(50), nullable=False, default="resolve_source")
+    stage: Mapped[str] = mapped_column(String(50), nullable=False, default="source_download")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     worker_token: Mapped[str | None] = mapped_column(String(36), nullable=True)

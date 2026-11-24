@@ -124,15 +124,12 @@ class JobRunner:
     def _get_stage_handler(self) -> Any:
         """Return the handler function for the current stage."""
         handlers = {
-            JobStage.RESOLVE_SOURCE.value: self._stage_resolve_source,
-            JobStage.DOWNLOAD.value: self._stage_download,
+            JobStage.TRANSFER.value: self._stage_transfer,
             JobStage.VERIFY.value: self._stage_verify,
             JobStage.EXTRACT.value: self._stage_extract,
-            JobStage.PUBLISH.value: self._stage_publish,
+            JobStage.MOVE.value: self._stage_move,
             JobStage.INSPECT_IMPORT.value: self._stage_inspect_import,
             JobStage.IMPORT.value: self._stage_import,
-            JobStage.CONFIRM_IMPORT.value: self._stage_confirm_import,
-            JobStage.NOTIFY.value: self._stage_notify,
             JobStage.CLEANUP.value: self._stage_cleanup,
         }
         return handlers.get(self.stage, self._stage_unknown)
@@ -298,7 +295,7 @@ class JobRunner:
             source = await session.get(SourceInstance, source_id) if source_id else None
             return source.default_transfer_id if source else None
 
-    async def _stage_download(self, job: Any, stage_run_id: str) -> StageResult:
+    async def _stage_transfer(self, job: Any, stage_run_id: str) -> StageResult:
         """Transfer files from the remote endpoint to Path A."""
         config = job.config_snapshot_json
         transfer_id = config.get("transfer_id")
@@ -307,7 +304,7 @@ class JobRunner:
             # Snapshot may predate the fetch config; resolve it live like discovery does
             transfer_id = await self._live_transfer_id(job)
         if not transfer_id:
-            # Scheduler parks this as waiting_source until fetch is configured
+            # Scheduler parks this as waiting_transfer until fetch is configured
             return StageResult(
                 StageRunStatus.NEEDS_ATTENTION,
                 "no_transfer_config",
@@ -692,7 +689,7 @@ class JobRunner:
         })
         return StageResult(StageRunStatus.SUCCEEDED)
 
-    async def _stage_publish(self, job: Any, stage_run_id: str) -> StageResult:
+    async def _stage_move(self, job: Any, stage_run_id: str) -> StageResult:
         """Move the downloaded item (or, for archives, the extracted files) to the completed folder."""
         from app.processing.publication import publish_item
 
@@ -894,24 +891,6 @@ class JobRunner:
                 )
 
             return StageResult(StageRunStatus.SUCCEEDED)
-
-    async def _stage_confirm_import(self, job: Any, stage_run_id: str) -> StageResult:
-        """Confirm that imported files are present in the library."""
-        config = job.config_snapshot_json
-        library_id = config.get("library_instance_id")
-        if not library_id:
-            return StageResult(StageRunStatus.SKIPPED)
-
-        # Reconcile: check that the library now has the expected files
-        # For M3, we verify by checking command status (done in import stage)
-        # This stage could do additional verification if needed
-        return StageResult(StageRunStatus.SUCCEEDED)
-
-    async def _stage_notify(self, job: Any, stage_run_id: str) -> StageResult:
-        """Send notifications for completed/failed/attention events."""
-        # M3: notifications are optional; required ones could block
-        # For now, just succeed
-        return StageResult(StageRunStatus.SUCCEEDED)
 
     async def _stage_cleanup(self, job: Any, stage_run_id: str) -> StageResult:
         """Clean up temporary files safely."""

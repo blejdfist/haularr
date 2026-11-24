@@ -169,7 +169,7 @@ async def queue_item(
         config_snapshot_json=config_snapshot,
         priority=rule.priority,
         status="queued",
-        stage=JobStage.RESOLVE_SOURCE.value,
+        stage=JobStage.CHECK_LIBRARY.value,
     )
     await job_repo.add_event(
         job_id=job.id,

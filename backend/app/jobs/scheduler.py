@@ -81,25 +81,24 @@ class JobScheduler:
     def _init_semaphores(self) -> None:
         """Create semaphores for each stage with configured limits."""
         self._stage_semaphores = {
-            JobStage.RESOLVE_SOURCE.value: StageSemaphore(10),  # Lightweight
-            JobStage.DOWNLOAD.value: StageSemaphore(self.settings.max_concurrent_download_jobs),
+            # source_download has no worker: discovery drives it while the torrent downloads
+            JobStage.CHECK_LIBRARY.value: StageSemaphore(10),  # Lightweight
+            JobStage.TRANSFER.value: StageSemaphore(self.settings.max_concurrent_download_jobs),
             JobStage.VERIFY.value: StageSemaphore(self.settings.max_concurrent_verify_jobs),
             JobStage.EXTRACT.value: StageSemaphore(self.settings.max_concurrent_extract_jobs),
-            JobStage.PUBLISH.value: StageSemaphore(self.settings.max_concurrent_publish_jobs),
+            JobStage.MOVE.value: StageSemaphore(self.settings.max_concurrent_publish_jobs),
             JobStage.INSPECT_IMPORT.value: StageSemaphore(10),  # Lightweight
             JobStage.IMPORT.value: StageSemaphore(self.settings.max_concurrent_import_jobs),
-            JobStage.CONFIRM_IMPORT.value: StageSemaphore(10),  # Lightweight
-            JobStage.NOTIFY.value: StageSemaphore(10),  # Lightweight
             JobStage.CLEANUP.value: StageSemaphore(10),  # Lightweight
         }
 
     def update_concurrency_limits(self) -> None:
         """Called when settings change — rebuild semaphores for key stages."""
         stages = {
-            JobStage.DOWNLOAD.value: self.settings.max_concurrent_download_jobs,
+            JobStage.TRANSFER.value: self.settings.max_concurrent_download_jobs,
             JobStage.VERIFY.value: self.settings.max_concurrent_verify_jobs,
             JobStage.EXTRACT.value: self.settings.max_concurrent_extract_jobs,
-            JobStage.PUBLISH.value: self.settings.max_concurrent_publish_jobs,
+            JobStage.MOVE.value: self.settings.max_concurrent_publish_jobs,
             JobStage.IMPORT.value: self.settings.max_concurrent_import_jobs,
         }
         for stage, limit in stages.items():
@@ -110,7 +109,7 @@ class JobScheduler:
     def active_download_count(self) -> int:
         """Count of currently running download jobs."""
         return len([t for s, t in self._active_jobs.items()
-                     if s.startswith(JobStage.DOWNLOAD.value)])
+                     if s.startswith(JobStage.TRANSFER.value)])
 
     async def start(self) -> None:
         """Start the scheduler loop."""
@@ -160,18 +159,7 @@ class JobScheduler:
         """Check each stage for available slots and dispatch eligible jobs."""
         factory = get_session_factory(self.settings)
 
-        for stage in [
-            JobStage.RESOLVE_SOURCE.value,
-            JobStage.DOWNLOAD.value,
-            JobStage.VERIFY.value,
-            JobStage.EXTRACT.value,
-            JobStage.PUBLISH.value,
-            JobStage.INSPECT_IMPORT.value,
-            JobStage.IMPORT.value,
-            JobStage.CONFIRM_IMPORT.value,
-            JobStage.NOTIFY.value,
-            JobStage.CLEANUP.value,
-        ]:
+        for stage in _STAGE_ORDER:
             semaphore = self._stage_semaphores.get(stage)
             if not semaphore:
                 continue
@@ -340,22 +328,24 @@ class JobScheduler:
         factory = get_session_factory(self.settings)
         async with factory() as session:
             repo = JobRepository(session)
-            # No fetch config: wait on the seedbox; saving fetch requeues the job
-            waiting = error_code == "no_transfer_config"
+            # Some outcomes are not problems but places the job waits (or ends): see _PARKED.
+            parked = _PARKED.get(error_code)
+            status = parked or JobStatus.NEEDS_ATTENTION
             await repo.update(
                 job_id,
-                status=(JobStatus.WAITING_SOURCE if waiting else JobStatus.NEEDS_ATTENTION).value,
+                status=status.value,
                 error_code=error_code,
                 error_detail=error_detail,
                 worker_token=None,
                 lease_expires_at=None,
+                **({"ended_at": _utcnow()} if status == JobStatus.SKIPPED else {}),
             )
             await repo.add_event(
                 job_id=job_id,
-                severity="info" if waiting else "error",
-                kind="stage.waiting_fetch" if waiting else "stage.needs_attention",
+                severity="info" if parked else "error",
+                kind="stage.parked" if parked else "stage.needs_attention",
                 stage=stage,
-                message=error_detail if waiting else f"Stage {stage} needs attention: {error_detail}",
+                message=error_detail if parked else f"Stage {stage} needs attention: {error_detail}",
                 details_json={"error_code": error_code},
             )
             await session.commit()
@@ -385,18 +375,15 @@ class JobScheduler:
 # Stage ordering
 # ---------------------------------------------------------------------------
 
-_STAGE_ORDER = [
-    JobStage.RESOLVE_SOURCE.value,
-    JobStage.DOWNLOAD.value,
-    JobStage.VERIFY.value,
-    JobStage.EXTRACT.value,
-    JobStage.PUBLISH.value,
-    JobStage.INSPECT_IMPORT.value,
-    JobStage.IMPORT.value,
-    JobStage.CONFIRM_IMPORT.value,
-    JobStage.NOTIFY.value,
-    JobStage.CLEANUP.value,
-]
+_STAGE_ORDER = [s.value for s in JobStage]
+
+# Stage error codes that park the job in a waiting status (or end it) instead of needs_attention.
+_PARKED: dict[str, JobStatus] = {
+    "no_transfer_config": JobStatus.WAITING_TRANSFER,  # saving fetch config requeues it
+    "not_registered": JobStatus.WAITING_LIBRARY,  # discovery requeues it every scan
+    "awaiting_approval": JobStatus.WAITING_APPROVAL,  # POST /jobs/{id}/approve requeues it
+    "already_available": JobStatus.SKIPPED,
+}
 
 
 def _get_next_stage(current_stage: str) -> str | None:

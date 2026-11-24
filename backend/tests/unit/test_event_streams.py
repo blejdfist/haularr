@@ -31,7 +31,7 @@ async def test_job_changes_skip_heartbeats_and_report_new_jobs(app, settings):
         assert changes == []
 
         await s.execute(update(Job).where(Job.id == job_id).values(
-            download_bytes_done=50, download_bytes_total=100, stage="download"))
+            download_bytes_done=50, download_bytes_total=100, stage="transfer"))
         await s.commit()
         changes, since = await job_changes(s, since, sent)
         assert [(c["id"], c["progress"]) for c in changes] == [(job_id, 50)]

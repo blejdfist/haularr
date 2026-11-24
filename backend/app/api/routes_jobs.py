@@ -161,7 +161,7 @@ async def restart_job(job_id: str, session: AsyncSession = Depends(get_session))
 
     repo = JobRepository(session)
     obj = await repo.update(
-        job_id, stage=JobStage.RESOLVE_SOURCE.value, status="queued", attempts=0,
+        job_id, stage=JobStage.CHECK_LIBRARY.value, status="queued", attempts=0,
         next_run_at=None, error_code=None, error_detail=None, ended_at=None,
         worker_token=None, lease_expires_at=None, download_bytes_done=0,
     )

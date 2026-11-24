@@ -38,7 +38,7 @@ def stage(app, settings, tmp_path, monkeypatch):
 
     monkeypatch.setattr(FTPSAdapter, "transfer_file", fake_transfer)
 
-    async def run(stage="download"):
+    async def run(stage="transfer"):
         return await JobRunner(settings, job_id, stage, "tok").execute()
 
     async def setup():
@@ -91,7 +91,7 @@ async def test_stale_final_file_is_replaced(stage, settings):
 
 
 async def _pipeline(run):
-    for st in ("download", "verify", "extract", "publish"):
+    for st in ("transfer", "verify", "extract", "move"):
         r = await run(st)
         assert r.status in (StageRunStatus.SUCCEEDED, StageRunStatus.SKIPPED), (st, r)
 
@@ -150,7 +150,7 @@ async def test_extract_records_byte_progress(stage, settings, monkeypatch):
     setup, run, _, _, names = stage
     names[:] = ["t.rar", "t.r00"]
     job_id = await setup()
-    for st in ("download", "verify", "extract"):
+    for st in ("transfer", "verify", "extract"):
         await run(st)
     async with get_session_factory(settings)() as session:
         run_row = (await session.execute(

@@ -17,7 +17,7 @@ def test_transfer_config_includes_decrypted_credentials(settings):
     transfer = SimpleNamespace(config_json={"tls_verify": False})
     endpoint = SimpleNamespace(host="ftp.x", port=2121, credential_ref=cred)
 
-    cfg = JobRunner(settings, "j", "download", "tok")._transfer_config(transfer, endpoint)
+    cfg = JobRunner(settings, "j", "transfer", "tok")._transfer_config(transfer, endpoint)
 
     assert cfg == {"tls_verify": False, "host": "ftp.x", "port": 2121, "username": "u", "password": "pw"}
 

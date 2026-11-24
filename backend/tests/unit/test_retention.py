@@ -116,7 +116,7 @@ async def test_retention_preserves_failed_jobs(app, settings):
             rule_id=rule.id,
             config_snapshot_json={},
             status=JobStatus.FAILED.value,
-            stage=JobStage.DOWNLOAD.value,
+            stage=JobStage.TRANSFER.value,
             ended_at=old_time,
         )
         await session.commit()

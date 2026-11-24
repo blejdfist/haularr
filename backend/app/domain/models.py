@@ -43,7 +43,10 @@ class EligibilityStatus(str, Enum):
 class JobStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
-    WAITING_SOURCE = "waiting_source"
+    WAITING_SOURCE = "waiting_source"  # torrent still downloading on the seedbox
+    WAITING_TRANSFER = "waiting_transfer"  # done on seedbox, no fetch configured
+    WAITING_LIBRARY = "waiting_library"  # not registered in the library yet
+    WAITING_APPROVAL = "waiting_approval"  # manual rule: waits for the user to start it
     WAITING_EXTERNAL = "waiting_external"
     RETRY_WAIT = "retry_wait"
     PAUSED = "paused"
@@ -56,15 +59,14 @@ class JobStatus(str, Enum):
 
 
 class JobStage(str, Enum):
-    RESOLVE_SOURCE = "resolve_source"
-    DOWNLOAD = "download"
+    SOURCE_DOWNLOAD = "source_download"
+    CHECK_LIBRARY = "check_library"
+    TRANSFER = "transfer"
     VERIFY = "verify"
     EXTRACT = "extract"
-    PUBLISH = "publish"
+    MOVE = "move"
     INSPECT_IMPORT = "inspect_import"
     IMPORT = "import"
-    CONFIRM_IMPORT = "confirm_import"
-    NOTIFY = "notify"
     CLEANUP = "cleanup"
 
 

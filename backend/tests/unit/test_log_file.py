@@ -52,7 +52,7 @@ async def test_job_events_are_logged(app, settings, caplog):
     with caplog.at_level(logging.INFO, logger="app.jobs.events"):
         async with get_session_factory(settings)() as session:
             await JobRepository(session).add_event(
-                job_id=job_id, severity="error", kind="stage.failed", stage="download",
+                job_id=job_id, severity="error", kind="stage.failed", stage="transfer",
                 message="Stage download failed permanently: boom",
             )
     [rec] = [r for r in caplog.records if r.name == "app.jobs.events"]

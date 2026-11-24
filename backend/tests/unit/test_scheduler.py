@@ -94,7 +94,7 @@ async def test_concurrency_limit_three_download_jobs(app, settings, tmp_path):
                     "completed_directory": str(tmp_path / "completed"),
                 },
                 status="queued",
-                stage=JobStage.DOWNLOAD.value,
+                stage=JobStage.TRANSFER.value,
                 priority=10 - i,
             )
         await session.commit()
@@ -111,7 +111,7 @@ async def test_concurrency_limit_three_download_jobs(app, settings, tmp_path):
     scheduler = JobScheduler(test_settings)
 
     # Verify semaphore has limit 3
-    download_sem = scheduler._stage_semaphores[JobStage.DOWNLOAD.value]
+    download_sem = scheduler._stage_semaphores[JobStage.TRANSFER.value]
     assert download_sem.limit == 3
 
     # Start scheduler
@@ -122,7 +122,7 @@ async def test_concurrency_limit_three_download_jobs(app, settings, tmp_path):
     async with sess_factory() as session:
         result = await session.execute(
             select(Job).where(
-                Job.stage == JobStage.DOWNLOAD.value,
+                Job.stage == JobStage.TRANSFER.value,
                 Job.status == JobStatus.RUNNING.value,
             )
         )
@@ -137,7 +137,7 @@ async def test_concurrency_limit_three_download_jobs(app, settings, tmp_path):
     async with sess_factory() as session:
         result = await session.execute(
             select(Job).where(
-                Job.stage == JobStage.DOWNLOAD.value,
+                Job.stage == JobStage.TRANSFER.value,
                 Job.status == JobStatus.QUEUED.value,
             )
         )
@@ -187,7 +187,7 @@ async def test_lease_expiry_and_recovery(app, settings):
             rule_id=rule.id,
             config_snapshot_json={},
             status=JobStatus.RUNNING.value,
-            stage=JobStage.DOWNLOAD.value,
+            stage=JobStage.TRANSFER.value,
             worker_token="old-token",
             lease_expires_at=past_time,
         )
@@ -213,7 +213,8 @@ async def test_stage_ordering(app):
     """Stage ordering follows the spec: resolve_source → download → ... → cleanup."""
     from app.jobs.scheduler import _get_next_stage, _STAGE_ORDER
 
-    assert _STAGE_ORDER[0] == JobStage.RESOLVE_SOURCE.value
+    assert _STAGE_ORDER[0] == "source_download"
+    assert _get_next_stage("import") == "cleanup"
     assert _STAGE_ORDER[-1] == JobStage.CLEANUP.value
 
     # Each stage transitions to the next
@@ -262,7 +263,7 @@ async def test_job_claim_atomicity(app, settings):
             rule_id=rule.id,
             config_snapshot_json={},
             status=JobStatus.QUEUED.value,
-            stage=JobStage.RESOLVE_SOURCE.value,
+            stage=JobStage.CHECK_LIBRARY.value,
         )
         await session.commit()
         job_id = job.id
@@ -275,11 +276,11 @@ async def test_job_claim_atomicity(app, settings):
 
     async with factory() as session:
         repo = JobRepository(session)
-        claimed1 = await repo.claim_next(JobStage.RESOLVE_SOURCE.value, token1, lease_until, now)
+        claimed1 = await repo.claim_next(JobStage.CHECK_LIBRARY.value, token1, lease_until, now)
 
     async with factory() as session:
         repo = JobRepository(session)
-        claimed2 = await repo.claim_next(JobStage.RESOLVE_SOURCE.value, token2, lease_until, now)
+        claimed2 = await repo.claim_next(JobStage.CHECK_LIBRARY.value, token2, lease_until, now)
 
     # First claim succeeds, second gets nothing
     assert claimed1 is not None
@@ -322,7 +323,7 @@ async def test_duplicate_active_job_blocked(app, settings):
             rule_id=rule.id,
             config_snapshot_json={},
             status=JobStatus.QUEUED.value,
-            stage=JobStage.RESOLVE_SOURCE.value,
+            stage=JobStage.CHECK_LIBRARY.value,
         )
         await session.commit()
 
@@ -340,3 +341,11 @@ async def test_duplicate_active_job_blocked(app, settings):
         job_repo = JobRepository(session)
         existing = await job_repo.get_active_for_item(item.id)
         assert existing is not None
+
+
+def test_source_download_has_no_worker(settings):
+    from app.jobs.scheduler import JobScheduler
+
+    sems = JobScheduler(settings)._stage_semaphores
+    assert "source_download" not in sems
+    assert {"check_library", "transfer", "move"} <= set(sems)

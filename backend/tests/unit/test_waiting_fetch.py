@@ -23,7 +23,7 @@ async def _job(settings, status="queued", source_name="S", error_code=None) -> t
                           source_status="completed", remote_path="/p", size_bytes=1)
         session.add(item)
         await session.flush()
-        job = Job(source_item_id=item.id, rule_id=rule.id, stage="download", status=status,
+        job = Job(source_item_id=item.id, rule_id=rule.id, stage="transfer", status=status,
                   error_code=error_code,
                   config_snapshot_json={"source_id": source.id, "transfer_id": None,
                                         "temporary_directory": "/t"})
@@ -38,26 +38,26 @@ async def _get(settings, job_id) -> Job:
 
 
 @pytest.mark.asyncio
-async def test_download_without_transfer_parks_waiting_source(app, settings):
+async def test_transfer_without_fetch_parks_waiting_transfer(app, settings):
     from app.jobs.scheduler import JobScheduler, StageSemaphore
 
     _, job_id = await _job(settings)
     sched = JobScheduler(settings)
     sem = StageSemaphore(1)
     await sem.acquire()
-    await sched._run_job(job_id, "download", "tok", sem)
+    await sched._run_job(job_id, "transfer", "tok", sem)
 
     job = await _get(settings, job_id)
-    assert job.status == "waiting_source"
+    assert job.status == "waiting_transfer"
     assert job.error_code == "no_transfer_config"
     assert job.error_detail == "Done on seedbox — no fetch configured"
-    assert job.stage == "download"
+    assert job.stage == "transfer"
 
 
 @pytest.mark.asyncio
 async def test_saving_fetch_resumes_waiting_jobs(auth_client, settings):
-    a, job_a = await _job(settings, "waiting_source", "A", "no_transfer_config")
-    _, job_b = await _job(settings, "waiting_source", "B", "no_transfer_config")
+    a, job_a = await _job(settings, "waiting_transfer", "A", "no_transfer_config")
+    _, job_b = await _job(settings, "waiting_transfer", "B", "no_transfer_config")
 
     r = await auth_client.patch(f"/api/v1/sources/{a}", json={"fetch": FETCH})
     assert r.status_code == 200, r.text
@@ -68,7 +68,7 @@ async def test_saving_fetch_resumes_waiting_jobs(auth_client, settings):
     assert ja.status == "queued"
     assert ja.config_snapshot_json["transfer_id"] == transfer_id
     assert ja.error_code is None
-    assert jb.status == "waiting_source"
+    assert jb.status == "waiting_transfer"
     assert jb.config_snapshot_json["transfer_id"] is None
 
 
@@ -84,11 +84,11 @@ async def test_download_uses_fetch_saved_after_job_was_created(auth_client, sett
     sched = JobScheduler(settings)
     sem = StageSemaphore(1)
     await sem.acquire()
-    await sched._run_job(job_id, "download", "tok", sem)
+    await sched._run_job(job_id, "transfer", "tok", sem)
 
     job = await _get(settings, job_id)
     assert job.error_code != "no_transfer_config"
-    assert job.status != "waiting_source"
+    assert job.status != "waiting_transfer"
 
 
 @pytest.mark.asyncio
@@ -114,11 +114,16 @@ async def _runs(settings, job_id):
 
 
 @pytest.mark.asyncio
-async def test_stage_run_is_closed_with_result(app, settings):
-    from app.jobs.runner import JobRunner
+async def test_stage_run_is_closed_with_result(app, settings, monkeypatch):
+    from app.domain.models import StageRunStatus
+    from app.jobs.runner import JobRunner, StageResult
 
+    async def ok(self, job, run_id):
+        return StageResult(StageRunStatus.SUCCEEDED)
+
+    monkeypatch.setattr(JobRunner, "_stage_cleanup", ok)
     _, job_id = await _job(settings)
-    result = await JobRunner(settings, job_id, "notify", "tok").execute()
+    result = await JobRunner(settings, job_id, "cleanup", "tok").execute()
     [run] = await _runs(settings, job_id)
     assert run.status == result.status.value == "succeeded"
     assert run.ended_at is not None
@@ -131,10 +136,10 @@ async def test_stage_run_is_closed_when_handler_crashes(app, settings, monkeypat
     async def boom(self, job, run_id):
         raise RuntimeError("kaput")
 
-    monkeypatch.setattr(JobRunner, "_stage_notify", boom)
+    monkeypatch.setattr(JobRunner, "_stage_cleanup", boom)
     _, job_id = await _job(settings)
     with pytest.raises(RuntimeError):
-        await JobRunner(settings, job_id, "notify", "tok").execute()
+        await JobRunner(settings, job_id, "cleanup", "tok").execute()
     [run] = await _runs(settings, job_id)
     assert run.status == "failed"
     assert run.ended_at is not None
@@ -148,9 +153,9 @@ async def test_update_progress_writes_stage_run(app, settings):
 
     _, job_id = await _job(settings)
     async with get_session_factory(settings)() as session:
-        run = await JobRepository(session).add_stage_run(job_id=job_id, stage="download", attempt=1, status="running")
+        run = await JobRepository(session).add_stage_run(job_id=job_id, stage="transfer", attempt=1, status="running")
         await session.commit()
-    await JobRunner(settings, job_id, "download", "tok")._update_progress(run.id, {"files": 1})
+    await JobRunner(settings, job_id, "transfer", "tok")._update_progress(run.id, {"files": 1})
     [saved] = await _runs(settings, job_id)
     assert saved.progress_json == {"files": 1}
 
@@ -163,7 +168,7 @@ async def test_heartbeat_renews_lease(app, settings):
     async with get_session_factory(settings)() as session:
         (await session.get(Job, job_id)).worker_token = "tok"
         await session.commit()
-    await JobRunner(settings, job_id, "download", "tok")._renew_lease()
+    await JobRunner(settings, job_id, "transfer", "tok")._renew_lease()
     assert (await _get(settings, job_id)).lease_expires_at is not None
 
 
@@ -175,13 +180,24 @@ async def test_restart_runs_job_from_the_beginning(auth_client, settings):
     _, job_id = await _job(settings, "needs_attention")
     async with get_session_factory(settings)() as session:
         job = await session.get(Job, job_id)
-        job.stage, job.attempts, job.download_bytes_done = "publish", 3, 10
+        job.stage, job.attempts, job.download_bytes_done = "move", 3, 10
         session.add(JobFile(job_id=job_id, remote_relpath="a.mkv", size_bytes=10))
         await session.commit()
 
     r = await auth_client.post(f"/api/v1/jobs/{job_id}/restart")
     assert r.status_code == 200, r.text
     job = await _get(settings, job_id)
-    assert (job.stage, job.status, job.attempts, job.download_bytes_done) == ("resolve_source", "queued", 0, 0)
+    assert (job.stage, job.status, job.attempts, job.download_bytes_done) == ("check_library", "queued", 0, 0)
     async with get_session_factory(settings)() as session:
         assert not (await session.execute(select(JobFile).where(JobFile.job_id == job_id))).scalars().all()
+
+
+@pytest.mark.asyncio
+async def test_parked_already_available_ends_job_skipped(app, settings):
+    from app.jobs.scheduler import JobScheduler
+
+    _, job_id = await _job(settings, "running")
+    await JobScheduler(settings)._transition_needs_attention(job_id, "check_library", "already_available", "x")
+    job = await _get(settings, job_id)
+    assert job.status == "skipped"
+    assert job.ended_at is not None

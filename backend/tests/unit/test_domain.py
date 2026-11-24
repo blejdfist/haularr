@@ -36,11 +36,9 @@ def test_eligibility_status_values():
 
 
 def test_job_stage_order():
-    stages = list(JobStage)
-    assert stages[0] == JobStage.RESOLVE_SOURCE
-    assert stages[-1] == JobStage.CLEANUP
-    assert JobStage.DOWNLOAD == "download"
-    assert JobStage.IMPORT == "import"
+    assert [s.value for s in JobStage] == [
+        "source_download", "check_library", "transfer", "verify", "extract",
+        "move", "inspect_import", "import", "cleanup"]
 
 
 def test_job_status_values():

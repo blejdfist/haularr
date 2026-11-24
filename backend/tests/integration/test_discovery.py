@@ -377,7 +377,7 @@ async def test_auto_queue_after_onboarding(app, settings):
         result = await session.execute(select(Job))
         jobs = result.scalars().all()
         assert len(jobs) == 1
-        assert jobs[0].stage == "resolve_source"
+        assert jobs[0].stage == "check_library"
         assert jobs[0].status == "queued"
 
 

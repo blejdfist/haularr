@@ -88,7 +88,7 @@ async def job_changes(
     out = []
     for j in jobs:
         stage_progress = runs.get(j.id) or None
-        if j.stage == "download":
+        if j.stage == "transfer":
             done, total = j.download_bytes_done, j.download_bytes_total
         else:
             done, total = (stage_progress or {}).get("bytes_done", 0), (stage_progress or {}).get("bytes_total", 0)

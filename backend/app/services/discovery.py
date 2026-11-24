@@ -377,7 +377,7 @@ class DiscoveryService:
             config_snapshot_json=config_snapshot,
             priority=rule.priority,
             status=JobStatus.QUEUED.value,
-            stage=JobStage.RESOLVE_SOURCE.value,
+            stage=JobStage.CHECK_LIBRARY.value,
         )
         await job_repo.add_event(
             job_id=job.id,

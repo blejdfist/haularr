@@ -113,13 +113,13 @@ class Recovery:
         For download stage: .part files on disk are authoritative.
         For other stages: the stage will re-run from the beginning.
         """
-        if job.stage == "download":
+        if job.stage == "transfer":
             config = job.config_snapshot_json
             temp_dir = config.get("temporary_directory", "/tmp")
             # Job files that were marked in_progress are reset to pending
             # so the download stage will resume from the .part file offset
             logger.info("Reconciling download for job %s — .part files will resume", job_name(job))
-        elif job.stage in ("extract", "publish"):
+        elif job.stage in ("extract", "move"):
             # These stages may have partial output on disk
             # The stage handler should be idempotent and clean up incomplete work
             logger.info("Reconciling %s for job %s", job.stage, job_name(job))

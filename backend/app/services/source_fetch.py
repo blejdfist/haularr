@@ -86,7 +86,7 @@ async def resume_waiting_jobs(session: AsyncSession, source_id: str, transfer_id
 
     jobs = (
         await session.execute(
-            select(Job).where(Job.status == "waiting_source", Job.error_code == "no_transfer_config")
+            select(Job).where(Job.status == "waiting_transfer", Job.error_code == "no_transfer_config")
         )
     ).scalars().all()
     n = 0
