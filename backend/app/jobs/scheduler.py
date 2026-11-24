@@ -133,15 +133,15 @@ class JobScheduler:
                 pass
             self._task = None
 
-        # Wait for active jobs to finish (bounded)
+        # Interrupt active jobs: downloads resume from .part and other stages rerun, so
+        # waiting for them (a download can take an hour) only blocks Ctrl+C.
         if self._active_jobs:
-            logger.info("Waiting for %d active jobs to finish...", len(self._active_jobs))
-            for job_id, task in list(self._active_jobs.items()):
-                try:
-                    await asyncio.wait_for(task, timeout=30.0)
-                except (asyncio.TimeoutError, asyncio.CancelledError):
-                    logger.warning("Job %s did not finish in time, cancelling", job_id)
-                    task.cancel()
+            tasks = list(self._active_jobs.values())
+            logger.info("Interrupting %d active jobs", len(tasks))
+            for task in tasks:
+                task.cancel()
+            # ponytail: a stage stuck in a non-abortable thread (unrar) is abandoned after 10s.
+            await asyncio.wait(tasks, timeout=10.0)
             self._active_jobs.clear()
 
         logger.info("Job scheduler stopped")
@@ -211,6 +211,14 @@ class JobScheduler:
                 await self._transition_needs_attention(job_id, stage, result.error_code, result.error_detail)
 
         except asyncio.CancelledError:
+            if not self._running:
+                # Shutdown, not the user: expire the lease so startup recovery requeues it
+                # (a pause would leave it waiting for the user to resume it).
+                logger.info("Job %s stage %s interrupted by shutdown", runner.label, stage)
+                async with get_session_factory(self.settings)() as session:
+                    await JobRepository(session).update(job_id, lease_expires_at=_utcnow())
+                    await session.commit()
+                return
             logger.info("Job %s stage %s cancelled", runner.label, stage)
             await self._transition_cancelled(job_id, stage)
         except Exception:

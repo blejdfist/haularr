@@ -21,6 +21,7 @@ import logging
 import os
 import socket
 import ssl
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -185,6 +186,12 @@ class FTPSAdapter:
 
         total_size = remote_file.size_bytes
         bytes_transferred = resume_offset
+        # Set when the awaiting task is cancelled: the thread stops at the next block.
+        abort = threading.Event()
+
+        def _check_abort() -> None:
+            if abort.is_set():
+                raise RuntimeError("transfer aborted")
 
         def _transfer() -> TransferResult:
             # resume_offset is reassigned below on restart; without nonlocal it
@@ -214,6 +221,7 @@ class FTPSAdapter:
                     with open(destination_part_path, mode) as f:
                         def _callback(block: bytes) -> None:
                             nonlocal bytes_transferred
+                            _check_abort()
                             f.write(block)
                             bytes_transferred += len(block)
                             if progress_callback:
@@ -230,6 +238,7 @@ class FTPSAdapter:
                                 raise RuntimeError("FTP data connection failed")
                             try:
                                 while True:
+                                    _check_abort()
                                     data = sock.recv(65536)
                                     if not data:
                                         break
@@ -269,4 +278,10 @@ class FTPSAdapter:
                     endpoint_name=self._host,
                 )
 
-        return await anyio.to_thread.run_sync(_transfer)
+        try:
+            # abandon_on_cancel: return to the caller at once (pause, shutdown); the abort
+            # flag then ends the thread within one block instead of after the whole file.
+            return await anyio.to_thread.run_sync(_transfer, abandon_on_cancel=True)
+        except anyio.get_cancelled_exc_class():
+            abort.set()
+            raise

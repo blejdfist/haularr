@@ -246,6 +246,8 @@ def cli() -> None:
         port=settings.port,
         workers=1,  # Single process — scheduler is in-process
         log_level=settings.log_level.lower(),
+        # Event streams never end on their own: without this, Ctrl+C waits on open browser tabs.
+        timeout_graceful_shutdown=3,
         reload=reload,
         reload_dirs=[str(Path(__file__).parent)] if reload else None,
     )

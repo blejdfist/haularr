@@ -61,3 +61,32 @@ async def test_resume_mismatch_restarts_from_zero(monkeypatch, tmp_path):
     assert r.resumed_from == 0
     assert r.bytes_transferred == len(DATA)
     assert part.read_bytes() == DATA
+
+
+async def test_cancel_returns_at_once_and_stops_the_thread(monkeypatch, tmp_path):
+    """Pause or Ctrl+C mid-file: don't wait for the whole file, and don't leave the thread running."""
+    import asyncio
+    import threading
+    import time
+
+    stopped = threading.Event()
+
+    class EndlessFTP(FakeFTP):
+        def retrbinary(self, cmd, callback, blocksize=8192):
+            try:
+                while True:
+                    callback(DATA)
+                    time.sleep(0.01)
+            finally:
+                stopped.set()
+
+    task = asyncio.create_task(_transfer(_adapter(monkeypatch, EndlessFTP), tmp_path / "f.part"))
+    await asyncio.sleep(0.1)
+    task.cancel()
+    t0 = time.monotonic()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    assert time.monotonic() - t0 < 1
+    assert await asyncio.to_thread(stopped.wait, 2)
