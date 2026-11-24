@@ -170,3 +170,31 @@ async def test_skip_library_rejects_cancelled_job(auth_client, settings):
     job_id = await _staged(settings, "check_library", "cancelled")
     r = await auth_client.post(f"/api/v1/jobs/{job_id}/skip-library")
     assert r.status_code == 409
+
+
+async def test_check_library_records_how_the_library_parsed_it(app, settings, monkeypatch):
+    """The stage keeps the verdict's reason and the parsed name, to show in the job drawer."""
+    from sqlalchemy import select
+
+    from app.database.models import StageRun
+    from app.jobs.runner import JobRunner
+    from app.services import classification
+
+    async def fake_classify(session, item, rule, library, master_key):
+        await classification._persist_match(session, item.id, None, classification.MediaMatch(
+            media_type=classification.MediaType.MOVIE, catalog_id=5,
+            parse_data={"movieTitles": ["Tron"], "year": 1982,
+                        "quality": {"quality": {"name": "Bluray-480p"}}, "releaseGroup": "GAZER"},
+        ))
+        await classification._persist_check(session, item.id, rule.id, "missing", "Classification complete: missing",
+                                            evidence={"has_file": False})
+        return "missing"
+
+    monkeypatch.setattr(classification, "classify_item", fake_classify)
+    job_id = await _gated_job(settings)
+    await JobRunner(settings, job_id, "check_library", "tok").execute()
+    async with get_session_factory(settings)() as session:
+        p = (await session.execute(select(StageRun).where(StageRun.job_id == job_id))).scalars().one().progress_json
+    assert p["reason"] == "Classification complete: missing" and p["evidence"] == {"has_file": False}
+    assert p["match"]["catalog_id"] == 5
+    assert p["match"]["parsed"] == {"title": "Tron", "year": 1982, "quality": "Bluray-480p", "group": "GAZER"}

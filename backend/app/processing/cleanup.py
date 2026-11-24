@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,9 @@ class CleanupResult:
     cleaned_path_b: str = ""
     skipped_b: bool = False
     error: str = ""
+    # What was deleted, relative to the cleaned path, with total bytes.
+    deleted: list[str] = field(default_factory=list)
+    deleted_bytes: int = 0
 
 
 def _is_safe_to_delete(path: Path, allowed_roots: list[str]) -> bool:
@@ -52,13 +55,20 @@ def _is_safe_to_delete(path: Path, allowed_roots: list[str]) -> bool:
         return False
 
 
-def _remove(target: Path) -> None:
-    """Delete an item: a folder, or a single-file release's file. Long paths included."""
+def _remove(target: Path, result: CleanupResult) -> None:
+    """Delete an item: a folder, or a single-file release's file. Long paths included.
+
+    Records what it deletes in ``result`` (deleted, deleted_bytes)."""
     from app.processing.publication import long_path
 
     if target.is_dir():
-        shutil.rmtree(long_path(target))
+        root = long_path(target)
+        files = [f for f in sorted(root.rglob("*")) if f.is_file()]
+        result.deleted = [f.relative_to(root).as_posix() for f in files]
+        result.deleted_bytes = sum(f.stat().st_size for f in files)
+        shutil.rmtree(root)
     else:
+        result.deleted, result.deleted_bytes = [target.name], target.stat().st_size
         target.unlink()
 
 
@@ -91,7 +101,7 @@ def cleanup_path_a(
         return result
 
     try:
-        _remove(target)
+        _remove(target, result)
         result.cleaned_path_a = str(target)
         logger.info("Cleaned Path A: %s", result.cleaned_path_a)
     except Exception as e:
@@ -138,7 +148,7 @@ def cleanup_path_b(
         return result
 
     try:
-        _remove(target)
+        _remove(target, result)
         result.cleaned_path_b = str(target)
         logger.info("Cleaned Path B: %s", result.cleaned_path_b)
     except Exception as e:

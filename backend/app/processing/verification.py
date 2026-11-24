@@ -65,9 +65,11 @@ def parse_sfv(sfv_path: Path) -> list[SFVEntry]:
 def compute_crc32(file_path: Path) -> str | None:
     """Compute CRC32 of a file, return as 8-char hex string."""
     try:
+        crc = 0
         with open(file_path, "rb") as f:
-            data = f.read()
-        return f"{binascii.crc32(data) & 0xFFFFFFFF:08X}"
+            while chunk := f.read(8 << 20):  # 8 MiB chunks: release files can be tens of GB
+                crc = binascii.crc32(chunk, crc)
+        return f"{crc & 0xFFFFFFFF:08X}"
     except Exception as exc:
         logger.warning("CRC32 computation failed for %s: %s", file_path, exc)
         return None

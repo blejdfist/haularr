@@ -26,6 +26,7 @@ class ImportProcessResult:
     rejected_paths: list[str] = field(default_factory=list)
     skipped_paths: list[str] = field(default_factory=list)
     pending: bool = False  # Import still running
+    partial: bool = False  # Some files imported, others rejected and left in place
     error: str = ""
 
 
@@ -55,9 +56,13 @@ async def run_import_stage(
 
     # Separate accepted and rejected candidates
     accepted = []
+    left_behind = []  # rejected files worth keeping: cleanup would delete them
     for candidate in inspection.candidates:
         if candidate.rejection_reasons:
             result.rejected_paths.append(candidate.relative_path)
+            # Samples are meant to be thrown away; anything else is a file the user wants.
+            if not all("sample" in r.lower() for r in candidate.rejection_reasons):
+                left_behind.append(f"{candidate.relative_path} ({'; '.join(candidate.rejection_reasons)})")
         else:
             accepted.append(candidate)
 
@@ -89,9 +94,17 @@ async def run_import_stage(
         await asyncio.sleep(2)
 
     if outcome.success:
-        result.success = True
         result.imported_paths = outcome.imported_paths
         result.skipped_paths = outcome.skipped_paths
+        if left_behind:
+            # Partial import: stop here so cleanup doesn't delete what the library refused.
+            result.partial = True
+            result.error = (
+                f"Imported {len(accepted)}, library rejected {len(left_behind)}: "
+                + ", ".join(left_behind[:5])
+            )
+        else:
+            result.success = True
     else:
         # Check if still pending
         if outcome.details.get("pending"):

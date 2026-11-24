@@ -90,10 +90,30 @@ async def test_import_accepted_candidates():
 
     result = await run_import_stage(adapter, "/path", match)
 
-    assert result.success
+    # Partial: the rejected file stays on disk for the user, so the job must not reach cleanup.
+    assert not result.success
+    assert result.partial
     assert len(result.imported_paths) == 1
     assert len(result.rejected_paths) == 1
-    assert "file2.mkv" in result.rejected_paths[0]
+    assert "file2.mkv" in result.error and "Not a quality upgrade" in result.error
+
+
+@pytest.mark.asyncio
+async def test_import_rejected_sample_is_not_partial():
+    """A rejected sample is junk: the import still counts as done."""
+    match = MediaMatch(media_type=MediaType.MOVIE, catalog_id=1, title="Test Movie")
+    inspection = ImportInspection(
+        candidates=[
+            ImportCandidate(relative_path="/p/movie.mkv", absolute_path="/p/movie.mkv", media_id=1),
+            ImportCandidate(
+                relative_path="/p/sample.mkv", absolute_path="/p/sample.mkv",
+                rejection_reasons=["Sample"], media_id=1,
+            ),
+        ],
+        all_rejected=False,
+    )
+    result = await run_import_stage(FakeLibraryAdapter(inspection=inspection), "/p", match)
+    assert result.success and not result.partial
 
 
 @pytest.mark.asyncio

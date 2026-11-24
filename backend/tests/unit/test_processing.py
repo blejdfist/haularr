@@ -226,11 +226,14 @@ class TestCleanup:
         release_dir = tmp_path / "temp" / "Test.Release"
         release_dir.mkdir(parents=True)
         (release_dir / "file.mkv").write_bytes(b"data")
+        (release_dir / "Subs").mkdir()
+        (release_dir / "Subs" / "en.srt").write_bytes(b"sub")
 
         result = cleanup_path_a(temp_dir, "Test.Release", "job_123")
         assert result.success
         assert result.cleaned_path_a != ""
         assert not release_dir.exists()
+        assert sorted(result.deleted) == ["Subs/en.srt", "file.mkv"] and result.deleted_bytes == 7
 
     def test_cleanup_path_a_skips_nonexistent(self, tmp_path):
         """Path A cleanup succeeds when directory doesn't exist."""

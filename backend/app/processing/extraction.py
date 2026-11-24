@@ -47,22 +47,15 @@ def detect_archives(local_dir: Path) -> list[Path]:
 
         if ext == ".zip":
             archives.append(f)
-        elif ext == ".rar":
-            # Only process the first volume of a multipart RAR
-            # e.g. file.part01.rar or file.r00 or file.rar
-            name_base = f.stem
-            if name_base.endswith(".part01") or name_base.endswith(".part1"):
+        elif ext == ".r00":
+            # Old-style multipart whose first volume is missing its .rar: start from .r00
+            if not f.with_suffix(".rar").exists():
                 archives.append(f)
-            elif f.name.endswith(".r00"):
-                # .r00 is the first volume in old-style multipart
-                # But we prefer .rar — check if .rar exists
-                rar_name = f.name[:-3] + "rar"
-                if not (f.parent / rar_name).exists():
-                    archives.append(f)
-            elif ext == ".rar":
-                # Single RAR or the main volume
-                if ".part" not in name_base or name_base.endswith(".part01") or name_base.endswith(".part1"):
-                    archives.append(f)
+        elif ext == ".rar":
+            # Only the first volume of a multipart RAR: file.part01.rar, or file.rar
+            name_base = f.stem
+            if ".part" not in name_base or name_base.endswith(".part01") or name_base.endswith(".part1"):
+                archives.append(f)
     return archives
 
 
@@ -185,7 +178,7 @@ def extract_rar(archive_path: Path, dest_dir: Path) -> ExtractionResult:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=600,
+                timeout=4 * 3600,  # a 80 GB remux to a slow disk takes well over 10 minutes
             )
             if proc.returncode == 0:
                 # List extracted files

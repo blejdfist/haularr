@@ -153,6 +153,32 @@ async def test_rar_release_extracts_in_place_and_moves_only_extracted(stage, tmp
 
 
 @pytest.mark.asyncio
+async def test_pack_extracts_per_release_and_nested_archives(stage, tmp_path, monkeypatch):
+    """A pack keeps one folder per release, and a subs .rar holding a vobsub .rar is unpacked too."""
+    from app.processing import extraction
+    from app.processing.extraction import ExtractionResult
+
+    def fake_extract(archive, dest):
+        if archive.name == "subs.rar":
+            (dest / "vob.idx").write_bytes(b"idx")
+            (dest / "vob.rar").write_bytes(b"rar")  # nested archive
+        elif archive.name == "vob.rar":
+            (dest / "vob.sub").write_bytes(b"sub")
+        else:
+            (dest / f"{archive.stem}.mkv").write_bytes(b"video")
+        return ExtractionResult(success=True)
+
+    monkeypatch.setattr(extraction, "extract_archive", fake_extract)
+    setup, run, calls, _, names = stage
+    names[:] = ["A/a.rar", "B/b.rar", "B/Subs/subs.rar"]
+    await setup()
+    await _pipeline(run)
+    done = tmp_path / "done" / "T"
+    assert (done / "A" / "a.mkv").exists() and (done / "B" / "b.mkv").exists()
+    assert (done / "B" / "Subs" / "vob.idx").exists() and (done / "B" / "Subs" / "vob.sub").exists()
+
+
+@pytest.mark.asyncio
 async def test_extract_records_byte_progress(stage, settings, monkeypatch):
     from app.database.models import StageRun
     from app.processing import extraction
@@ -174,7 +200,8 @@ async def test_extract_records_byte_progress(stage, settings, monkeypatch):
         )).scalars().one()
     assert run_row.progress_json["bytes_total"] == 2 * len(DATA)
     assert run_row.progress_json["bytes_done"] == run_row.progress_json["bytes_total"]
-    assert run_row.progress_json["extracted"] == ["ep.mkv"]
+    # The first volume only, with what came out of it.
+    assert run_row.progress_json["archives"] == [{"archive": "t.rar", "files": ["ep.mkv"]}]
 
 
 @pytest.mark.asyncio

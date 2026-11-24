@@ -223,9 +223,10 @@ class JobRunner:
                 session, item, rule, library, self._get_master_key()
             )
             automatic = rule.automatic_processing
+            summary = await _library_summary(session, item, library)
             await session.commit()
 
-        await self._update_progress(stage_run_id, {"eligibility": eligibility})
+        await self._update_progress(stage_run_id, {"eligibility": eligibility, **summary})
         if eligibility == EligibilityStatus.WAITING_LIBRARY.value:
             return StageResult(StageRunStatus.FAILED, "library_unreachable", "Library unreachable", True)
         parked = _LIBRARY_VERDICTS.get(eligibility)
@@ -545,14 +546,22 @@ class JobRunner:
             for f in job.job_files
         ]
 
-        result = verify_files(item.parent, job_files, sfv_entries if sfv_entries else None)
-
-        # Update progress
+        # Show what's being checked while it runs: CRC32 of a big pack takes minutes.
         await self._update_progress(stage_run_id, {
-            "verified": result.verified,
-            "failed": [f[0] for f in result.failed],
-            "missing": result.missing,
+            "files": [{"path": f["remote_relpath"], "result": "checking"} for f in job_files],
+        })
+        # Off the event loop: CRC32 reads every byte and would stall heartbeats.
+        result = await asyncio.to_thread(
+            verify_files, item.parent, job_files, sfv_entries if sfv_entries else None,
+        )
+
+        outcome = {p: ("crc32 ok", "") for p in result.verified}
+        outcome |= {p: ("size ok", "") for p in result.size_only}
+        outcome |= {p: ("failed", why) for p, why in result.failed}
+        outcome |= {p: ("missing", "") for p in result.missing}
+        await self._update_progress(stage_run_id, {
             "checks": result.checks_performed,
+            "files": [{"path": p, "result": r, "detail": d} for p, (r, d) in outcome.items()],
         })
 
         if result.failed:
@@ -590,8 +599,6 @@ class JobRunner:
         if not archives:
             return StageResult(StageRunStatus.SKIPPED)
 
-        extract_dir = local_dir  # in place; publish moves only the files that weren't downloaded
-
         # Progress = bytes of new files vs the downloaded size.
         # ponytail: assumes output ~ input (scene RARs are stored, not compressed); clamped to total.
         before = {f for f in local_dir.rglob("*") if f.is_file()}
@@ -607,34 +614,56 @@ class JobRunner:
                         pass
             return min(n, total)
 
+        # Per archive (first volume only): what came out of it. files is None while unpacking.
+        unpacked: list[dict[str, Any]] = []
+
+        def rel(f: Path) -> str:
+            return f.relative_to(local_dir).as_posix()
+
         async def flush_progress() -> None:
             while True:
                 await asyncio.sleep(2)
                 try:
                     done = await asyncio.to_thread(written)
-                    await self._update_progress(stage_run_id, {"bytes_done": done, "bytes_total": total})
+                    await self._update_progress(
+                        stage_run_id, {"bytes_done": done, "bytes_total": total, "archives": unpacked},
+                    )
                 except Exception as exc:  # progress is cosmetic; never kill the flusher
                     logger.debug("Extract progress flush failed: %s", exc)
 
-        extracted: list[str] = []
         flusher = asyncio.create_task(flush_progress())
+        done: set[Path] = set()
+        seen = set(before)
         try:
-            for archive in archives:
-                # Off the event loop: unrar can run for minutes and would stall heartbeats.
-                result = await asyncio.to_thread(extract_archive, archive, extract_dir)
-                if not result.success:
-                    return StageResult(
-                        StageRunStatus.NEEDS_ATTENTION,
-                        "extraction_failed",
-                        result.error,
-                        not result.success,  # Some extraction errors are retryable
-                    )
-                extracted += result.extracted_files
+            # Rounds: an archive can hold archives (subs .rar holding a vobsub .sub .rar).
+            for _ in range(3):  # ponytail: 3 levels of nesting; scene releases use 2
+                for archive in archives:
+                    done.add(archive)
+                    entry: dict[str, Any] = {"archive": rel(archive), "files": None}
+                    unpacked.append(entry)
+                    # Next to the archive, in place: a pack of releases keeps one folder per
+                    # release, and publish moves only the files that weren't downloaded.
+                    # Off the event loop: unrar can run for minutes and would stall heartbeats.
+                    result = await asyncio.to_thread(extract_archive, archive, archive.parent)
+                    if not result.success:
+                        await self._update_progress(stage_run_id, {"archives": unpacked})
+                        return StageResult(
+                            StageRunStatus.NEEDS_ATTENTION,
+                            "extraction_failed",
+                            f"{archive.name}: {result.error}",
+                            not result.success,  # Some extraction errors are retryable
+                        )
+                    new = {f for f in local_dir.rglob("*") if f.is_file()} - seen
+                    seen |= new
+                    entry["files"] = sorted(rel(f) for f in new)
+                archives = [a for a in detect_archives(local_dir) if a not in done]
+                if not archives:
+                    break
         finally:
             flusher.cancel()
 
         await self._update_progress(stage_run_id, {
-            "bytes_done": total, "bytes_total": total, "extracted": extracted,
+            "bytes_done": total, "bytes_total": total, "archives": unpacked,
         })
         return StageResult(StageRunStatus.SUCCEEDED)
 
@@ -746,8 +775,7 @@ class JobRunner:
                         "media_id": c.media_id,
                         "episode_ids": c.episode_ids,
                     }
-                    for c in inspection.candidates
-                    if not c.rejection_reasons
+                    for c in inspection.candidates  # rejected too: their reasons are the record
                 ]
             }
             await self._update_progress(stage_run_id, candidates_data)
@@ -818,6 +846,12 @@ class JobRunner:
                     StageRunStatus.FAILED, "import_pending",
                     result.error, True,
                 )
+            if result.partial:
+                # Not retryable: a re-inspect would see only the rejected files.
+                return StageResult(
+                    StageRunStatus.NEEDS_ATTENTION, "import_partial",
+                    result.error, False,
+                )
             if not result.success:
                 return StageResult(
                     StageRunStatus.FAILED, "import_failed",
@@ -861,9 +895,13 @@ class JobRunner:
                 False,
             )
 
+        # In progress (A): the downloaded archives, so a count is enough. Completed (B):
+        # what the library left behind, which is worth seeing file by file.
         await self._update_progress(stage_run_id, {
-            "cleaned_a": result_a.cleaned_path_a,
-            "cleaned_b": result_b.cleaned_path_b,
+            "cleaned_a": plain_path(result_a.cleaned_path_a),
+            "deleted_a": {"count": len(result_a.deleted), "bytes": result_a.deleted_bytes},
+            "cleaned_b": plain_path(result_b.cleaned_path_b),
+            "deleted_b": {"files": result_b.deleted, "bytes": result_b.deleted_bytes},
             "skipped_b": result_b.skipped_b,
         })
 
@@ -944,6 +982,48 @@ class JobRunner:
                 .values(progress_json=progress)  # StageRun has no updated_at column
             )
             await session.commit()
+
+
+async def _library_summary(session: Any, item: Any, library: Any) -> dict[str, Any]:
+    """What the library said about this release, from the rows classification just wrote:
+    the verdict's reason and evidence, and how the library parsed the name."""
+    from app.database.models import EligibilityCheck, MediaMatch as MediaMatchModel
+
+    check = (await session.execute(
+        select(EligibilityCheck).where(EligibilityCheck.source_item_id == item.id)
+        .order_by(EligibilityCheck.checked_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    match = (await session.execute(
+        select(MediaMatchModel).where(MediaMatchModel.source_item_id == item.id)
+        .order_by(MediaMatchModel.matched_at.desc()).limit(1)
+    )).scalar_one_or_none()
+
+    out: dict[str, Any] = {
+        "library": f"{library.name} ({library.adapter_type})" if library else None,
+        "reason": check.reason if check else "",
+        "evidence": check.evidence_json if check else {},
+    }
+    if match:
+        p = match.parse_json or {}
+        parsed = {
+            # Radarr: movieTitles/year/edition; Sonarr: seriesTitle/seasonNumber/episodeNumbers.
+            "title": ", ".join(p.get("movieTitles") or []) or p.get("movieTitle") or p.get("seriesTitle"),
+            "year": p.get("year") or None,
+            "season": p.get("seasonNumber"),
+            "episodes": p.get("episodeNumbers") or None,
+            "full_season": p.get("fullSeason") or None,
+            "edition": p.get("edition") or None,
+            "quality": ((p.get("quality") or {}).get("quality") or {}).get("name"),
+            "group": p.get("releaseGroup"),
+        }
+        out["match"] = {
+            "media_type": match.media_type,
+            "catalog_id": match.catalog_id,
+            "episode_ids": len(match.episode_ids_json or []),
+            "confidence": match.confidence,
+            "parsed": {k: v for k, v in parsed.items() if v not in (None, "", [])},
+        }
+    return out
 
 
 def _rejection_summary(inspection: Any, ready_path: str) -> str:

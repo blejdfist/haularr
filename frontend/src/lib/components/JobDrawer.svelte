@@ -127,43 +127,104 @@
     verified: 'done',
     failed: 'failed',
   };
+  const VERIFY_ICON: Record<string, IconKind> = {
+    checking: 'running',
+    'crc32 ok': 'done',
+    'size ok': 'done',
+    failed: 'failed',
+    missing: 'failed',
+  };
   const files = $derived<any[]>(job?.files ?? []);
-  type FileRow = { key: string; path: string; size: number; done: number; kind: IconKind; bar: boolean; failed: boolean };
-  // Transfer files once the transfer has them; before that, what the seedbox reports.
-  const rows = $derived.by((): FileRow[] => {
-    if (files.length)
-      return files.map((f) => ({
-        key: f.id,
-        path: f.remote_relpath,
-        size: f.size_bytes ?? 0,
-        done: f.bytes_received ?? 0,
-        kind: FILE_ICON[f.transfer_status] ?? 'pending',
-        bar: f.transfer_status === 'in_progress',
-        failed: f.transfer_status === 'failed',
-      }));
-    const run = currentRuns((job?.stage_runs ?? []) as any[]).get('source_download');
-    const live = run?.status === 'running';
-    return ((run?.progress?.files ?? []) as any[]).map((f) => {
-      const finished = f.done_bytes >= f.size_bytes;
+  // Every stage's list uses one row shape, so they all render alike (see the fileList snippet).
+  type Row = { key: string; path: string; kind: IconKind; meta?: string; note?: string; tone?: 'error' | 'warn'; pct?: number };
+  type List = { caption: string[]; rows: Row[]; empty?: string };
+
+  function sizeRow(key: string, path: string, kind: IconKind, total: number, done: number, live: boolean): Row {
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    return { key, path, kind, meta: live ? `${pct}% · ${size(done)} / ${size(total)}` : size(total), pct: live ? pct : undefined };
+  }
+  const basename = (f: string) => f.slice(f.lastIndexOf('/') + 1);
+
+  /** The list under a stage: what it worked on, file by file. Null when it has none. */
+  function stageList(st: string, r: any): List | null {
+    const p = r?.progress;
+    if (st === 'source_download' || st === 'transfer') {
+      const live = r?.status === 'running';
+      const rows: Row[] =
+        st === 'transfer'
+          ? files.map((f) => ({
+              ...sizeRow(f.id, f.remote_relpath, FILE_ICON[f.transfer_status] ?? 'pending', f.size_bytes ?? 0, f.bytes_received ?? 0, f.transfer_status === 'in_progress'),
+              ...(f.transfer_status === 'failed' && { note: 'Transfer failed', tone: 'error' as const }),
+            }))
+          : ((p?.files ?? []) as any[]).map((f) => {
+              const finished = f.done_bytes >= f.size_bytes;
+              return sizeRow(f.path, f.path, finished ? 'done' : live ? 'running' : 'pending', f.size_bytes, f.done_bytes, live && !finished);
+            });
+      const total = st === 'transfer' ? files.reduce((n, f) => n + (f.size_bytes ?? 0), 0) : ((p?.files ?? []) as any[]).reduce((n, f) => n + f.size_bytes, 0);
       return {
-        key: f.path,
-        path: f.path,
-        size: f.size_bytes,
-        done: f.done_bytes,
-        kind: finished ? 'done' : live ? 'running' : 'pending',
-        bar: live && !finished,
-        failed: false,
+        caption: rows.length ? [`${rows.length} files · ${size(total)}`] : [],
+        rows,
+        empty: st === 'transfer' ? 'Files are listed once the transfer starts.' : 'Files are listed once the seedbox reports them.',
       };
-    });
-  });
-  const filesTotal = $derived(rows.reduce((n, f) => n + f.size, 0));
+    }
+    if (st === 'verify' && p?.files?.length)
+      return {
+        caption: [],
+        rows: p.files.map((f: any) => {
+          const bad = f.result === 'failed' || f.result === 'missing';
+          return { key: f.path, path: f.path, kind: VERIFY_ICON[f.result] ?? 'pending', meta: bad ? undefined : f.detail || f.result, ...(bad && { note: f.detail || f.result, tone: 'error' }) };
+        }),
+      };
+    if (st === 'extract' && p?.archives?.length)
+      return {
+        caption: [],
+        rows: p.archives.map((a: any) => ({
+          key: a.archive,
+          path: a.archive,
+          kind: a.files ? 'done' : r.status === 'running' ? 'running' : 'failed',
+          meta: a.files ? `${a.files.length} out` : undefined,
+          note: a.files?.map(basename).join(', '),
+        })),
+      };
+    if (st === 'move' && p?.files?.length)
+      return { caption: [`To ${p.published_path}`], rows: p.files.map((f: string) => ({ key: f, path: f, kind: 'done' })) };
+    if (st === 'inspect_import' && Array.isArray(p?.candidates))
+      return {
+        caption: [],
+        rows: p.candidates.map((c: any) => ({
+          key: c.path,
+          path: basename(c.path),
+          kind: c.rejection_reasons?.length ? 'warning' : 'done',
+          meta: c.quality || undefined,
+          ...(c.rejection_reasons?.length && { note: c.rejection_reasons.join('; '), tone: 'warn' }),
+        })),
+      };
+    if (st === 'import' && p)
+      return {
+        caption: [
+          p.pending && 'Library still importing',
+          p.rejected?.length && `${p.rejected.length} rejected by the library, left in place`,
+          p.skipped?.length && `${p.skipped.length} skipped`,
+        ].filter(Boolean),
+        rows: (p.imported ?? []).map((f: string) => ({ key: f, path: f, kind: 'done' })),
+      };
+    if (st === 'cleanup' && p)
+      return {
+        caption: [
+          p.cleaned_a && `In progress: deleted ${p.deleted_a?.count ?? 0} files · ${size(p.deleted_a?.bytes ?? 0)}`,
+          p.cleaned_b && `Completed: deleted ${p.deleted_b?.files?.length ?? 0} files the library left · ${size(p.deleted_b?.bytes ?? 0)}`,
+          !p.cleaned_b && p.skipped_b && 'Completed folder kept: no library',
+        ].filter(Boolean),
+        rows: p.cleaned_b ? (p.deleted_b?.files ?? []).map((f: string) => ({ key: f, path: f, kind: 'done' })) : [],
+      };
+    return null;
+  }
   // Release folder shared by every file: shown once above the list, not on each row.
   function commonRoot(paths: string[]): string {
     const first = paths[0] ?? '';
     const top = first.includes('/') ? first.slice(0, first.indexOf('/') + 1) : '';
     return top && paths.every((x) => x.startsWith(top)) ? top : '';
   }
-  const filesRoot = $derived(commonRoot(rows.map((f) => f.path)));
   function took(r: any): string {
     if (!r.started_at) return '';
     const end = r.ended_at ? parseUtc(r.ended_at).getTime() : Date.now();
@@ -176,6 +237,50 @@
   }
 </script>
 
+{#snippet fileList(list: List)}
+  {@const root = commonRoot(list.rows.map((f) => f.path))}
+  {@const caption = [...list.caption, ...(root ? [`in ${root.slice(0, -1)}`] : [])]}
+  <div class="mt-1.5 ms-6 text-xs">
+    {#each caption as line}
+      <p class="mb-1 truncate text-gray-600 dark:text-gray-300" title={line}>{line}</p>
+    {/each}
+    {#if list.rows.length}
+      <ul class="divide-y divide-gray-200 rounded-md border border-gray-200 bg-white dark:divide-gray-700 dark:border-gray-700 dark:bg-gray-800">
+        {#each list.rows as f (f.key)}
+          {@const rel = f.path.slice(root.length)}
+          {@const slash = rel.lastIndexOf('/')}
+          <li class="flex items-start gap-2 px-2.5 py-1.5">
+            <StatusIcon kind={f.kind} class="mt-px h-3.5 w-3.5 shrink-0" />
+            <div class="min-w-0 flex-1">
+              <div class="flex items-baseline gap-2">
+                <!-- Folder and name on one line; a long folder shrinks before the name does. -->
+                <span class="flex min-w-0 flex-1 text-gray-900 dark:text-white" title={f.path}>
+                  {#if slash > 0}<span class="min-w-0 shrink-[999] truncate text-gray-500 dark:text-gray-400"
+                      >{rel.slice(0, slash + 1)}</span
+                    >{/if}<span class="min-w-0 truncate">{rel.slice(slash + 1)}</span>
+                </span>
+                {#if f.meta}<span class="whitespace-nowrap text-gray-600 tabular-nums dark:text-gray-300">{f.meta}</span>{/if}
+              </div>
+              {#if f.pct != null}
+                <div class="mt-1 h-1 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
+                  <div class="h-full bg-blue-600 transition-[width] duration-700" style="width: {f.pct}%"></div>
+                </div>
+              {/if}
+              {#if f.note}
+                <p class={f.tone === 'error' ? 'text-red-700 dark:text-red-300' : f.tone === 'warn' ? 'text-amber-700 dark:text-amber-300' : 'text-gray-500 dark:text-gray-400'}>
+                  {f.note}
+                </p>
+              {/if}
+            </div>
+          </li>
+        {/each}
+      </ul>
+    {:else if list.empty}
+      <p class="text-gray-500 dark:text-gray-400">{list.empty}</p>
+    {/if}
+  </div>
+{/snippet}
+
 {#snippet phaseCard(s: Step)}
   {@const runs = currentRuns((job.stage_runs ?? []) as any[])}
   <h5 class="font-semibold text-gray-900 dark:text-white">{s.label}</h5>
@@ -184,6 +289,7 @@
       {@const r = runs.get(st)}
       {@const kind = r ? runIcon(r.status) : st === job.stage && s.state === 'waiting' ? 'warning' : 'pending'}
       {@const bar = r?.status !== 'running' ? null : st === 'transfer' ? fetched : bytes(r.progress)}
+      {@const list = stageList(st, r)}
       <li>
         <div class="flex items-center gap-2">
           <StatusIcon {kind} class="h-4 w-4" />
@@ -209,6 +315,38 @@
         {#if st === 'source_download' && r?.progress?.message}
           <p class="mt-1 ms-6 text-xs text-gray-500 dark:text-gray-400">{r.progress.message}</p>
         {/if}
+        {#if st === 'check_library' && r?.progress?.eligibility}
+          {@const p = r.progress}
+          {@const parsed = p.match?.parsed ?? {}}
+          <dl class="mt-1 ms-6 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+            {#if p.eligibility === 'skipped_by_user'}
+              <dt class="text-gray-500 dark:text-gray-400">Verdict</dt><dd class="text-gray-800 dark:text-gray-100">Skipped by you</dd>
+            {:else}
+              {#if p.library}<dt class="text-gray-500 dark:text-gray-400">Library</dt><dd class="text-gray-800 dark:text-gray-100">{p.library}</dd>{/if}
+              <dt class="text-gray-500 dark:text-gray-400">Verdict</dt>
+              <dd class="text-gray-800 dark:text-gray-100">{p.eligibility.replaceAll('_', ' ')}{#if p.reason}<span class="text-gray-500 dark:text-gray-400">{` · ${p.reason}`}</span>{/if}</dd>
+              {#if p.match}
+                <dt class="text-gray-500 dark:text-gray-400">Parsed as</dt>
+                <dd class="text-gray-800 dark:text-gray-100">
+                  {parsed.title ?? '—'}{#if parsed.year}{` (${parsed.year})`}{/if}{#if parsed.season != null}{` · S${String(parsed.season).padStart(2, '0')}`}{/if}{#if parsed.episodes}{` E${parsed.episodes.join(', E')}`}{:else if parsed.full_season}{' · full season'}{/if}{#if parsed.edition}{` · ${parsed.edition}`}{/if}
+                </dd>
+                {#if parsed.quality || parsed.group}
+                  <dt class="text-gray-500 dark:text-gray-400">Release</dt>
+                  <dd class="text-gray-800 dark:text-gray-100">{[parsed.quality, parsed.group].filter(Boolean).join(' · ')}</dd>
+                {/if}
+                <dt class="text-gray-500 dark:text-gray-400">Matched</dt>
+                <dd class="text-gray-800 dark:text-gray-100">
+                  {p.match.catalog_id != null ? `${p.match.media_type} #${p.match.catalog_id}` : 'no library entry'}{#if p.match.episode_ids}{` · ${p.match.episode_ids} episodes`}{/if}
+                </dd>
+              {/if}
+              {#if p.evidence?.has_file != null}
+                <dt class="text-gray-500 dark:text-gray-400">In library</dt>
+                <dd class="text-gray-800 dark:text-gray-100">{p.evidence.has_file ? 'has a file' : 'no file'}{#if p.evidence.missing_episode_ids?.length}{` · ${p.evidence.missing_episode_ids.length} episodes missing`}{/if}</dd>
+              {/if}
+            {/if}
+          </dl>
+        {/if}
+        {#if list}{@render fileList(list)}{/if}
         {#if r?.error_detail}
           <p class="mt-0.5 ms-6 text-xs text-red-700 dark:text-red-300">{r.error_code}: {r.error_detail}</p>
         {/if}
@@ -295,58 +433,6 @@
           <Button size="xs" color="red" disabled={busy} onclick={() => act(endpoints.jobs.cancel)}>Cancel</Button>
         {/if}
       </div>
-
-      <section>
-        <h4 class="mb-2 flex items-baseline gap-2 font-semibold text-gray-900 dark:text-white">
-          Files
-          {#if rows.length}
-            <span class="text-sm font-normal text-gray-600 dark:text-gray-300"
-              >{rows.length} · {size(filesTotal)}</span
-            >
-          {/if}
-        </h4>
-        {#if filesRoot}
-          <p class="-mt-1 mb-2 truncate text-xs text-gray-500 dark:text-gray-400" title={filesRoot}>
-            in {filesRoot.slice(0, -1)}
-          </p>
-        {/if}
-        {#if rows.length}
-          <ul class="divide-y divide-gray-200 rounded-lg border border-gray-200 text-sm dark:divide-gray-700 dark:border-gray-700">
-            {#each rows as f (f.key)}
-              {@const rel = f.path.slice(filesRoot.length)}
-              {@const slash = rel.lastIndexOf('/')}
-              {@const pct = f.size ? Math.round((f.done / f.size) * 100) : 0}
-              <li class="flex items-start gap-2.5 px-3 py-2">
-                <StatusIcon kind={f.kind} class="mt-0.5 h-4 w-4" />
-                <div class="min-w-0 flex-1">
-                  <div class="flex items-baseline gap-2">
-                    <!-- Folder and name on one line; a long folder shrinks before the name does. -->
-                    <span class="flex min-w-0 flex-1 font-medium text-gray-900 dark:text-white" title={f.path}>
-                      {#if slash > 0}<span class="min-w-0 shrink-[999] truncate font-normal text-gray-500 dark:text-gray-400"
-                          >{rel.slice(0, slash + 1)}</span
-                        >{/if}<span class="min-w-0 truncate">{rel.slice(slash + 1)}</span>
-                    </span>
-                    <span class="whitespace-nowrap text-xs text-gray-600 tabular-nums dark:text-gray-300"
-                      >{f.bar ? `${pct}% · ${size(f.done)} / ` : ''}{size(f.size)}</span
-                    >
-                  </div>
-                  {#if f.bar}
-                    <div class="mt-1.5 h-1 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
-                      <div class="h-full bg-blue-600 transition-[width] duration-700" style="width: {pct}%"></div>
-                    </div>
-                  {:else if f.failed}
-                    <div class="text-xs text-red-700 dark:text-red-300">Transfer failed</div>
-                  {/if}
-                </div>
-              </li>
-            {/each}
-          </ul>
-        {:else}
-          <p class="text-sm text-gray-600 dark:text-gray-300">
-            {job.stage === 'source_download' ? 'Files are listed once the seedbox reports them.' : 'Files are listed once the transfer starts.'}
-          </p>
-        {/if}
-      </section>
 
       <details>
         <summary class="cursor-pointer font-semibold text-gray-900 dark:text-white">Events ({events.length})</summary>
