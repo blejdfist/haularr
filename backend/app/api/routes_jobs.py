@@ -107,6 +107,15 @@ async def get_job(job_id: str, session: AsyncSession = Depends(get_session)):
     return result
 
 
+async def _ready_status(repo: JobRepository, job_id: str) -> str:
+    """Status a job goes back to when it may run again. No worker runs the seedbox
+    download (discovery tracks it), so a job there waits for the source instead of queuing."""
+    job = await repo.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return "waiting_source" if job.stage == "source_download" else "queued"
+
+
 @router.post("/jobs/{job_id}/pause")
 async def pause_job(job_id: str, session: AsyncSession = Depends(get_session)):
     """Pause a job; the scheduler skips it until resumed."""
@@ -125,30 +134,28 @@ async def pause_job(job_id: str, session: AsyncSession = Depends(get_session)):
 async def resume_job(job_id: str, session: AsyncSession = Depends(get_session)):
     """Resume a paused job."""
     repo = JobRepository(session)
-    obj = await repo.update(job_id, status="queued", next_run_at=None)
-    if not obj:
-        raise HTTPException(status_code=404, detail="Job not found")
+    status = await _ready_status(repo, job_id)
+    obj = await repo.update(job_id, status=status, next_run_at=None)
     await repo.add_event(
         job_id=job_id, severity="info", kind="job.resumed", message="Job resumed by user"
     )
     await session.commit()
-    return {"status": "queued", "job_id": job_id}
+    return {"status": status, "job_id": job_id}
 
 
 @router.post("/jobs/{job_id}/retry")
 async def retry_job(job_id: str, session: AsyncSession = Depends(get_session)):
     """Retry a failed job from its current stage, resetting its attempt count."""
     repo = JobRepository(session)
-    obj = await repo.update(
-        job_id, status="queued", attempts=0, next_run_at=None, error_code=None, error_detail=None
+    status = await _ready_status(repo, job_id)
+    await repo.update(
+        job_id, status=status, attempts=0, next_run_at=None, error_code=None, error_detail=None
     )
-    if not obj:
-        raise HTTPException(status_code=404, detail="Job not found")
     await repo.add_event(
         job_id=job_id, severity="info", kind="job.retry", message="Job retry requested by user"
     )
     await session.commit()
-    return {"status": "queued", "job_id": job_id}
+    return {"status": status, "job_id": job_id}
 
 
 @router.post("/jobs/{job_id}/restart")

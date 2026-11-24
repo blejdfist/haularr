@@ -264,3 +264,22 @@ async def test_manual_queue_is_preapproved(seedbox, settings, auth_client):
     assert r.status_code == 200, r.text
     [job] = await _jobs(settings)
     assert (job.stage, job.config_snapshot_json["approved"]) == ("check_library", True)
+
+
+@pytest.mark.parametrize("action", ["retry", "resume"])
+async def test_retry_or_resume_during_download_goes_back_to_waiting(seedbox, settings, auth_client, action):
+    """No worker runs source_download, so 'queued' there would never move."""
+    fake, scan, _ = seedbox
+    fake.items = [_dto()]
+    await scan()
+    fake.items = []
+    await scan()  # removed: needs_attention
+    [job] = await _jobs(settings)
+    if action == "resume":
+        assert (await auth_client.post(f"/api/v1/jobs/{job.id}/pause")).status_code == 200
+
+    r = await auth_client.post(f"/api/v1/jobs/{job.id}/{action}")
+    assert r.status_code == 200
+    assert r.json()["status"] == "waiting_source"
+    [job] = await _jobs(settings)
+    assert (job.stage, job.status) == ("source_download", "waiting_source")
