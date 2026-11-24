@@ -283,3 +283,66 @@ async def test_retry_or_resume_during_download_goes_back_to_waiting(seedbox, set
     assert r.json()["status"] == "waiting_source"
     [job] = await _jobs(settings)
     assert (job.stage, job.status) == ("source_download", "waiting_source")
+
+
+async def test_progress_scan_skips_library(seedbox, settings, monkeypatch):
+    """5-second ticks refresh downloads only: no library lookups, no requeues."""
+    from app.services import classification
+    from app.services.discovery import DiscoveryService
+
+    fake, scan, _ = seedbox
+    fake.items = [_dto()]
+    await scan()
+    [job] = await _jobs(settings)
+    async with get_session_factory(settings)() as session:
+        source_id = (await session.get(SourceItem, job.source_item_id)).source_id
+
+    calls = []
+
+    async def counting(*a, **k):
+        calls.append(1)
+        return "missing"
+
+    monkeypatch.setattr(classification, "classify_item", counting)
+    done = _dto(done=1000, status=SourceStatus.COMPLETED, complete=True)
+    complete_other = done.model_copy(update={"remote_id": "h2", "name": "Other"})
+    fake.items = [_dto(done=700), complete_other]
+    await DiscoveryService(settings, KEY).run_discovery_for_source(source_id, progress_only=True)
+
+    assert calls == []  # the complete, never-classified item waits for a full scan
+    p = (await _download_run(settings, job.id)).progress_json
+    assert p["bytes_done"] == 700
+    assert len(await _jobs(settings)) == 1
+
+
+async def test_progress_scan_leaves_waiting_library_alone(seedbox, settings):
+    from app.services.discovery import DiscoveryService
+
+    fake, scan, _ = seedbox
+    fake.items = [_dto()]
+    await scan()
+    async with get_session_factory(settings)() as session:
+        job = (await session.execute(select(Job))).scalar_one()
+        job.stage, job.status = "check_library", "waiting_library"
+        source_id = (await session.get(SourceItem, job.source_item_id)).source_id
+        await session.commit()
+    fake.items = [_dto(done=1000, status=SourceStatus.COMPLETED, complete=True)]
+    await DiscoveryService(settings, KEY).run_discovery_for_source(source_id, progress_only=True)
+
+    [job] = await _jobs(settings)
+    assert job.status == "waiting_library"
+
+
+async def test_progress_scan_still_creates_downloading_jobs(seedbox, settings):
+    from app.services.discovery import DiscoveryService
+
+    fake, scan, _ = seedbox
+    await scan()  # empty seedbox
+    async with get_session_factory(settings)() as session:
+        from app.database.models import SourceInstance
+        source_id = (await session.execute(select(SourceInstance.id))).scalar_one()
+    fake.items = [_dto()]
+    await DiscoveryService(settings, KEY).run_discovery_for_source(source_id, progress_only=True)
+
+    [job] = await _jobs(settings)
+    assert job.stage == "source_download"

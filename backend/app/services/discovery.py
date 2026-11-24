@@ -70,8 +70,11 @@ class DiscoveryService:
         self.master_key = master_key
         self.source_label = ""  # "Name" (id) of the last source scanned, for log lines
 
-    async def run_discovery_for_source(self, source_id: str) -> dict[str, int]:
-        """Run one full discovery cycle for a source.
+    async def run_discovery_for_source(self, source_id: str, progress_only: bool = False) -> dict[str, int]:
+        """Run one discovery cycle for a source.
+
+        ``progress_only``: the fast tick while torrents download. Refreshes downloads and
+        picks up new ones, but leaves the library alone (no classifying, no requeues).
 
         Returns counts: discovered, new, classified, queued, errors.
         """
@@ -164,6 +167,7 @@ class DiscoveryService:
                     label_rules,
                     counts,
                     adapter,
+                    progress_only,
                 )
                 newly_seen_ids.add(item_dto.remote_id)
             except Exception as exc:
@@ -242,6 +246,7 @@ class DiscoveryService:
         label_rules: list[SourceLabelRule],
         counts: dict[str, int],
         adapter: Any,
+        progress_only: bool = False,
     ) -> None:
         factory = get_session_factory(self.settings)
 
@@ -293,7 +298,7 @@ class DiscoveryService:
                 await update_download(session, active, item, files)
                 await session.commit()
                 return
-            if active and active.status == JobStatus.WAITING_LIBRARY.value:
+            if active and active.status == JobStatus.WAITING_LIBRARY.value and not progress_only:
                 active.status = JobStatus.QUEUED.value  # ask the library again
                 await session.commit()
                 return
@@ -309,6 +314,10 @@ class DiscoveryService:
                     approved=False, kind="job.discovered", message="Seen on the seedbox",
                 )
                 counts["queued"] += 1
+                await session.commit()
+                return
+
+            if progress_only:  # the library is asked on full scans only
                 await session.commit()
                 return
 

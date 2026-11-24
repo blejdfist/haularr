@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 
 from app.settings import Settings
@@ -117,10 +118,18 @@ class DiscoverySupervisor:
 
         logger.info("Starting poll loop for source %s (interval=%ds)", label, initial_interval)
 
+        interval = initial_interval
+        last_full: float | None = None
         while self._running:
+            # Full scans (library checks) keep the source's interval; ticks in between
+            # only refresh torrents downloading on the seedbox.
+            now = time.monotonic()
+            full = last_full is None or now - last_full >= interval
+            if full:
+                last_full = now
             try:
                 svc = DiscoveryService(self.settings, self.master_key)
-                await svc.run_discovery_for_source(source_id)
+                await svc.run_discovery_for_source(source_id, progress_only=not full)
             except asyncio.CancelledError:
                 break
             except Exception:
@@ -129,21 +138,27 @@ class DiscoverySupervisor:
             # Re-read the poll interval from DB in case it changed
             try:
                 interval = await self._get_poll_interval(source_id)
+                downloading = await self._has_downloads(source_id)
             except Exception:
-                interval = initial_interval
+                downloading = False
+            if downloading:
+                # Wake for the next full scan on time, not up to 5s late.
+                due = interval - (time.monotonic() - last_full)
+                sleep = max(0, min(DOWNLOADING_POLL_SECONDS, due))
+            else:
+                sleep = interval
 
             try:
-                await asyncio.sleep(interval)
+                await asyncio.sleep(sleep)
             except asyncio.CancelledError:
                 break
 
         logger.info("Poll loop stopped for source %s", label)
 
     async def _get_poll_interval(self, source_id: str) -> int:
-        """Read the current poll interval from DB; faster while a torrent downloads, so progress looks live."""
+        """Read the current poll interval from DB."""
         from app.database.session import get_session_factory
-        from app.database.models import Job, SourceInstance, SourceItem
-        from app.domain.models import JobStatus
+        from app.database.models import SourceInstance
         from sqlalchemy import select
 
         factory = get_session_factory(self.settings)
@@ -151,11 +166,19 @@ class DiscoverySupervisor:
             result = await session.execute(
                 select(SourceInstance.poll_interval).where(SourceInstance.id == source_id)
             )
-            interval = result.scalar_one_or_none() or self.settings.discovery_interval_seconds
-            downloading = (await session.execute(
+            return result.scalar_one_or_none() or self.settings.discovery_interval_seconds
+
+    async def _has_downloads(self, source_id: str) -> bool:
+        """Any of this source's torrents still downloading on the seedbox (poll fast so progress looks live)."""
+        from app.database.session import get_session_factory
+        from app.database.models import Job, SourceItem
+        from app.domain.models import JobStatus
+        from sqlalchemy import select
+
+        async with get_session_factory(self.settings)() as session:
+            return (await session.execute(
                 select(Job.id)
                 .join(SourceItem, Job.source_item_id == SourceItem.id)
                 .where(SourceItem.source_id == source_id, Job.status == JobStatus.WAITING_SOURCE.value)
                 .limit(1)
-            )).first()
-            return min(interval, DOWNLOADING_POLL_SECONDS) if downloading else interval
+            )).first() is not None
