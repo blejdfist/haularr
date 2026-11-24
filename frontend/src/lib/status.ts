@@ -9,6 +9,10 @@ export const STATUS_GROUPS: Record<StatusGroup, string[]> = {
   done: ['completed', 'completed_with_warnings', 'skipped', 'cancelled'],
 };
 
+/** Jobs in a group, from a status → count map. */
+export const groupCount = (by: Record<string, number>, g: StatusGroup) =>
+  STATUS_GROUPS[g].reduce((n, s) => n + (by[s] ?? 0), 0);
+
 export function groupOf(status: string): StatusGroup | null {
   for (const g of Object.keys(STATUS_GROUPS) as StatusGroup[]) {
     if (STATUS_GROUPS[g].includes(status)) return g;

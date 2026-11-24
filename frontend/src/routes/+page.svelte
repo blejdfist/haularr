@@ -4,7 +4,7 @@
   import { Button, Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell, Alert } from 'flowbite-svelte';
   import { SearchOutline } from 'flowbite-svelte-icons';
   import { endpoints, type Job } from '$lib/api/client';
-  import { STATUS_GROUPS, jobIcon, ago, fmtSize, type StatusGroup } from '$lib/status';
+  import { STATUS_GROUPS, jobIcon, ago, fmtSize, groupCount as sum } from '$lib/status';
   import { subscribe, coalesce, type JobEvent } from '$lib/live';
   import { jobSteps, reasonFor } from '$lib/pipeline';
   import StatusIcon from '$lib/components/StatusIcon.svelte';
@@ -37,7 +37,6 @@
 
   let loaded = $state(false);
 
-  const sum = (by: Record<string, number>, g: StatusGroup) => STATUS_GROUPS[g].reduce((n, s) => n + (by[s] ?? 0), 0);
   const by: Record<string, number> = $derived(dash?.jobs?.by_status ?? {});
   // Tab counts. Skipped lists source items, not jobs, and the dashboard has no count for those.
   const counts: Partial<Record<Filter, number>> = $derived({
