@@ -54,12 +54,7 @@
         endpoints.dashboard.get(),
         f === 'skipped'
           ? endpoints.sourceItems.skipped({ limit: 100 })
-          : endpoints.jobs.list({
-              limit: 100,
-              ...(f === 'all'
-                ? { sort: 'attention' as const }
-                : { status: STATUS_GROUPS[f] }),
-            }),
+          : endpoints.jobs.list({ limit: 100, ...(f !== 'all' && { status: STATUS_GROUPS[f] }) }),
       ]);
       if (f !== filter) return; // filter changed while loading
       dash = d;
