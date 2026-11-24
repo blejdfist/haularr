@@ -44,3 +44,24 @@ describe('jobSteps', () => {
     expect(jobSteps({ status: 'running', stage: 'bogus' })[0].state).toBe('active');
   });
 });
+
+import { currentRuns } from '../src/lib/pipeline';
+
+describe('currentRuns', () => {
+  const run = (stage: string, started_at: string, status: string, attempt = 1) => ({ stage, started_at, status, attempt });
+  it('restart hides the previous pass, even with higher attempt numbers', () => {
+    const m = currentRuns([
+      run('download', '2026-01-01T00:00:00', 'running', 3), // stale, old pass
+      run('publish', '2026-01-01T00:01:00', 'failed', 2),
+      run('confirm_import', '2026-01-01T00:02:00', 'succeeded'),
+      run('resolve_source', '2026-01-02T00:00:00', 'succeeded'), // restart
+      run('download', '2026-01-02T00:00:01', 'succeeded'),
+      run('publish', '2026-01-02T00:00:02', 'succeeded'),
+      run('import', '2026-01-02T00:00:03', 'running'),
+    ]);
+    expect(m.get('download')?.status).toBe('succeeded');
+    expect(m.get('publish')?.status).toBe('succeeded');
+    expect(m.get('import')?.status).toBe('running');
+    expect(m.has('confirm_import')).toBe(false);
+  });
+});

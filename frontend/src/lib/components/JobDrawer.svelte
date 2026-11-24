@@ -4,7 +4,7 @@
   import { endpoints } from '$lib/api/client';
   import { groupOf, parseUtc, ago, runIcon } from '$lib/status';
   import StatusIcon from '$lib/components/StatusIcon.svelte';
-  import { PHASES, jobSteps } from '$lib/pipeline';
+  import { PHASES, jobSteps, currentRuns } from '$lib/pipeline';
   import StepTrack from '$lib/components/steps/StepTrack.svelte';
   import { currentIndex, type Step } from '$lib/components/steps/types';
 
@@ -83,20 +83,10 @@
     if (s < 3600) return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
     return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
   }
-  // Latest run per stage only: the card shows current status, not attempt history.
-  const latestRuns = () => {
-    const latest = new Map<string, any>();
-    for (const r of job?.stage_runs ?? []) {
-      const prev = latest.get(r.stage);
-      if (!prev || r.attempt > prev.attempt || (r.attempt === prev.attempt && (r.started_at ?? '') > (prev.started_at ?? '')))
-        latest.set(r.stage, r);
-    }
-    return latest;
-  };
 </script>
 
 {#snippet phaseCard(s: Step)}
-  {@const runs = latestRuns()}
+  {@const runs = currentRuns((job.stage_runs ?? []) as any[])}
   <h5 class="font-semibold text-gray-900 dark:text-white">{s.label}</h5>
   <ul class="mt-2 space-y-2 text-sm">
     {#each PHASES.find((p) => p.key === s.key)?.stages ?? [] as st (st)}

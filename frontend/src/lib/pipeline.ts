@@ -44,3 +44,22 @@ export function jobSteps(job: JobLike, progress?: number): Step[] {
     return { ...base, state, reason: reasonFor(job) };
   });
 }
+
+type RunLike = { stage: string; started_at: string | null };
+
+/**
+ * The run that describes each stage's current state. Runs are replayed in
+ * start order; a stage starting again (retry, retry-import, restart) opens a
+ * new pass, so runs of the stages after it belong to the old pass and drop out.
+ * Attempt numbers are useless here: restart resets them.
+ */
+export function currentRuns<R extends RunLike>(runs: R[]): Map<string, R> {
+  const order = PHASES.flatMap((p) => p.stages);
+  const latest = new Map<string, R>();
+  const sorted = [...runs].sort((a, b) => (a.started_at ?? '').localeCompare(b.started_at ?? ''));
+  for (const r of sorted) {
+    for (const st of order.slice(order.indexOf(r.stage) + 1)) latest.delete(st);
+    latest.set(r.stage, r);
+  }
+  return latest;
+}
