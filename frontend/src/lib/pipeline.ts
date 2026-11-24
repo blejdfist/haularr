@@ -66,3 +66,28 @@ export function currentRuns<R extends RunLike>(runs: R[]): Map<string, R> {
   }
   return latest;
 }
+
+export type RateSample = { got: number; t: number };
+
+/**
+ * Byte rate (per second) over the last `window` ms of samples, for ETAs.
+ * Only points where the count changed are kept, and a lone starting point slides
+ * forward while nothing moves, so idle time before the transfer starts (or
+ * before the drawer saw it move) doesn't drag the rate down.
+ */
+export function trackRate(
+  samples: RateSample[],
+  got: number,
+  t: number,
+  window = 20_000,
+): { samples: RateSample[]; rate?: number } {
+  const last = samples.at(-1);
+  let s: RateSample[];
+  if (!last || got < last.got) s = [{ got, t }]; // first sample, or counter restarted
+  else if (got === last.got) s = samples.length === 1 ? [{ got, t }] : samples;
+  else s = [...samples, { got, t }];
+  s = s.filter((x, i) => x.t >= t - window || i >= s.length - 2);
+  const a = s[0];
+  const b = s[s.length - 1];
+  return { samples: s, rate: s.length > 1 && b.t > a.t ? (b.got - a.got) / ((b.t - a.t) / 1000) : undefined };
+}

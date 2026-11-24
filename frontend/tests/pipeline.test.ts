@@ -44,7 +44,7 @@ describe('jobSteps', () => {
   });
 });
 
-import { currentRuns } from '../src/lib/pipeline';
+import { currentRuns, trackRate, type RateSample } from '../src/lib/pipeline';
 
 describe('currentRuns', () => {
   const run = (stage: string, started_at: string, status: string, attempt = 1) => ({ stage, started_at, status, attempt });
@@ -71,5 +71,28 @@ describe('currentRuns', () => {
       { stage: 'resolve_source', started_at: t, status: 'succeeded' },
     ]);
     expect(runs.get('download')?.status).toBe('running');
+  });
+});
+
+describe('trackRate', () => {
+  function feed(points: [number, number][]) {
+    let s: RateSample[] = [];
+    let rate: number | undefined;
+    for (const [got, t] of points) ({ samples: s, rate } = trackRate(s, got, t));
+    return rate;
+  }
+  it('ignores idle time before the first bytes move', () => {
+    // Drawer opens at t=0, nothing moves for 12s, then 10 MB/s.
+    expect(feed([[0, 0], [0, 3000], [0, 6000], [0, 9000], [0, 12000], [30e6, 15000], [60e6, 18000]])).toBeCloseTo(10e6);
+  });
+  it('measures over the recent window only', () => {
+    // 1 MB/s for a minute, then 10 MB/s.
+    const pts: [number, number][] = [];
+    for (let t = 0; t <= 60000; t += 3000) pts.push([t * 1000, t]);
+    for (let t = 63000, got = 60e6 + 30e6; t <= 90000; t += 3000, got += 30e6) pts.push([got, t]);
+    expect(feed(pts)).toBeCloseTo(10e6, -5);
+  });
+  it('starts over when the counter goes backwards', () => {
+    expect(feed([[50e6, 0], [80e6, 3000], [0, 6000]])).toBeUndefined();
   });
 });

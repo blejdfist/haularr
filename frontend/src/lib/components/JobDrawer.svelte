@@ -4,7 +4,7 @@
   import { endpoints } from '$lib/api/client';
   import { groupOf, parseUtc, ago, runIcon } from '$lib/status';
   import StatusIcon from '$lib/components/StatusIcon.svelte';
-  import { PHASES, jobSteps, currentRuns } from '$lib/pipeline';
+  import { PHASES, jobSteps, currentRuns, trackRate, type RateSample } from '$lib/pipeline';
   import StepTrack from '$lib/components/steps/StepTrack.svelte';
   import { currentIndex, type Step } from '$lib/components/steps/types';
 
@@ -19,22 +19,16 @@
   let error = $state('');
   let busy = $state(false);
   let selected = $state<string | undefined>();
-  // Per-stage transfer rate, sampled across polls: seconds left for each running stage with progress.
-  let rates: Record<string, { got: number; t: number; rate?: number }> = {};
+  // Per-stage byte samples across polls: seconds left for each running stage with progress.
+  let rates: Record<string, RateSample[]> = {};
   let etas = $state<Record<string, number>>({});
 
   function sample(stage: string, p: { got: number; total: number } | null) {
     if (!p) return;
-    const now = Date.now();
-    const prev = rates[stage];
-    if (!prev || p.got < prev.got) rates[stage] = { got: p.got, t: now };
-    else if (p.got > prev.got) {
-      const r = (p.got - prev.got) / ((now - prev.t) / 1000);
-      // Smooth so one slow poll doesn't make the estimate jump around.
-      rates[stage] = { got: p.got, t: now, rate: prev.rate ? prev.rate * 0.7 + r * 0.3 : r };
-    }
-    const rate = rates[stage].rate;
+    const { samples, rate } = trackRate(rates[stage] ?? [], p.got, Date.now());
+    rates[stage] = samples;
     if (rate) etas[stage] = (p.total - p.got) / rate;
+    else delete etas[stage];
   }
 
   async function load(id: string) {
