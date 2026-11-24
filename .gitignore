@@ -75,6 +75,11 @@ logs/
 
 # Docker
 docker-compose.override.yml
+# Local Sonarr/Radarr test stack
+/docker-compose.yml
+
+# CodeGraph index
+.codegraph/
 
 # Local planning docs (not committed)
 docs/superpowers/
