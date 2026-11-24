@@ -134,3 +134,31 @@ async def test_list_items_raises_on_fault():
     with patch.object(adapter, "_call", new_callable=AsyncMock, side_effect=err):
         with pytest.raises(RuntimeError, match="Could not find view"):
             await adapter.list_items()
+
+
+
+# Field values as reported by a real rTorrent (seedbox) for both torrent shapes.
+_COMMON = {"d.custom1=": "TV", "d.custom2=": "", "d.state=": 1, "d.complete=": 1, "d.size_bytes=": 10,
+           "d.completed_bytes=": 10, "d.timestamp.finished=": 0, "d.message=": ""}
+_SINGLE = {**_COMMON, "d.hash=": "A", "d.name=": "Show.S01E01.mkv",
+           "d.base_path=": "/home/u/files/completed/TV/Show.S01E01.mkv",
+           "d.directory=": "/home/u/files/completed/TV"}
+_MULTI = {**_COMMON, "d.hash=": "B", "d.name=": "Show.S02",
+          "d.base_path=": "/home/u/files/completed/TV/Show.S02",
+          "d.directory=": "/home/u/files/completed/TV/Show.S02"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rt,expected", [
+    (_SINGLE, "/home/u/files/completed/TV"),          # + f.path "Show.S01E01.mkv"
+    (_MULTI, "/home/u/files/completed/TV/Show.S02"),  # + f.path "Show.S02E01.mkv"
+    ({**_MULTI, "d.base_path=": ""}, "/home/u/files/completed/TV/Show.S02"),  # stopped torrent
+])
+async def test_remote_base_path_is_folder_manifest_paths_are_relative_to(rt, expected):
+    async def fake_call(method, target, view, *fields):
+        return [[rt[f] for f in fields]]
+
+    adapter = RtorrentAdapter(source_id="test", xmlrpc_url="http://example.com/RPC2")
+    with patch.object(adapter, "_call", side_effect=fake_call):
+        [item] = await adapter.list_items()
+    assert item.remote_base_path == expected

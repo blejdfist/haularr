@@ -155,7 +155,9 @@ async def resume_job(job_id: str, session: AsyncSession = Depends(get_session)):
 @jobs_router.post("/jobs/{job_id}/retry")
 async def retry_job(job_id: str, session: AsyncSession = Depends(get_session)):
     repo = JobRepository(session)
-    obj = await repo.update(job_id, status="queued", next_run_at=None, error_code=None, error_detail=None)
+    obj = await repo.update(
+        job_id, status="queued", attempts=0, next_run_at=None, error_code=None, error_detail=None
+    )
     if not obj:
         raise HTTPException(status_code=404, detail="Job not found")
     await repo.add_event(

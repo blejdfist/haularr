@@ -36,6 +36,7 @@ _TORRENT_FIELDS = [
     "d.timestamp.finished=",
     "d.base_path=",
     "d.message=",
+    "d.directory=",
 ]
 
 _FILE_FIELDS = [
@@ -238,6 +239,7 @@ class RtorrentAdapter:
             ts_finished,
             base_path,
             message,
+            directory,
         ) = row
 
         # Normalize status
@@ -265,7 +267,10 @@ class RtorrentAdapter:
             status=status,
             completed_at=completed_at,
             total_bytes=int(size_bytes),
-            remote_base_path=str(base_path),
+            # f.path is relative to d.directory for every torrent: the torrent's folder when
+            # multi-file, the containing folder when single-file. d.base_path is the file itself
+            # for single-file torrents (and empty while stopped), so it can't be the base.
+            remote_base_path=str(directory),
             infohash=str(infohash).lower(),
             metadata={
                 "complete": bool(int(complete)),

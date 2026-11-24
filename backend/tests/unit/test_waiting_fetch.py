@@ -89,3 +89,79 @@ async def test_download_uses_fetch_saved_after_job_was_created(auth_client, sett
     job = await _get(settings, job_id)
     assert job.error_code != "no_transfer_config"
     assert job.status != "waiting_source"
+
+
+@pytest.mark.asyncio
+async def test_manual_retry_resets_attempts(auth_client, settings):
+    _, job_id = await _job(settings, "needs_attention")
+    async with get_session_factory(settings)() as session:
+        job = await session.get(Job, job_id)
+        job.attempts = settings.retry_limit
+        await session.commit()
+
+    r = await auth_client.post(f"/api/v1/jobs/{job_id}/retry")
+    assert r.status_code == 200, r.text
+    job = await _get(settings, job_id)
+    assert job.status == "queued"
+    assert job.attempts == 0  # a retried job gets the full automatic-retry budget again
+
+
+async def _runs(settings, job_id):
+    from sqlalchemy import select
+    from app.database.models import StageRun
+    async with get_session_factory(settings)() as session:
+        return (await session.execute(select(StageRun).where(StageRun.job_id == job_id))).scalars().all()
+
+
+@pytest.mark.asyncio
+async def test_stage_run_is_closed_with_result(app, settings):
+    from app.jobs.runner import JobRunner
+
+    _, job_id = await _job(settings)
+    result = await JobRunner(settings, job_id, "notify", "tok").execute()
+    [run] = await _runs(settings, job_id)
+    assert run.status == result.status.value == "succeeded"
+    assert run.ended_at is not None
+
+
+@pytest.mark.asyncio
+async def test_stage_run_is_closed_when_handler_crashes(app, settings, monkeypatch):
+    from app.jobs.runner import JobRunner
+
+    async def boom(self, job, run_id):
+        raise RuntimeError("kaput")
+
+    monkeypatch.setattr(JobRunner, "_stage_notify", boom)
+    _, job_id = await _job(settings)
+    with pytest.raises(RuntimeError):
+        await JobRunner(settings, job_id, "notify", "tok").execute()
+    [run] = await _runs(settings, job_id)
+    assert run.status == "failed"
+    assert run.ended_at is not None
+    assert "kaput" in run.error_detail
+
+
+@pytest.mark.asyncio
+async def test_update_progress_writes_stage_run(app, settings):
+    from app.database.repositories import JobRepository
+    from app.jobs.runner import JobRunner
+
+    _, job_id = await _job(settings)
+    async with get_session_factory(settings)() as session:
+        run = await JobRepository(session).add_stage_run(job_id=job_id, stage="download", attempt=1, status="running")
+        await session.commit()
+    await JobRunner(settings, job_id, "download", "tok")._update_progress(run.id, {"files": 1})
+    [saved] = await _runs(settings, job_id)
+    assert saved.progress_json == {"files": 1}
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_renews_lease(app, settings):
+    from app.jobs.runner import JobRunner
+
+    _, job_id = await _job(settings)
+    async with get_session_factory(settings)() as session:
+        (await session.get(Job, job_id)).worker_token = "tok"
+        await session.commit()
+    await JobRunner(settings, job_id, "download", "tok")._renew_lease()
+    assert (await _get(settings, job_id)).lease_expires_at is not None

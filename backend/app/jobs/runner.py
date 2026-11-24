@@ -7,14 +7,17 @@ Stages run outside the DB transaction; progress is persisted periodically.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
+
+from app.security import decrypt_secret
 from app.database.repositories import JobRepository
 from app.database.session import get_session_factory
 from app.domain.models import JobStage, StageRunStatus, TransferStatus
@@ -77,7 +80,14 @@ class JobRunner:
             # Dispatch to stage handler
             handler = self._get_stage_handler()
             result = await handler(job, stage_run.id)
+            await self._close_run(stage_run.id, result.status.value, result.error_code, result.error_detail)
             return result
+        except asyncio.CancelledError:
+            await self._close_run(stage_run.id, "cancelled", "cancelled", "Stage cancelled")
+            raise
+        except Exception as exc:
+            await self._close_run(stage_run.id, StageRunStatus.FAILED.value, "unexpected_error", repr(exc))
+            raise
         finally:
             if self._heartbeat_task:
                 self._heartbeat_task.cancel()
@@ -89,25 +99,23 @@ class JobRunner:
     async def _heartbeat_loop(self) -> None:
         """Update lease periodically."""
         interval = max(self.settings.stage_lease_seconds // 4, 15)
-        factory = get_session_factory(self.settings)
         while True:
             await asyncio.sleep(interval)
             try:
-                async with factory() as session:
-                    repo = JobRepository(session)
-                    job = await repo.get(self.job_id)
-                    if job and job.worker_token == self.worker_token:
-                        lease_until = _utcnow() + datetime.timedelta(
-                            seconds=self.settings.stage_lease_seconds
-                        )
-                        await repo.update(
-                            self.job_id,
-                            lease_expires_at=lease_until,
-                            updated_at=_utcnow(),
-                        )
-                        await session.commit()
+                await self._renew_lease()
             except Exception:
-                logger.debug("Heartbeat failed for job %s", self.job_id)
+                logger.warning("Heartbeat failed for job %s", self.job_id, exc_info=True)
+
+    async def _renew_lease(self) -> None:
+        async with get_session_factory(self.settings)() as session:
+            repo = JobRepository(session)
+            job = await repo.get(self.job_id)
+            if job and job.worker_token == self.worker_token:
+                await repo.update(
+                    self.job_id,
+                    lease_expires_at=_utcnow() + timedelta(seconds=self.settings.stage_lease_seconds),
+                )
+                await session.commit()
 
     def _get_stage_handler(self) -> Any:
         """Return the handler function for the current stage."""
@@ -226,21 +234,7 @@ class JobRunner:
                 })
                 return StageResult(StageRunStatus.SUCCEEDED)
 
-            endpoint = endpoints[0]
-            transfer_config = dict(transfer.config_json)
-            transfer_config["host"] = endpoint.host
-            transfer_config["port"] = endpoint.port
-
-            # Decrypt credentials if needed
-            cred_ref = endpoint.credential_ref
-            if isinstance(cred_ref, str) and cred_ref.startswith("enc:"):
-                try:
-                    cred_json = decrypt_secret(cred_ref[4:], self._get_master_key())
-                    import json
-                    cred = json.loads(cred_json)
-                    transfer_config.update(cred)
-                except Exception:
-                    pass
+            transfer_config = self._transfer_config(transfer, endpoints[0])
 
             from app.adapters.transfers import create_transfer_adapter
             from app.domain.models import SourceItemDTO, SourceStatus
@@ -425,6 +419,12 @@ class JobRunner:
             local_path.parent.mkdir(parents=True, exist_ok=True)
             part_path = str(local_path) + ".part"
 
+            # Finished by an earlier attempt (e.g. one that crashed afterwards): don't fetch again.
+            if local_path.exists() and local_path.stat().st_size == file_dto.size_bytes:
+                logger.info("Already downloaded: %s", file_dto.relative_path)
+                bytes_done = await self._record_file(file_dto, existing_files, bytes_done, total_bytes, stage_run_id)
+                continue
+
             # Check for existing .part file for resume
             resume_offset = 0
             if os.path.exists(part_path):
@@ -440,11 +440,7 @@ class JobRunner:
 
             endpoint = endpoints[0]  # For now, use first endpoint
 
-            # Build transfer adapter config
-            transfer_config = dict(transfer.config_json)
-            if "host" not in transfer_config and endpoint:
-                transfer_config["host"] = endpoint.host
-                transfer_config["port"] = endpoint.port
+            transfer_config = self._transfer_config(transfer, endpoint)
 
             from app.adapters.transfers import create_transfer_adapter
             transfer_adapter = create_transfer_adapter(
@@ -489,35 +485,40 @@ class JobRunner:
                         True,
                     )
 
-                # Atomic rename .part → final
-                os.rename(part_path, str(local_path))
+                # Atomic .part → final; replace (not rename) so a stale final file can't block it on Windows
+                os.replace(part_path, str(local_path))
 
-            # Update job_files in DB
-            async with factory() as session:
-                job_repo = JobRepository(session)
-                job_file = JobFile(
-                    job_id=self.job_id,
-                    remote_relpath=file_dto.relative_path,
-                    size_bytes=file_dto.size_bytes,
-                    local_relpath=file_dto.relative_path,
-                    bytes_received=file_dto.size_bytes,
-                    transfer_status=TransferStatus.COMPLETED.value,
-                    verified_at=_utcnow(),
-                )
-                session.add(job_file)
-                bytes_done += file_dto.size_bytes
-                await job_repo.update(
-                    self.job_id,
-                    download_bytes_done=bytes_done,
-                )
-                await self._update_progress(stage_run_id, {
-                    "file": file_dto.relative_path,
-                    "bytes_done": bytes_done,
-                    "bytes_total": total_bytes,
-                })
-                await session.commit()
+            bytes_done = await self._record_file(file_dto, existing_files, bytes_done, total_bytes, stage_run_id)
 
         return StageResult(StageRunStatus.SUCCEEDED)
+
+    async def _record_file(
+        self, file_dto: Any, existing_files: dict, bytes_done: int, total_bytes: int, stage_run_id: str
+    ) -> int:
+        """Mark a file downloaded (one row per file across retries); returns the new bytes_done."""
+        from app.database.models import JobFile
+
+        bytes_done += file_dto.size_bytes
+        async with get_session_factory(self.settings)() as session:
+            prev = existing_files.get(file_dto.relative_path)
+            job_file = await session.get(JobFile, prev.id) if prev else None
+            if job_file is None:
+                job_file = JobFile(job_id=self.job_id, remote_relpath=file_dto.relative_path)
+                session.add(job_file)
+            job_file.size_bytes = file_dto.size_bytes
+            job_file.local_relpath = file_dto.relative_path
+            job_file.bytes_received = file_dto.size_bytes
+            job_file.transfer_status = TransferStatus.COMPLETED.value
+            job_file.verified_at = _utcnow()
+            await JobRepository(session).update(self.job_id, download_bytes_done=bytes_done)
+            await session.commit()
+        # Separate session after commit: a second writer inside the first one locks SQLite.
+        await self._update_progress(stage_run_id, {
+            "file": file_dto.relative_path,
+            "bytes_done": bytes_done,
+            "bytes_total": total_bytes,
+        })
+        return bytes_done
 
     async def _stage_verify(self, job: Any, stage_run_id: str) -> StageResult:
         """Verify transferred files (SFV CRC32 check, size check)."""
@@ -913,12 +914,41 @@ class JobRunner:
     # Helpers
     # -----------------------------------------------------------------------
 
+    def _transfer_config(self, transfer: Any, endpoint: Any) -> dict[str, Any]:
+        """Adapter config for an endpoint: transfer settings + host/port + decrypted credentials."""
+        config = {**transfer.config_json, "host": endpoint.host, "port": endpoint.port}
+        cred_ref = endpoint.credential_ref
+        if isinstance(cred_ref, str) and cred_ref.startswith("enc:"):
+            try:
+                config.update(json.loads(decrypt_secret(cred_ref[4:], self._get_master_key())))
+            except Exception:
+                logger.warning("Could not decrypt credentials for endpoint %s", endpoint.host)
+        return config
+
     def _get_master_key(self) -> bytes:
         """Get the master encryption key from app state."""
         # This is set on the app state during lifespan startup
         # For test purposes, we can also read it from the config dir
         from app.security import get_or_create_master_key
         return get_or_create_master_key(self.settings.config_dir)
+
+    async def _close_run(self, run_id: str, status: str, error_code: str, error_detail: str) -> None:
+        """Record a stage run's outcome; without this every attempt stays 'running' forever."""
+        from sqlalchemy import update
+        from app.database.models import StageRun
+
+        async with get_session_factory(self.settings)() as session:
+            await session.execute(
+                update(StageRun)
+                .where(StageRun.id == run_id)
+                .values(
+                    status=status,
+                    ended_at=_utcnow(),
+                    error_code=error_code or None,
+                    error_detail=error_detail or None,
+                )
+            )
+            await session.commit()
 
     async def _update_progress(self, stage_run_id: str, progress: dict[str, Any]) -> None:
         """Update stage_run progress in DB."""
@@ -930,7 +960,7 @@ class JobRunner:
             await session.execute(
                 update(StageRun)
                 .where(StageRun.id == stage_run_id)
-                .values(progress_json=progress, updated_at=_utcnow())
+                .values(progress_json=progress)  # StageRun has no updated_at column
             )
             await session.commit()
 

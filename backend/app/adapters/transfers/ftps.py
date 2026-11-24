@@ -70,11 +70,8 @@ class FTPSAdapter:
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
 
-        ftp = FTP_TLS(
-            host=self._host,
-            timeout=self._timeout,
-            context=ctx,
-        )
+        ftp = FTP_TLS(timeout=self._timeout, context=ctx)
+        ftp.connect(self._host, self._port, timeout=self._timeout)  # FTP_TLS(host=...) ignores port
         ftp.login(self._username, self._password)
         ftp.prot_p()  # Protect data channel (PBSZ 0, PROT P)
         ftp.set_pasv(self._passive)
@@ -190,7 +187,9 @@ class FTPSAdapter:
         bytes_transferred = resume_offset
 
         def _transfer() -> TransferResult:
-            nonlocal bytes_transferred
+            # resume_offset is reassigned below on restart; without nonlocal it
+            # becomes a local and every read before that raises UnboundLocalError.
+            nonlocal bytes_transferred, resume_offset
             try:
                 ftp = self._connect()
                 try:
@@ -208,6 +207,7 @@ class FTPSAdapter:
                                 resume_offset, local_size,
                             )
                             resume_offset = 0
+                            bytes_transferred = 0
 
                     mode = "ab" if resume_offset > 0 else "wb"
 
