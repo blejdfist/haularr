@@ -28,6 +28,9 @@ from app.logging_buffer import get_log_handler
 router = APIRouter(tags=["events"])
 
 TICK = 1.0  # seconds between change checks
+# Jobs whose progress moves without touching the job row: running stages, and torrents
+# downloading on the seedbox (discovery writes their progress to the stage run).
+_LIVE = ("running", "waiting_source")
 KEEPALIVE = 15.0  # seconds of silence before a comment line, so clients can spot dead streams
 
 
@@ -62,15 +65,16 @@ async def job_changes(
 
     ``sent`` maps job id to the last state sent, so heartbeats (which bump
     ``updated_at`` without changing anything visible) produce no events.
-    Running jobs are always checked: extract progress lives on the stage run
+    Live jobs (_LIVE) are always checked: extract and seedbox progress live on the stage run
     and file rows (added up front, then flipped per transfer) do not touch the
     job row. ``files`` counts them by transfer status, so a file appearing or
     changing state is a change too.
     """
     # ponytail: unindexed updated_at scan; fine while retention keeps the jobs table small.
-    changed = Job.status == "running" if since is None else or_(Job.updated_at >= since, Job.status == "running")
+    is_live = Job.status.in_(_LIVE)
+    changed = is_live if since is None else or_(Job.updated_at >= since, is_live)
     jobs = (await session.execute(select(Job).where(changed))).scalars().all()
-    running = [j.id for j in jobs if j.status == "running"]
+    running = [j.id for j in jobs if j.status in _LIVE]
     files: dict[str, dict[str, int]] = {}
     for job_id, status, n in await session.execute(
         select(JobFile.job_id, JobFile.transfer_status, func.count())
@@ -100,7 +104,7 @@ async def job_changes(
             "download_bytes_done": j.download_bytes_done,
             "download_bytes_total": j.download_bytes_total,
             "stage_progress": stage_progress,
-            "progress": round(done * 100 / total) if j.status == "running" and total else None,
+            "progress": round(done * 100 / total) if j.status in _LIVE and total else None,
             "files": files.get(j.id),
         }
         key = json.dumps(event, sort_keys=True)

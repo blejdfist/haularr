@@ -70,3 +70,27 @@ def test_log_since_returns_only_newer_matching_entries():
     assert [e["message"] for e in entries] == ["after warning"]
     assert last == handler.seq
     assert handler.since(last)[0] == []
+
+
+@pytest.mark.asyncio
+async def test_downloading_job_streams_progress(app, settings):
+    from app.database.models import StageRun
+
+    await _seed(settings, [("waiting_source", 1)])
+    factory = get_session_factory(settings)
+    sent: dict[str, str] = {}
+    async with factory() as s:
+        job = (await s.execute(select(Job))).scalar_one()
+        job.stage = "source_download"
+        run = StageRun(job_id=job.id, stage="source_download", status="running",
+                       progress_json={"bytes_done": 25, "bytes_total": 100})
+        s.add(run)
+        await s.commit()
+        [c], since = await job_changes(s, None, sent)
+        assert (c["progress"], c["stage_progress"]["bytes_done"]) == (25, 25)
+
+        # Discovery only touches the stage run, not the job row: still a change.
+        run.progress_json = {"bytes_done": 60, "bytes_total": 100}
+        await s.commit()
+        [c], since = await job_changes(s, since, sent)
+        assert c["progress"] == 60

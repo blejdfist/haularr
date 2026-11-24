@@ -16,6 +16,8 @@ from app.logging_buffer import named
 
 logger = logging.getLogger(__name__)
 
+DOWNLOADING_POLL_SECONDS = 5  # while any of a source's torrents downloads on the seedbox
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -138,9 +140,10 @@ class DiscoverySupervisor:
         logger.info("Poll loop stopped for source %s", label)
 
     async def _get_poll_interval(self, source_id: str) -> int:
-        """Read the current poll interval from DB."""
+        """Read the current poll interval from DB; faster while a torrent downloads, so progress looks live."""
         from app.database.session import get_session_factory
-        from app.database.models import SourceInstance
+        from app.database.models import Job, SourceInstance, SourceItem
+        from app.domain.models import JobStatus
         from sqlalchemy import select
 
         factory = get_session_factory(self.settings)
@@ -148,5 +151,11 @@ class DiscoverySupervisor:
             result = await session.execute(
                 select(SourceInstance.poll_interval).where(SourceInstance.id == source_id)
             )
-            row = result.scalar_one_or_none()
-            return row or self.settings.discovery_interval_seconds
+            interval = result.scalar_one_or_none() or self.settings.discovery_interval_seconds
+            downloading = (await session.execute(
+                select(Job.id)
+                .join(SourceItem, Job.source_item_id == SourceItem.id)
+                .where(SourceItem.source_id == source_id, Job.status == JobStatus.WAITING_SOURCE.value)
+                .limit(1)
+            )).first()
+            return min(interval, DOWNLOADING_POLL_SECONDS) if downloading else interval
