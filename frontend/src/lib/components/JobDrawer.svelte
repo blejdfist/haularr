@@ -311,18 +311,16 @@
                 <StatusIcon kind={f.kind} class="mt-0.5 h-4 w-4" />
                 <div class="min-w-0 flex-1">
                   <div class="flex items-baseline gap-2">
-                    <span class="flex-1 truncate font-medium text-gray-900 dark:text-white" title={f.path}
-                      >{rel.slice(slash + 1)}</span
-                    >
+                    <!-- Folder and name on one line; a long folder shrinks before the name does. -->
+                    <span class="flex min-w-0 flex-1 font-medium text-gray-900 dark:text-white" title={f.path}>
+                      {#if slash > 0}<span class="min-w-0 shrink-[999] truncate font-normal text-gray-500 dark:text-gray-400"
+                          >{rel.slice(0, slash + 1)}</span
+                        >{/if}<span class="min-w-0 truncate">{rel.slice(slash + 1)}</span>
+                    </span>
                     <span class="whitespace-nowrap text-xs text-gray-600 tabular-nums dark:text-gray-300"
                       >{f.bar ? `${pct}% · ${size(f.done)} / ` : ''}{size(f.size)}</span
                     >
                   </div>
-                  {#if slash > 0}
-                    <div class="truncate text-xs text-gray-500 dark:text-gray-400" title={f.path}>
-                      {rel.slice(0, slash)}
-                    </div>
-                  {/if}
                   {#if f.bar}
                     <div class="mt-1.5 h-1 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
                       <div class="h-full bg-blue-600 transition-[width] duration-700" style="width: {pct}%"></div>
