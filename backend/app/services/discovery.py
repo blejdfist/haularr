@@ -125,18 +125,11 @@ class DiscoveryService:
             except json.JSONDecodeError:
                 conn_config["password"] = cred_ref
 
-        # Create source adapter
+        # Create source adapter. No separate connection test: a failed listing below records
+        # the same error, and this runs every few seconds while torrents download.
         from app.adapters.sources import create_source_adapter
         try:
             adapter = create_source_adapter(source_id_copy, adapter_type, conn_config)
-            conn_ok = await adapter.test_connection()
-            if not conn_ok.get("ok"):
-                logger.warning(
-                    "Source %s connection failed: %s", source_label, conn_ok.get("error")
-                )
-                counts["errors"] += 1
-                await self._record_scan_error(source_id_copy, conn_ok.get("error") or "connection failed")
-                return counts
         except Exception as exc:
             logger.warning("Source %s adapter error: %s", source_label, exc)
             counts["errors"] += 1

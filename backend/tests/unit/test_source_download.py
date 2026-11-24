@@ -429,3 +429,29 @@ async def test_job_skipped_by_earlier_build_is_cleaned_up(seedbox, settings):
     fake.items = []
     await scan()
     assert await _jobs(settings) == []
+
+
+async def test_scan_skips_connection_test(seedbox, settings, monkeypatch):
+    """The listing itself proves the connection; a separate test call per tick is wasted."""
+    fake, scan, _ = seedbox
+    tested = []
+
+    async def test_connection():
+        tested.append(1)
+        return {"ok": True}
+
+    monkeypatch.setattr(fake, "test_connection", test_connection)
+    fake.items = [_dto()]
+    await scan()
+    assert tested == []
+
+
+async def test_failed_listing_records_scan_error(seedbox, settings):
+    from app.database.models import SourceInstance
+
+    fake, scan, _ = seedbox
+    fake.fail = True
+    await scan()
+    async with get_session_factory(settings)() as session:
+        src = (await session.execute(select(SourceInstance))).scalar_one()
+    assert src.last_scan_error == "seedbox down"
