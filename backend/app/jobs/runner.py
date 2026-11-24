@@ -794,7 +794,7 @@ class JobRunner:
             if inspection.all_rejected:
                 return StageResult(
                     StageRunStatus.NEEDS_ATTENTION, "all_rejected",
-                    "All import candidates were rejected", False,
+                    _rejection_summary(inspection, ready_path), False,
                 )
 
             # Store candidates for the import stage
@@ -1031,6 +1031,17 @@ class JobRunner:
                 .values(progress_json=progress)  # StageRun has no updated_at column
             )
             await session.commit()
+
+
+def _rejection_summary(inspection: Any, ready_path: str) -> str:
+    """Explain why nothing is importable, using the reasons the library gave per file."""
+    if not inspection.candidates:
+        return f"Library found no importable files at {ready_path}"
+    reasons = "; ".join(
+        f"{Path(c.absolute_path).name}: {', '.join(c.rejection_reasons)}"
+        for c in inspection.candidates
+    )
+    return f"All import candidates were rejected: {reasons}"
 
 
 def _sanitize_dirname(name: str) -> str:
