@@ -33,12 +33,14 @@
         class="step {i === cur ? 'cur' : ''} {front ? 'text-white' : `text-transparent ${fill[s.state]}`}"
         title={front && i !== cur ? `${s.label}: ${s.state}` : undefined}
       >
-        <span class="label">{s.label}</span>
-        {#if i === cur && s.state === 'active' && s.progress != null}
-          <span class="label h-1 w-10 shrink-0 overflow-hidden rounded {front ? 'bg-white/35' : ''}">
-            <span class="block h-full transition-[width] duration-700 {front ? 'bg-white' : ''}" style="width: {s.progress}%"></span>
-          </span>
+        {#if front && i === cur && s.state === 'active' && s.progress != null}
+          <!-- progress fills the pill instead of widening it: light fill plus a solid bottom edge -->
+          <span
+            class="absolute inset-y-0 left-0 border-b-2 border-white bg-white/30 transition-[width] duration-700"
+            style="width: {s.progress}%"
+          ></span>
         {/if}
+        <span class="label relative">{s.label}</span>
       </span>
     {/each}
   </span>
@@ -58,31 +60,29 @@
 </svg>
 
 <style>
+  /* Fixed sizes (one pill width for every label) keep the whole track the
+     same width in every state, so table columns don't jump. */
   .step {
+    position: relative;
     display: inline-flex;
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
-    gap: 0.375rem;
     overflow: hidden;
     border-radius: 9999px;
     height: 0.625rem;
-    min-width: 0.625rem;
-    max-width: 0.625rem;
-    padding: 0;
+    width: 0.625rem;
     font-size: 0.75rem;
     font-weight: 600;
     line-height: 1;
     transition:
-      max-width 0.5s ease,
+      width 0.5s ease,
       height 0.4s ease,
-      padding 0.4s ease,
       background-color 0.5s ease;
   }
   .step.cur {
     height: 1.25rem;
-    max-width: 10rem;
-    padding: 0 0.625rem;
+    width: 4.25rem;
   }
   .label {
     opacity: 0;
