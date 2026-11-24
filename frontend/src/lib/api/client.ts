@@ -196,6 +196,7 @@ export const endpoints = {
   auth: {
     login: (username: string, password: string) =>
       api.post<{ access_token: string; token_type: string; username: string }>('/auth/login', { username, password }),
+    setupStatus: () => api.get<{ needed: boolean }>('/auth/setup'),
     setup: (username: string, password: string) =>
       api.post<{ access_token: string; token_type: string; username: string }>('/auth/setup', { username, password }),
   },

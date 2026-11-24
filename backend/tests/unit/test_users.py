@@ -15,9 +15,11 @@ from app.database.session import get_session_factory
 async def test_setup_login_and_deleted_user(client, settings):
     creds = {"username": "jim", "password": "pw"}
     assert (await client.post("/api/v1/auth/login", json=creds)).status_code == 400  # no users yet
+    assert (await client.get("/api/v1/auth/setup")).json() == {"needed": True}
 
     r = await client.post("/api/v1/auth/setup", json=creds)
     assert r.status_code == 200
+    assert (await client.get("/api/v1/auth/setup")).json() == {"needed": False}
     assert (await client.post("/api/v1/auth/setup", json=creds)).status_code == 409
 
     assert (await client.post("/api/v1/auth/login", json={**creds, "password": "no"})).status_code == 401

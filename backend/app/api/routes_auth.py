@@ -46,6 +46,16 @@ async def login(
     return _token(user, request)
 
 
+class SetupStatus(BaseModel):
+    needed: bool
+
+
+@auth_router.get("/auth/setup", response_model=SetupStatus)
+async def setup_status(session: AsyncSession = Depends(get_session)) -> SetupStatus:
+    """Whether the admin account still needs to be created (no user exists yet)."""
+    return SetupStatus(needed=not await session.scalar(select(func.count()).select_from(User)))
+
+
 @auth_router.post("/auth/setup", response_model=TokenResponse)
 async def setup(
     body: Credentials, request: Request, session: AsyncSession = Depends(get_session)
