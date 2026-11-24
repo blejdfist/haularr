@@ -4,13 +4,13 @@ FROM node:22-slim AS frontend-build
 WORKDIR /app/frontend
 
 # Install pnpm
-RUN npm install -g pnpm
+RUN npm install -g pnpm@12
 
 # Copy package files
-COPY frontend/package.json frontend/pnpm-lock.yaml* ./
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 
 # Install dependencies
-RUN pnpm install --frozen-lockfile || pnpm install
+RUN pnpm install --frozen-lockfile
 
 # Copy frontend source
 COPY frontend/ ./
@@ -35,9 +35,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install Python dependencies
-COPY pyproject.toml uv.lock* ./
-RUN pip install uv && \
-    uv sync --no-dev --no-install-project
+COPY --from=ghcr.io/astral-sh/uv:0.9 /uv /usr/local/bin/uv
+COPY pyproject.toml uv.lock ./
+RUN UV_PYTHON_DOWNLOADS=never uv sync --frozen --no-dev --no-install-project
 
 # Copy backend source
 COPY backend/ ./backend/
@@ -55,7 +55,8 @@ ENV HAULARR_CONFIG_DIR=/config \
     HAULARR_HOST=0.0.0.0 \
     HAULARR_PORT=8080 \
     HAULARR_STATIC_DIR=/app/frontend/build \
-    PYTHONPATH=/app
+    PATH=/app/.venv/bin:$PATH \
+    PYTHONPATH=/app/backend
 
 # Expose port
 EXPOSE 8080
