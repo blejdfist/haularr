@@ -27,6 +27,29 @@
   --color-brand: var(--color-orange-600);
   --color-brand-medium: var(--color-orange-200);
   --color-brand-strong: var(--color-orange-700);
+
+  /* Untinted neutrals instead of Tailwind's blue-gray, so the orange logo and actions carry
+     the color. Remapping gray-* reaches every page and Flowbite component at once. */
+  --color-gray-50: oklch(0.985 0 0);
+  --color-gray-100: oklch(0.965 0 0);
+  --color-gray-200: oklch(0.925 0 0);
+  --color-gray-300: oklch(0.872 0 0);
+  --color-gray-400: oklch(0.712 0 0);
+  --color-gray-500: oklch(0.552 0 0);
+  --color-gray-600: oklch(0.446 0 0);
+  --color-gray-700: oklch(0.372 0 0);
+  --color-gray-800: oklch(0.286 0 0);
+  --color-gray-900: oklch(0.218 0 0);
+  --color-gray-950: oklch(0.16 0 0);
+}
+
+::selection {
+  background: var(--color-orange-200);
+  color: var(--color-orange-950);
+}
+html.dark ::selection {
+  background: var(--color-orange-800);
+  color: var(--color-orange-50);
 }
 
 @layer base {
