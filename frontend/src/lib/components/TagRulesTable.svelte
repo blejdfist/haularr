@@ -14,6 +14,7 @@
   // Rule id being edited, 'new' for a new tag, null = none (id, not index: rows can be deleted while editing)
   let editing = $state<string | null>(null);
   let draft = $state<Row>({ id: null, label: '', library: '', tmp: '', done: '', enabled: true });
+  let nextDraftId = 0;
 
   const libItems = $derived([
     { value: '', name: 'Select library...' },
@@ -50,7 +51,7 @@
     };
     rules = draft.id
       ? rules.map((r) => (r.id === draft.id ? { ...r, ...fields } : r))
-      : [...rules, { ...fields, id: crypto.randomUUID() } as LabelRule];
+      : [...rules, { ...fields, id: String(++nextDraftId) } as LabelRule];
     editing = null;
   }
 
