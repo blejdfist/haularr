@@ -85,6 +85,12 @@ export const api = {
   delete: <T>(path: string) => apiFetch<T>(path, { method: 'DELETE' }),
 };
 
+export interface DirectoryListing {
+  path: string | null;
+  parent: string | null;
+  directories: { name: string; path: string }[];
+}
+
 export interface PathMapping { source_prefix: string; remote_prefix: string }
 /** Fetch config as returned by the API (password never returned). */
 export interface Fetch {
@@ -193,6 +199,9 @@ function qs(params: Record<string, string | number | undefined>): string {
 
 // API endpoints
 export const endpoints = {
+  filesystem: {
+    browse: (path: string = '') => api.get<DirectoryListing>(`/filesystem${qs({ path })}`),
+  },
   auth: {
     login: (username: string, password: string) =>
       api.post<{ access_token: string; token_type: string; username: string }>('/auth/login', { username, password }),

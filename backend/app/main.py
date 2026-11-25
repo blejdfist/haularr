@@ -239,6 +239,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         routes_auth,
         routes_dashboard,
         routes_export,
+        routes_filesystem,
         routes_health,
         routes_jobs,
         routes_libraries,
@@ -262,6 +263,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         routes_dashboard,
         routes_settings,
         routes_export,
+        routes_filesystem,
         routes_logs,
         routes_sse,
     ):

@@ -2,6 +2,7 @@
   import { Button, Input, Label, Select, Toggle, Badge } from 'flowbite-svelte';
   import { PenOutline, TrashBinOutline } from 'flowbite-svelte-icons';
   import type { LabelRule, Library } from '$lib/api/client';
+  import FileBrowserInput from './FileBrowserInput.svelte';
 
   // Pure editor: changes stay in `rules` until the parent saves them.
   let {
@@ -76,11 +77,11 @@
     </div>
     <div>
       <Label for="t-tmp" class="mb-1">Temporary folder *</Label>
-      <Input id="t-tmp" bind:value={draft.tmp} placeholder="/data/incoming" />
+      <FileBrowserInput id="t-tmp" bind:value={draft.tmp} label="Temporary folder" placeholder="/data/incoming" />
     </div>
     <div>
       <Label for="t-done" class="mb-1">Completed folder *</Label>
-      <Input id="t-done" bind:value={draft.done} placeholder="/data/completed" />
+      <FileBrowserInput id="t-done" bind:value={draft.done} label="Completed folder" placeholder="/data/completed" />
     </div>
     <div class="flex items-center justify-between gap-2 md:col-span-2">
       <Toggle bind:checked={draft.enabled}>Enabled</Toggle>
