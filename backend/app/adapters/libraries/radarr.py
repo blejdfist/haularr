@@ -70,11 +70,18 @@ class RadarrAdapter:
     async def test_connection(self) -> dict:
         try:
             status_data = await self._get("/system/status")
+            app_name = status_data.get("appName")
+            if app_name != "Radarr":
+                return {
+                    "ok": False,
+                    "error": f"Expected Radarr, but connected to {app_name or 'unknown service'}.",
+                    "adapter": "radarr",
+                }
             return {
                 "ok": True,
                 "version": status_data.get("version", "unknown"),
                 "adapter": "radarr",
-                "app_name": status_data.get("appName", "Radarr"),
+                "app_name": app_name,
             }
         except Exception as exc:
             return {"ok": False, "error": str(exc), "adapter": "radarr"}

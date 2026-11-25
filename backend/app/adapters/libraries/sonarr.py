@@ -71,11 +71,18 @@ class SonarrAdapter:
     async def test_connection(self) -> dict:
         try:
             status_data = await self._get("/system/status")
+            app_name = status_data.get("appName")
+            if app_name != "Sonarr":
+                return {
+                    "ok": False,
+                    "error": f"Expected Sonarr, but connected to {app_name or 'unknown service'}.",
+                    "adapter": "sonarr",
+                }
             return {
                 "ok": True,
                 "version": status_data.get("version", "unknown"),
                 "adapter": "sonarr",
-                "app_name": status_data.get("appName", "Sonarr"),
+                "app_name": app_name,
             }
         except Exception as exc:
             return {"ok": False, "error": str(exc), "adapter": "sonarr"}
