@@ -13,7 +13,7 @@ For each enabled source:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -21,24 +21,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import (
     EligibilityCheck,
+    Job,
     LibraryInstance,
-    SourceInstance,
     SourceItem,
     SourceLabelRule,
-    Job,
 )
 from app.database.repositories import (
     JobRepository,
-    LabelRuleRepository,
     SourceItemRepository,
     SourceRepository,
 )
 from app.database.session import get_session_factory
 from app.domain.models import EligibilityStatus, JobStage, JobStatus, OnboardingState
+from app.logging_buffer import named
 from app.services.jobs import create_job, item_complete, update_download
 from app.settings import Settings
-
-from app.logging_buffer import named
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +56,7 @@ _RECHECK_AFTER = timedelta(hours=6)
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class DiscoveryService:
@@ -101,8 +98,9 @@ class DiscoveryService:
             await session.commit()
 
         # Build adapter config: non-secret config + decrypted credential
-        from app.security import decrypt_secret
         import json
+
+        from app.security import decrypt_secret
 
         conn_config = dict(conn_config_raw)
         if cred_ref.startswith("enc:"):
@@ -117,7 +115,7 @@ class DiscoveryService:
                 except json.JSONDecodeError:
                     conn_config["password"] = plaintext
             except Exception:
-                pass
+                logger.warning("Could not decrypt source credentials")
         elif cred_ref:
             # Unencrypted legacy — merge JSON dict
             try:
@@ -438,7 +436,7 @@ class DiscoveryService:
         if checked_at is None:
             return False
         if checked_at.tzinfo is None:  # SQLite drops tzinfo
-            checked_at = checked_at.replace(tzinfo=timezone.utc)
+            checked_at = checked_at.replace(tzinfo=UTC)
         return _utcnow() - checked_at < _RECHECK_AFTER
 
     def _find_matching_rule(

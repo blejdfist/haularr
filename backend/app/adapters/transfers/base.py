@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Protocol
+from collections.abc import Callable
+from typing import Any, Protocol
 
-from app.domain.models import RemoteFileDTO, RemoteManifest, TransferResult, SourceItemDTO
+from app.domain.models import RemoteFileDTO, RemoteManifest, SourceItemDTO, TransferResult
 
 
 class TransferAdapter(Protocol):

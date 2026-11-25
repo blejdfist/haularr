@@ -2,9 +2,8 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.17.6
     hooks:
-      # Disabled until the existing ruff check errors are fixed.
-      # - id: ruff-check
-      #   args: [--fix]
+      - id: ruff-check
+        args: [--fix]
       - id: ruff-format
 
   # Disabled until the existing ty diagnostics are fixed.

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from app.database.models import Job, SourceInstance, SourceItem
 from app.database.repositories import LabelRuleRepository, SourceRepository
 from app.database.session import get_session_factory
@@ -122,8 +121,8 @@ async def test_manual_retry_resets_attempts(auth_client, settings):
 
 
 async def _runs(settings, job_id):
-    from sqlalchemy import select
     from app.database.models import StageRun
+    from sqlalchemy import select
 
     async with get_session_factory(settings)() as session:
         return (
@@ -196,8 +195,8 @@ async def test_heartbeat_renews_lease(app, settings):
 
 async def test_restart_runs_job_from_the_beginning(auth_client, settings):
     """Restart: back to the first stage with a clean slate, files re-downloaded."""
-    from sqlalchemy import select
     from app.database.models import JobFile
+    from sqlalchemy import select
 
     _, job_id = await _job(settings, "needs_attention")
     async with get_session_factory(settings)() as session:

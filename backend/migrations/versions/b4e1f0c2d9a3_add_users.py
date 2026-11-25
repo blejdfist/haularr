@@ -12,16 +12,16 @@ Create Date: 2026-11-24 12:00:00
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from typing import Sequence, Union
+from collections.abc import Sequence
+from datetime import UTC, datetime
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision: str = "b4e1f0c2d9a3"
-down_revision: Union[str, None] = "a7c3e91d2b10"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "a7c3e91d2b10"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def _legacy_admin() -> tuple[str, str] | None:
@@ -56,7 +56,7 @@ def upgrade() -> None:
                     "username": admin[0],
                     "password_hash": admin[1],
                     "is_admin": True,
-                    "created_at": datetime.now(timezone.utc),
+                    "created_at": datetime.now(UTC),
                 }
             ],
         )

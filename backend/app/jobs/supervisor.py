@@ -9,11 +9,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
-
-from app.settings import Settings
+from datetime import UTC, datetime
 
 from app.logging_buffer import named
+from app.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +20,7 @@ DOWNLOADING_POLL_SECONDS = 5  # while any of a source's torrents downloads on th
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class DiscoverySupervisor:
@@ -49,14 +48,14 @@ class DiscoverySupervisor:
             self._coordinator_task.cancel()
             try:
                 await asyncio.wait_for(self._coordinator_task, timeout=5.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
+            except (TimeoutError, asyncio.CancelledError):
                 pass
 
         for source_id, task in list(self._tasks.items()):
             task.cancel()
             try:
                 await asyncio.wait_for(task, timeout=10.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
+            except (TimeoutError, asyncio.CancelledError):
                 pass
         self._tasks.clear()
         logger.info("Discovery supervisor stopped")
@@ -84,14 +83,15 @@ class DiscoverySupervisor:
 
     async def _reconcile_tasks(self) -> None:
         """Start/stop per-source tasks based on current DB config."""
-        from app.database.session import get_session_factory
-        from app.database.models import SourceInstance
         from sqlalchemy import select
+
+        from app.database.models import SourceInstance
+        from app.database.session import get_session_factory
 
         factory = get_session_factory(self.settings)
         async with factory() as session:
             result = await session.execute(
-                select(SourceInstance).where(SourceInstance.enabled == True)  # noqa: E712
+                select(SourceInstance).where(SourceInstance.enabled == True)
             )
             enabled_sources = {
                 s.id: (s.poll_interval, named(s.name, s.id)) for s in result.scalars().all()
@@ -111,7 +111,7 @@ class DiscoverySupervisor:
                 task.cancel()
                 try:
                     await asyncio.wait_for(task, timeout=5.0)
-                except (asyncio.CancelledError, asyncio.TimeoutError):
+                except (TimeoutError, asyncio.CancelledError):
                     pass
 
     async def _source_poll_loop(self, source_id: str, initial_interval: int, label: str) -> None:
@@ -159,9 +159,10 @@ class DiscoverySupervisor:
 
     async def _get_poll_interval(self, source_id: str) -> int:
         """Read the current poll interval from DB."""
-        from app.database.session import get_session_factory
-        from app.database.models import SourceInstance
         from sqlalchemy import select
+
+        from app.database.models import SourceInstance
+        from app.database.session import get_session_factory
 
         factory = get_session_factory(self.settings)
         async with factory() as session:
@@ -172,10 +173,11 @@ class DiscoverySupervisor:
 
     async def _has_downloads(self, source_id: str) -> bool:
         """Any of this source's torrents still downloading on the seedbox (poll fast so progress looks live)."""
-        from app.database.session import get_session_factory
-        from app.database.models import Job, SourceItem
-        from app.domain.models import JobStatus
         from sqlalchemy import select
+
+        from app.database.models import Job, SourceItem
+        from app.database.session import get_session_factory
+        from app.domain.models import JobStatus
 
         async with get_session_factory(self.settings)() as session:
             return (

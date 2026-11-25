@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 
 import pytest
-
 from app.logging_buffer import install_log_handler
 
 
@@ -119,7 +118,7 @@ async def test_logs_includes_exception_traceback(auth_client):
     try:
         raise ValueError("boom")
     except ValueError:
-        log.error("something broke", exc_info=True)
+        log.exception("something broke")
 
     response = await auth_client.get("/api/v1/logs")
     assert response.status_code == 200

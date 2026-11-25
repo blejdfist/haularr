@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.repositories import LibraryRepository
-from app.database.session import get_session
+from app.database.session import SessionDep
 
 router = APIRouter(tags=["libraries"])
 
@@ -51,7 +50,7 @@ def _api_key(obj: Any, master_key: bytes) -> str:
 async def test_library_config(
     body: LibraryTestConfig,
     request: Request,
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep,
 ):
     """Test unsaved library settings. A blank `api_key` with `library_id` uses the saved key."""
     from app.adapters.libraries import create_library_adapter
@@ -71,7 +70,7 @@ async def test_library_config(
 
 
 @router.get("/libraries")
-async def list_libraries(session: AsyncSession = Depends(get_session)):
+async def list_libraries(session: SessionDep):
     """List libraries. API keys are never returned."""
     repo = LibraryRepository(session)
     items = await repo.list_all()
@@ -79,7 +78,7 @@ async def list_libraries(session: AsyncSession = Depends(get_session)):
 
 
 @router.post("/libraries", status_code=201)
-async def create_library(body: LibraryCreate, session: AsyncSession = Depends(get_session)):
+async def create_library(body: LibraryCreate, session: SessionDep):
     """Create a library. `api_key_secret_ref` carries the API key."""
     repo = LibraryRepository(session)
     obj = await repo.create(
@@ -95,7 +94,7 @@ async def create_library(body: LibraryCreate, session: AsyncSession = Depends(ge
 
 
 @router.get("/libraries/{library_id}")
-async def get_library(library_id: str, session: AsyncSession = Depends(get_session)):
+async def get_library(library_id: str, session: SessionDep):
     """Get one library."""
     repo = LibraryRepository(session)
     obj = await repo.get(library_id)
@@ -105,9 +104,7 @@ async def get_library(library_id: str, session: AsyncSession = Depends(get_sessi
 
 
 @router.patch("/libraries/{library_id}")
-async def update_library(
-    library_id: str, body: LibraryUpdate, session: AsyncSession = Depends(get_session)
-):
+async def update_library(library_id: str, body: LibraryUpdate, session: SessionDep):
     """Update a library. Omitted fields (including the API key) are kept."""
     repo = LibraryRepository(session)
     updates = body.model_dump(exclude_none=True)
@@ -121,12 +118,13 @@ async def update_library(
 
 
 @router.delete("/libraries/{library_id}", status_code=204)
-async def delete_library(library_id: str, session: AsyncSession = Depends(get_session)):
+async def delete_library(library_id: str, session: SessionDep):
     """Delete a library. 409 while a tag rule still imports into it."""
     repo = LibraryRepository(session)
     obj = await repo.get(library_id)
     if obj:
         from sqlalchemy import func, select, update
+
         from app.database.models import FileImport, MediaMatch, SourceLabelRule
 
         used = await session.scalar(
@@ -148,9 +146,7 @@ async def delete_library(library_id: str, session: AsyncSession = Depends(get_se
 
 
 @router.post("/libraries/{library_id}/test")
-async def test_library(
-    library_id: str, request: Request, session: AsyncSession = Depends(get_session)
-):
+async def test_library(library_id: str, request: Request, session: SessionDep):
     """Test the saved connection of a library."""
     repo = LibraryRepository(session)
     obj = await repo.get(library_id)

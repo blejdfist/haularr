@@ -38,8 +38,8 @@ def _event(kind: str, data: Any) -> str:
     return f"event: {kind}\ndata: {json.dumps(data)}\n\n"
 
 
-def _sse(request: Request, ticks: AsyncGenerator[list[str], None]) -> StreamingResponse:
-    async def stream() -> AsyncGenerator[str, None]:
+def _sse(request: Request, ticks: AsyncGenerator[list[str]]) -> StreamingResponse:
+    async def stream() -> AsyncGenerator[str]:
         quiet_since = time.monotonic()
         async for chunks in ticks:
             if await request.is_disconnected():
@@ -133,7 +133,7 @@ async def job_events(request: Request) -> StreamingResponse:
     async with factory() as session:
         since = (await session.execute(select(func.max(Job.updated_at)))).scalar()
 
-    async def ticks() -> AsyncGenerator[list[str], None]:
+    async def ticks() -> AsyncGenerator[list[str]]:
         nonlocal since
         sent: dict[str, str] = {}
         while True:
@@ -159,7 +159,7 @@ async def log_events(
     seq = handler.seq if handler else 0
     factory = get_session_factory(request.app.state.settings)
 
-    async def ticks() -> AsyncGenerator[list[str], None]:
+    async def ticks() -> AsyncGenerator[list[str]]:
         nonlocal seq
         while True:
             entries = []

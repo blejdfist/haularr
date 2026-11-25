@@ -2,26 +2,26 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.session import get_session
+from app.database.session import SessionDep
 
 router = APIRouter(tags=["system"])
 
 
 @router.get("/config/export")
-async def export_config(request: Request, session: AsyncSession = Depends(get_session)):
+async def export_config(request: Request, session: SessionDep):
     """Export settings, sources, tag rules, transfers and libraries with all secrets redacted."""
+    from sqlalchemy.orm import selectinload
+
     from app.database.models import (
         LibraryInstance,
         SourceInstance,
         SourceLabelRule,
-        TransferInstance,
         TransferEndpoint,
+        TransferInstance,
     )
-    from sqlalchemy.orm import selectinload
 
     # Eagerly load all data inside the session
     sources_result = await session.execute(

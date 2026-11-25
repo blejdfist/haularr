@@ -55,6 +55,9 @@ filterwarnings = [
 target-version = "py313"
 line-length = 100
 
+[tool.ruff.lint]
+# Broad catches are deliberate at external-service and worker boundaries (log, mark failed, go on).
+ignore = ["BLE001"]
 [tool.ty.environment]
 python-version = "3.13"
 root = ["backend"]

@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 
 import pytest
-
 from app.logging_buffer import install_file_handler, remove_file_handler
 
 
@@ -37,12 +36,12 @@ def test_install_file_handler_is_idempotent(tmp_path):
 
 @pytest.mark.asyncio
 async def test_job_events_are_logged(app, settings, caplog):
+    from app.database.models import Job
     from app.database.repositories import JobRepository
     from app.database.session import get_session_factory
-    from tests.unit.test_waiting_fetch import _job
-
     from sqlalchemy import update
-    from app.database.models import Job
+
+    from tests.unit.test_waiting_fetch import _job
 
     _, job_id = await _job(settings)
     title = "Some.Show.S01E01"
@@ -76,7 +75,7 @@ def test_server_errors_are_captured():
     handler.clear()
     try:
         try:
-            a, b = (1, 2, 3)
+            _a, _b = (1, 2, 3)
         except ValueError:
             logging.getLogger("uvicorn.error").exception("Exception in ASGI application")
         [entry] = handler.snapshot()
@@ -91,7 +90,7 @@ def test_search_matches_exception_text():
 
     h = LogBufferHandler()
     try:
-        a, b = (1, 2, 3)
+        _a, _b = (1, 2, 3)
     except ValueError:
         rec = logging.LogRecord(
             "app.x", logging.ERROR, "", 0, "Job crashed", None, __import__("sys").exc_info()
@@ -103,7 +102,6 @@ def test_search_matches_exception_text():
 def test_startup_migrations_keep_log_handlers(tmp_path, monkeypatch):
     """alembic.ini's logging config must not replace the app's handlers (log view, file) or level."""
     from alembic import command
-
     from app.logging_buffer import install_log_handler, remove_log_handler
     from app.main import _alembic_config
     from app.settings import Settings

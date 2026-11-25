@@ -8,14 +8,10 @@ Acceptance criteria:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, patch
+from datetime import UTC, datetime
 
 import pytest
-
-from app.processing.import_media import run_import_stage
 from app.domain.models import (
-    EligibilityDecision,
     ImportCandidate,
     ImportInspection,
     ImportOperation,
@@ -23,6 +19,7 @@ from app.domain.models import (
     MediaMatch,
     MediaType,
 )
+from app.processing.import_media import run_import_stage
 
 
 class FakeLibraryAdapter:
@@ -45,7 +42,7 @@ class FakeLibraryAdapter:
         return self._operation or ImportOperation(
             operation_id="op_123",
             command_id=42,
-            submitted_at=datetime.now(timezone.utc),
+            submitted_at=datetime.now(UTC),
             candidates=[c.absolute_path for c in candidates],
         )
 

@@ -5,11 +5,10 @@ from __future__ import annotations
 import json
 
 import pytest
-from sqlalchemy import select
-
 from app.database.models import TransferEndpoint, TransferInstance
 from app.database.session import get_session_factory
 from app.security import decrypt_secret
+from sqlalchemy import select
 
 FETCH = {
     "host": "ftp.example",

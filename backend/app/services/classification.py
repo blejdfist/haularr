@@ -12,12 +12,12 @@ For each source item with a matching label rule:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.libraries import create_library_adapter
-from app.database.models import SourceItem, SourceLabelRule, LibraryInstance
+from app.database.models import LibraryInstance, SourceItem, SourceLabelRule
 from app.database.repositories import SourceItemRepository
 from app.domain.models import (
     EligibilityStatus,
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 async def classify_item(

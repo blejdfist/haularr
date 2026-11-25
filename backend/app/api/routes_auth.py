@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import User
-from app.database.session import get_session
+from app.database.session import SessionDep
 from app.security import create_access_token, hash_password, verify_password
 
 auth_router = APIRouter(tags=["auth"])
@@ -31,9 +30,7 @@ def _token(user: User, request: Request) -> TokenResponse:
 
 
 @auth_router.post("/auth/login", response_model=TokenResponse)
-async def login(
-    body: Credentials, request: Request, session: AsyncSession = Depends(get_session)
-) -> TokenResponse:
+async def login(body: Credentials, request: Request, session: SessionDep) -> TokenResponse:
     """Exchange a username and password for a bearer token."""
     user = await session.scalar(select(User).where(User.username == body.username))
     if user is None and not await session.scalar(select(func.count()).select_from(User)):
@@ -51,15 +48,13 @@ class SetupStatus(BaseModel):
 
 
 @auth_router.get("/auth/setup", response_model=SetupStatus)
-async def setup_status(session: AsyncSession = Depends(get_session)) -> SetupStatus:
+async def setup_status(session: SessionDep) -> SetupStatus:
     """Whether the admin account still needs to be created (no user exists yet)."""
     return SetupStatus(needed=not await session.scalar(select(func.count()).select_from(User)))
 
 
 @auth_router.post("/auth/setup", response_model=TokenResponse)
-async def setup(
-    body: Credentials, request: Request, session: AsyncSession = Depends(get_session)
-) -> TokenResponse:
+async def setup(body: Credentials, request: Request, session: SessionDep) -> TokenResponse:
     """Create the admin account. Only works while no user exists (409 afterwards)."""
     if await session.scalar(select(func.count()).select_from(User)):
         raise HTTPException(

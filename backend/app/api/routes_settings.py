@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
-
 
 router = APIRouter(tags=["system"])
 
@@ -63,8 +60,8 @@ async def patch_settings_api(body: SettingsPatch, request: Request) -> SettingsR
         setattr(settings, field, value)
 
     # Persist to DB (app_settings table)
-    from app.database.session import get_session_factory
     from app.database.repositories import SettingsRepository
+    from app.database.session import get_session_factory
 
     factory = get_session_factory(settings)
     async with factory() as session:

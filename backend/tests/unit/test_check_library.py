@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-import pytest
+from datetime import UTC
 
+import pytest
 from app.database.models import Job, SourceLabelRule
 from app.database.session import get_session_factory
 from app.domain.models import StageRunStatus
+
 from tests.unit.test_waiting_fetch import _get, _job
 
 
@@ -153,12 +155,12 @@ async def test_skip_library_rejected_once_past_or_running(auth_client, settings,
 
 async def test_skip_library_reopens_job_ended_as_already_in_library(auth_client, settings):
     """A pack can parse as one of its movies ("Tron" 1982) and look already available."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     job_id = await _staged(settings, "check_library", "skipped")
     async with get_session_factory(settings)() as session:
         job = await session.get(Job, job_id)
-        job.error_code, job.ended_at = "already_available", datetime.now(timezone.utc)
+        job.error_code, job.ended_at = "already_available", datetime.now(UTC)
         await session.commit()
     r = await auth_client.post(f"/api/v1/jobs/{job_id}/skip-library")
     assert r.status_code == 200, r.text
@@ -174,11 +176,10 @@ async def test_skip_library_rejects_cancelled_job(auth_client, settings):
 
 async def test_check_library_records_how_the_library_parsed_it(app, settings, monkeypatch):
     """The stage keeps the verdict's reason and the parsed name, to show in the job drawer."""
-    from sqlalchemy import select
-
     from app.database.models import StageRun
     from app.jobs.runner import JobRunner
     from app.services import classification
+    from sqlalchemy import select
 
     async def fake_classify(session, item, rule, library, master_key):
         await classification._persist_match(

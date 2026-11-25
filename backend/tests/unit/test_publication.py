@@ -11,7 +11,6 @@ import os
 from pathlib import Path
 
 import pytest
-
 from app.processing.publication import publish_item
 
 LONG = "The.Lord.of.the.Rings.The.Rings.of.Power.S03E04.Gundabad.1080p.AMZN.WEB-DL.DDP5.1.Atmos.H.264-FLUX"

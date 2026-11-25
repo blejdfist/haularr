@@ -6,11 +6,11 @@ Domain/services depend on these interfaces, not raw SQL.
 from __future__ import annotations
 
 import logging
-import uuid
-from datetime import datetime, timezone
-from typing import Any, Sequence
+from collections.abc import Sequence
+from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy import select, update, func, and_, exists, or_, case, text
+from sqlalchemy import and_, case, exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -28,13 +28,10 @@ _SEVERITY = {
 from app.database.models import (
     AppSetting,
     EligibilityCheck,
-    FileImport,
     Job,
     JobEvent,
-    JobFile,
     LibraryInstance,
     MediaMatch,
-    NotificationDelivery,
     SourceInstance,
     SourceItem,
     SourceLabelRule,
@@ -45,7 +42,7 @@ from app.database.models import (
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +111,7 @@ class LabelRuleRepository:
                 and_(
                     SourceLabelRule.source_id == source_id,
                     SourceLabelRule.label == label,
-                    SourceLabelRule.enabled == True,  # noqa: E712
+                    SourceLabelRule.enabled == True,
                 )
             )
         )

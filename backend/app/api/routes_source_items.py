@@ -2,22 +2,20 @@
 
 from __future__ import annotations
 
+from datetime import UTC
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import SourceInstance
 from app.database.repositories import (
-    SourceItemRepository,
-    SourceRepository,
-    LabelRuleRepository,
     JobRepository,
+    LabelRuleRepository,
+    SourceItemRepository,
 )
-from app.domain.models import JobStage, JobStatus
-from app.database.session import get_session
+from app.database.session import SessionDep
 
 router = APIRouter(tags=["source-items"])
 
@@ -30,6 +28,7 @@ class QueueRequest(BaseModel):
 
 @router.get("/source-items")
 async def list_source_items(
+    session: SessionDep,
     request: Request,
     source_id: str | None = Query(None),
     label: str | None = Query(None),
@@ -43,7 +42,6 @@ async def list_source_items(
     include_ignored: bool = Query(False, description="Include items marked ignored."),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
-    session: AsyncSession = Depends(get_session),
 ):
     """List torrents seen on the sources, newest first, with filters and paging."""
     repo = SourceItemRepository(session)
@@ -67,7 +65,7 @@ async def list_source_items(
 
 
 @router.get("/source-items/{item_id}")
-async def get_source_item(item_id: str, session: AsyncSession = Depends(get_session)):
+async def get_source_item(item_id: str, session: SessionDep):
     """Get one item with its media matches and eligibility check history."""
     repo = SourceItemRepository(session)
     obj = await repo.get(item_id)
@@ -100,14 +98,12 @@ async def get_source_item(item_id: str, session: AsyncSession = Depends(get_sess
 
 
 @router.post("/source-items/{item_id}/ignore")
-async def ignore_item(item_id: str, session: AsyncSession = Depends(get_session)):
+async def ignore_item(item_id: str, session: SessionDep):
     """Hide an item from the default list and from automatic queueing."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     repo = SourceItemRepository(session)
-    obj = await repo.update(
-        item_id, ignored_at=datetime.now(timezone.utc), last_eligibility="ignored"
-    )
+    obj = await repo.update(item_id, ignored_at=datetime.now(UTC), last_eligibility="ignored")
     if not obj:
         raise HTTPException(status_code=404, detail="Source item not found")
     await session.commit()
@@ -119,7 +115,7 @@ async def queue_item(
     item_id: str,
     body: QueueRequest,
     request: Request,
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep,
 ):
     """Create a job for an item, using the tag rule matching one of its labels.
 

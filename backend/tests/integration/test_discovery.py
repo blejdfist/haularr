@@ -9,32 +9,27 @@ Acceptance criteria:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import select
-
-from app.database.models import Job, SourceItem
+from app.database.models import Job
 from app.database.repositories import (
-    JobRepository,
     LabelRuleRepository,
-    LibraryRepository,
     SourceItemRepository,
     SourceRepository,
 )
 from app.domain.models import (
-    EligibilityDecision,
     EligibilityStatus,
     LibraryInventory,
     MediaMatch,
     MediaType,
     OnboardingState,
-    RemoteFileDTO,
     SourceItemDTO,
     SourceStatus,
 )
 from app.services.classification import classify_item
+from sqlalchemy import select
 
 
 class FakeLibraryAdapter:
@@ -74,8 +69,8 @@ class FakeLibraryAdapter:
 @pytest.mark.asyncio
 async def test_classify_missing_media(app, settings):
     """Classification correctly identifies missing media."""
+    from app.database.models import LibraryInstance
     from app.database.session import get_session_factory
-    from app.database.models import LibraryInstance, SourceInstance, SourceLabelRule
 
     factory = get_session_factory(settings)
     async with factory() as session:
@@ -138,8 +133,8 @@ async def test_classify_missing_media(app, settings):
 @pytest.mark.asyncio
 async def test_classify_not_registered(app, settings):
     """Classification correctly identifies unregistered media — never auto-queues."""
-    from app.database.session import get_session_factory
     from app.database.models import LibraryInstance
+    from app.database.session import get_session_factory
 
     factory = get_session_factory(settings)
     async with factory() as session:
@@ -196,8 +191,8 @@ async def test_classify_not_registered(app, settings):
 @pytest.mark.asyncio
 async def test_classify_already_available(app, settings):
     """Already-available media is marked correctly — no auto-queue."""
-    from app.database.session import get_session_factory
     from app.database.models import LibraryInstance
+    from app.database.session import get_session_factory
 
     factory = get_session_factory(settings)
     async with factory() as session:
@@ -263,7 +258,6 @@ async def test_first_scan_auto_queues_missing_item(app, settings):
     """First scan (source pending): missing item with automatic rule is queued."""
     from app.database.session import get_session_factory
     from app.services.discovery import DiscoveryService
-    from app.database.models import SourceInstance, SourceLabelRule
 
     factory = get_session_factory(settings)
 
@@ -278,7 +272,7 @@ async def test_first_scan_auto_queues_missing_item(app, settings):
             onboarding_state=OnboardingState.PENDING.value,
         )
         label_repo = LabelRuleRepository(session)
-        rule = await label_repo.create(
+        await label_repo.create(
             source_id=source.id,
             label="tv",
             temporary_directory="/tmp",
@@ -343,7 +337,7 @@ async def test_auto_queue_after_onboarding(app, settings):
             onboarding_state=OnboardingState.COMPLETED.value,  # Onboarding done
         )
         label_repo = LabelRuleRepository(session)
-        rule = await label_repo.create(
+        await label_repo.create(
             source_id=source.id,
             label="tv",
             temporary_directory="/tmp",
@@ -525,8 +519,8 @@ async def test_unrouted_items_not_queued(app, settings):
 )
 async def test_classify_series_by_resolved_episodes(app, settings, episode_ids, expected):
     """Series with no resolved episodes needs review; fully downloaded is already_available."""
-    from app.database.session import get_session_factory
     from app.database.models import LibraryInstance
+    from app.database.session import get_session_factory
 
     factory = get_session_factory(settings)
     async with factory() as session:
@@ -668,7 +662,7 @@ async def test_cancelled_job_not_requeued_on_rescan(app, settings):
         async with factory() as session:
             job = (await session.execute(select(Job))).scalars().one()
             job.status = "cancelled"
-            job.ended_at = datetime.now(timezone.utc)
+            job.ended_at = datetime.now(UTC)
             await session.commit()
 
         assert (await svc.run_discovery_for_source(source_id))["queued"] == 0
@@ -681,8 +675,8 @@ async def test_cancelled_job_not_requeued_on_rescan(app, settings):
 async def test_rescan_skips_classification_once_item_has_job(app, settings):
     """An item owned by a job must not hit the library again on every scan."""
     from app.database.session import get_session_factory
+    from app.services import classification
     from app.services.discovery import DiscoveryService
-    import app.services.classification as classification
 
     factory = get_session_factory(settings)
     async with factory() as session:
@@ -732,8 +726,8 @@ async def test_rescan_skips_classification_once_item_has_job(app, settings):
 async def test_not_registered_is_rechecked_every_scan(app, settings):
     """A series added to the library after the first check is picked up on the next scan."""
     from app.database.session import get_session_factory
+    from app.services import classification
     from app.services.discovery import DiscoveryService
-    import app.services.classification as classification
 
     factory = get_session_factory(settings)
     async with factory() as session:

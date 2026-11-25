@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import re
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.session import get_session
 from app.database.models import Job, LibraryInstance, SourceInstance, SourceItem
+from app.database.session import SessionDep
 from app.logging_buffer import get_log_handler
 
 router = APIRouter(tags=["system"])
@@ -36,6 +36,7 @@ async def _names(session: AsyncSession, ids: set[str]) -> dict[str, str]:
 
 @router.get("/logs")
 async def get_logs(
+    session: SessionDep,
     level: str | None = Query(
         default=None,
         description="Minimum severity to return (DEBUG, INFO, WARNING, ERROR).",
@@ -44,7 +45,6 @@ async def get_logs(
         default=None, description="Case-insensitive substring on message or logger."
     ),
     limit: int = Query(default=200, ge=1, le=1000),
-    session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Return recent application log entries, newest-first.
 

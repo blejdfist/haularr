@@ -11,25 +11,25 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select, update
 
-from app.processing.publication import long_path, plain_path
-from app.security import decrypt_secret
 from app.database.repositories import JobRepository
 from app.database.session import get_session_factory
-from app.logging_buffer import job_name
 from app.domain.models import EligibilityStatus, JobStage, StageRunStatus, TransferStatus
+from app.logging_buffer import job_name
+from app.processing.publication import long_path, plain_path
+from app.security import decrypt_secret
 from app.settings import Settings
 
 logger = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @dataclass
@@ -300,11 +300,12 @@ class JobRunner:
 
             # Get source adapter to fetch file manifest
             import json
+
             from app.adapters.sources import create_source_adapter
-            from app.security import decrypt_secret
 
             # Get source instance for adapter config
             from app.database.repositories import SourceRepository
+            from app.security import decrypt_secret
 
             source_repo = SourceRepository(session)
             source = await source_repo.get(item.source_id)
@@ -328,7 +329,7 @@ class JobRunner:
                     except json.JSONDecodeError:
                         source_config["password"] = plaintext
                 except Exception:
-                    pass
+                    logger.warning("Could not decrypt source credentials")
             elif cred_ref:
                 try:
                     creds = json.loads(cred_ref)
@@ -459,10 +460,12 @@ class JobRunner:
                 last = -1
                 while True:
                     await asyncio.sleep(2)
-                    if received_now != last:
-                        last = received_now
+                    # Late binding is intended: progress_cb updates received_now and the
+                    # flusher is cancelled before the loop moves on.
+                    if received_now != last:  # noqa: B023
+                        last = received_now  # noqa: B023
                         try:
-                            await self._set_download_bytes(base + last, file_id, last)
+                            await self._set_download_bytes(base + last, file_id, last)  # noqa: B023
                         except Exception as exc:  # progress is cosmetic; never kill the flusher
                             logger.debug("Progress flush failed: %s", exc)
 
@@ -760,10 +763,10 @@ class JobRunner:
         # Get library adapter and inspect
         factory = get_session_factory(self.settings)
         async with factory() as session:
-            from app.database.repositories import LibraryRepository
             from app.adapters.libraries import create_library_adapter
-            from app.security import decrypt_secret
             from app.database.models import MediaMatch as MediaMatchModel
+            from app.database.repositories import LibraryRepository
+            from app.security import decrypt_secret
 
             lib_repo = LibraryRepository(session)
             library = await lib_repo.get(library_id)
@@ -838,7 +841,6 @@ class JobRunner:
                 )
 
             # Store candidates for the import stage
-            import json
 
             candidates_data = {
                 "candidates": [
@@ -868,10 +870,10 @@ class JobRunner:
 
         factory = get_session_factory(self.settings)
         async with factory() as session:
-            from app.database.repositories import LibraryRepository
             from app.adapters.libraries import create_library_adapter
-            from app.security import decrypt_secret
             from app.database.models import MediaMatch as MediaMatchModel
+            from app.database.repositories import LibraryRepository
+            from app.security import decrypt_secret
 
             lib_repo = LibraryRepository(session)
             library = await lib_repo.get(library_id)
@@ -1031,6 +1033,7 @@ class JobRunner:
     ) -> None:
         """Record a stage run's outcome; without this every attempt stays 'running' forever."""
         from sqlalchemy import update
+
         from app.database.models import StageRun
 
         async with get_session_factory(self.settings)() as session:
@@ -1069,6 +1072,7 @@ class JobRunner:
         factory = get_session_factory(self.settings)
         async with factory() as session:
             from sqlalchemy import update
+
             from app.database.models import StageRun
 
             await session.execute(
@@ -1082,7 +1086,8 @@ class JobRunner:
 async def _library_summary(session: Any, item: Any, library: Any) -> dict[str, Any]:
     """What the library said about this release, from the rows classification just wrote:
     the verdict's reason and evidence, and how the library parsed the name."""
-    from app.database.models import EligibilityCheck, MediaMatch as MediaMatchModel
+    from app.database.models import EligibilityCheck
+    from app.database.models import MediaMatch as MediaMatchModel
 
     check = (
         await session.execute(

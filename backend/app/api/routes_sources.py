@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import json
+import logging
+from datetime import UTC
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import TransferInstance
 from app.database.repositories import LabelRuleRepository, SourceRepository
-from app.database.session import get_session
+from app.database.session import SessionDep
 from app.services.source_fetch import fetch_to_dict, resolve_password, upsert_source_fetch
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["sources"])
 
@@ -104,7 +108,7 @@ class LabelRuleUpdate(BaseModel):
 
 
 @router.get("/sources")
-async def list_sources(request: Request, session: AsyncSession = Depends(get_session)):
+async def list_sources(request: Request, session: SessionDep):
     """List all sources, each with its fetch config and tag rules."""
     repo = SourceRepository(session)
     sources = await repo.list_all()
@@ -116,7 +120,7 @@ async def list_sources(request: Request, session: AsyncSession = Depends(get_ses
 async def create_source(
     body: SourceCreate,
     request: Request,
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep,
 ):
     """Create a source. `credential` is encrypted at rest; `fetch` sets up its FTP transfer."""
     master_key = request.app.state.master_key
@@ -142,7 +146,7 @@ async def create_source(
 async def get_source(
     source_id: str,
     request: Request,
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep,
 ):
     """Get one source with its fetch config and tag rules."""
     repo = SourceRepository(session)
@@ -157,7 +161,7 @@ async def update_source(
     source_id: str,
     body: SourceUpdate,
     request: Request,
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep,
 ):
     """Update a source. Omitted fields are kept; omitting `fetch` leaves the transfer untouched."""
     repo = SourceRepository(session)
@@ -189,7 +193,7 @@ async def update_source(
 @router.delete("/sources/{source_id}", status_code=204)
 async def delete_source(
     source_id: str,
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep,
 ):
     """Delete a source with its items, their jobs, tag rules and its own transfer."""
     repo = SourceRepository(session)
@@ -197,6 +201,7 @@ async def delete_source(
     transfer_id = obj.default_transfer_id if obj else None
     # Items (and their jobs) reference label rules, so they must go first
     from sqlalchemy import select
+
     from app.database.models import SourceItem
 
     for item in (
@@ -234,7 +239,7 @@ async def test_source_config(
 async def test_fetch_config(
     body: FetchTest,
     request: Request,
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep,
 ):
     """Test an unsaved FTP fetch config. A blank password with `source_id` uses that source's saved one."""
     source = await SourceRepository(session).get(body.source_id) if body.source_id else None
@@ -258,7 +263,7 @@ async def test_fetch_config(
 async def test_source(
     source_id: str,
     request: Request,
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep,
 ):
     """Test the saved connection of a source."""
     repo = SourceRepository(session)
@@ -279,7 +284,7 @@ async def test_source(
 async def scan_source(
     source_id: str,
     request: Request,
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep,
 ):
     """Start a discovery scan of a source in the background."""
     repo = SourceRepository(session)
@@ -292,9 +297,9 @@ async def scan_source(
 
         asyncio.create_task(request.app.state.supervisor.trigger_scan(source_id))
     else:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        await repo.update(source_id, last_scan_at=datetime.now(timezone.utc))
+        await repo.update(source_id, last_scan_at=datetime.now(UTC))
         await session.commit()
 
     return {"status": "scan_triggered", "source_id": source_id}
@@ -309,7 +314,7 @@ async def scan_source(
 async def create_label(
     source_id: str,
     body: LabelRuleCreate,
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep,
 ):
     """Add a tag rule: what to do with items carrying `label` on this source."""
     source_repo = SourceRepository(session)
@@ -344,7 +349,7 @@ async def update_label(
     source_id: str,
     rule_id: str,
     body: LabelRuleUpdate,
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep,
 ):
     """Update a tag rule. Omitted fields are kept."""
     repo = LabelRuleRepository(session)
@@ -364,7 +369,7 @@ async def update_label(
 async def delete_label(
     source_id: str,
     rule_id: str,
-    session: AsyncSession = Depends(get_session),
+    session: SessionDep,
 ):
     """Delete a tag rule."""
     repo = LabelRuleRepository(session)
@@ -403,7 +408,7 @@ def _build_adapter_config(obj: Any, master_key: bytes) -> dict[str, Any]:
             except json.JSONDecodeError:
                 config["password"] = plaintext
         except Exception:
-            pass
+            logger.warning("Could not decrypt source credentials")
     elif cred_ref:
         try:
             creds = json.loads(cred_ref)

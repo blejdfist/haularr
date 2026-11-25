@@ -15,8 +15,9 @@ async def health(request: Request) -> dict:
     # Check DB connectivity
     db_ok = True
     try:
-        from app.database.session import get_engine
         from sqlalchemy import text
+
+        from app.database.session import get_engine
 
         engine = get_engine(settings)
         async with engine.connect() as conn:

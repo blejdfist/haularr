@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
+from datetime import UTC
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import LibraryInstance, SourceItem
-
 from app.database.repositories import JobRepository
-from app.database.session import get_session
+from app.database.session import SessionDep
 
 router = APIRouter(tags=["jobs"])
 
 
 @router.get("/jobs")
 async def list_jobs(
+    session: SessionDep,
     status: str | None = Query(None, description="Comma-separated statuses, e.g. `failed,paused`."),
     stage: str | None = Query(None, description="Current stage, e.g. `download`."),
     source_id: str | None = Query(None),
@@ -26,7 +26,6 @@ async def list_jobs(
     ),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
-    session: AsyncSession = Depends(get_session),
 ):
     """List jobs with filters and paging. Items carry `title` and `library_name`."""
     repo = JobRepository(session)
@@ -64,7 +63,7 @@ async def list_jobs(
 
 
 @router.get("/jobs/{job_id}")
-async def get_job(job_id: str, session: AsyncSession = Depends(get_session)):
+async def get_job(job_id: str, session: SessionDep):
     """Get one job with its stage runs, files (with transfer status) and event timeline."""
     repo = JobRepository(session)
     obj = await repo.get(job_id)
@@ -124,7 +123,7 @@ async def _ready_status(repo: JobRepository, job_id: str) -> str:
 
 
 @router.post("/jobs/{job_id}/pause")
-async def pause_job(job_id: str, session: AsyncSession = Depends(get_session)):
+async def pause_job(job_id: str, session: SessionDep):
     """Pause a job; the scheduler skips it until resumed."""
     repo = JobRepository(session)
     obj = await repo.update(job_id, status="paused")
@@ -138,11 +137,11 @@ async def pause_job(job_id: str, session: AsyncSession = Depends(get_session)):
 
 
 @router.post("/jobs/{job_id}/resume")
-async def resume_job(job_id: str, session: AsyncSession = Depends(get_session)):
+async def resume_job(job_id: str, session: SessionDep):
     """Resume a paused job."""
     repo = JobRepository(session)
     status = await _ready_status(repo, job_id)
-    obj = await repo.update(job_id, status=status, next_run_at=None)
+    await repo.update(job_id, status=status, next_run_at=None)
     await repo.add_event(
         job_id=job_id, severity="info", kind="job.resumed", message="Job resumed by user"
     )
@@ -151,7 +150,7 @@ async def resume_job(job_id: str, session: AsyncSession = Depends(get_session)):
 
 
 @router.post("/jobs/{job_id}/retry")
-async def retry_job(job_id: str, session: AsyncSession = Depends(get_session)):
+async def retry_job(job_id: str, session: SessionDep):
     """Retry a failed job from its current stage, resetting its attempt count."""
     repo = JobRepository(session)
     status = await _ready_status(repo, job_id)
@@ -166,7 +165,7 @@ async def retry_job(job_id: str, session: AsyncSession = Depends(get_session)):
 
 
 @router.post("/jobs/{job_id}/restart")
-async def restart_job(job_id: str, session: AsyncSession = Depends(get_session)):
+async def restart_job(job_id: str, session: SessionDep):
     """Run the job again from the first stage, e.g. after its files were deleted."""
     from sqlalchemy import delete, update
 
@@ -215,7 +214,7 @@ async def restart_job(job_id: str, session: AsyncSession = Depends(get_session))
 
 
 @router.post("/jobs/{job_id}/approve")
-async def approve_job(job_id: str, session: AsyncSession = Depends(get_session)):
+async def approve_job(job_id: str, session: SessionDep):
     """Start a job whose tag rule doesn't process automatically; 409 unless it is waiting for that."""
     repo = JobRepository(session)
     job = await repo.get(job_id)
@@ -240,7 +239,7 @@ async def approve_job(job_id: str, session: AsyncSession = Depends(get_session))
 
 
 @router.post("/jobs/{job_id}/skip-library")
-async def skip_library_check(job_id: str, session: AsyncSession = Depends(get_session)):
+async def skip_library_check(job_id: str, session: SessionDep):
     """Process a job without asking the library first (e.g. "Tron Trilogy", which no library
     parses as one title); at import the library matches each file on its own. Starting it this
     way also counts as approval. Allowed until the job is past the library check."""
@@ -273,12 +272,12 @@ async def skip_library_check(job_id: str, session: AsyncSession = Depends(get_se
 
 
 @router.post("/jobs/{job_id}/cancel")
-async def cancel_job(job_id: str, session: AsyncSession = Depends(get_session)):
+async def cancel_job(job_id: str, session: SessionDep):
     """Cancel a job."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     repo = JobRepository(session)
-    obj = await repo.update(job_id, status="cancelled", ended_at=datetime.now(timezone.utc))
+    obj = await repo.update(job_id, status="cancelled", ended_at=datetime.now(UTC))
     if not obj:
         raise HTTPException(status_code=404, detail="Job not found")
     await repo.add_event(
@@ -289,7 +288,7 @@ async def cancel_job(job_id: str, session: AsyncSession = Depends(get_session)):
 
 
 @router.post("/jobs/{job_id}/retry-import")
-async def retry_import(job_id: str, session: AsyncSession = Depends(get_session)):
+async def retry_import(job_id: str, session: SessionDep):
     """Run the library import again (from the inspect/import stage)."""
     repo = JobRepository(session)
     obj = await repo.update(job_id, stage="inspect_import", status="queued")

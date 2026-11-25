@@ -9,20 +9,18 @@ Acceptance criteria:
 from __future__ import annotations
 
 import asyncio
-import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import select
-
-from app.database.models import Job, SourceItem, SourceLabelRule, SourceInstance, StageRun
+from app.database.models import Job
 from app.database.repositories import (
     JobRepository,
+    LabelRuleRepository,
     SourceItemRepository,
     SourceRepository,
-    LabelRuleRepository,
 )
-from app.domain.models import JobStage, JobStatus, StageRunStatus
+from app.domain.models import JobStage, JobStatus
+from sqlalchemy import select
 
 
 @pytest.mark.asyncio
@@ -46,11 +44,9 @@ async def test_scheduler_starts_and_stops(app):
 @pytest.mark.asyncio
 async def test_concurrency_limit_three_download_jobs(app, settings, tmp_path):
     """At most 3 concurrent download jobs globally; 4th waits."""
-    from app.jobs.scheduler import JobScheduler, StageSemaphore
-
     # Create a source with a label rule
-    factory = app.state.settings
     from app.database.session import get_session_factory
+    from app.jobs.scheduler import JobScheduler
 
     sess_factory = get_session_factory(settings)
     async with sess_factory() as session:
@@ -189,7 +185,7 @@ async def test_lease_expiry_and_recovery(app, settings):
 
         job_repo = JobRepository(session)
         # Create job with expired lease (lease expired 1 hour ago)
-        past_time = datetime.now(timezone.utc) - timedelta(hours=1)
+        past_time = datetime.now(UTC) - timedelta(hours=1)
         job = await job_repo.create(
             source_item_id=item.id,
             rule_id=rule.id,
@@ -219,7 +215,7 @@ async def test_lease_expiry_and_recovery(app, settings):
 @pytest.mark.asyncio
 async def test_stage_ordering(app):
     """Stage ordering follows the spec: resolve_source → download → ... → cleanup."""
-    from app.jobs.scheduler import _get_next_stage, _STAGE_ORDER
+    from app.jobs.scheduler import _STAGE_ORDER, _get_next_stage
 
     assert _STAGE_ORDER[0] == "source_download"
     assert _get_next_stage("import") == "cleanup"
@@ -237,14 +233,15 @@ async def test_stage_ordering(app):
 @pytest.mark.asyncio
 async def test_job_claim_atomicity(app, settings):
     """Job claim is atomic — only one worker gets a job."""
-    from app.database.session import get_session_factory
+    import uuid
+
     from app.database.repositories import (
         JobRepository,
-        SourceRepository,
         LabelRuleRepository,
         SourceItemRepository,
+        SourceRepository,
     )
-    import uuid
+    from app.database.session import get_session_factory
 
     factory = get_session_factory(settings)
 
@@ -272,7 +269,7 @@ async def test_job_claim_atomicity(app, settings):
             source_status="completed",
         )
         job_repo = JobRepository(session)
-        job = await job_repo.create(
+        await job_repo.create(
             source_item_id=item.id,
             rule_id=rule.id,
             config_snapshot_json={},
@@ -280,13 +277,12 @@ async def test_job_claim_atomicity(app, settings):
             stage=JobStage.CHECK_LIBRARY.value,
         )
         await session.commit()
-        job_id = job.id
 
     # Two workers try to claim simultaneously
     token1 = str(uuid.uuid4())
     token2 = str(uuid.uuid4())
-    lease_until = datetime.now(timezone.utc) + timedelta(seconds=90)
-    now = datetime.now(timezone.utc)
+    lease_until = datetime.now(UTC) + timedelta(seconds=90)
+    now = datetime.now(UTC)
 
     async with factory() as session:
         repo = JobRepository(session)
@@ -304,13 +300,13 @@ async def test_job_claim_atomicity(app, settings):
 @pytest.mark.asyncio
 async def test_duplicate_active_job_blocked(app, settings):
     """At most one non-terminal job per source item."""
-    from app.database.session import get_session_factory
     from app.database.repositories import (
         JobRepository,
-        SourceRepository,
         LabelRuleRepository,
         SourceItemRepository,
+        SourceRepository,
     )
+    from app.database.session import get_session_factory
 
     factory = get_session_factory(settings)
 

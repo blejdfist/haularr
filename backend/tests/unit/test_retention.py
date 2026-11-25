@@ -6,20 +6,19 @@ Acceptance criteria:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import select
-
-from app.database.models import Job, SourceItem, SourceLabelRule, SourceInstance, JobEvent, StageRun
+from app.database.models import Job, SourceInstance, SourceItem
 from app.database.repositories import (
     JobRepository,
-    SourceRepository,
     LabelRuleRepository,
     SourceItemRepository,
+    SourceRepository,
 )
 from app.domain.models import JobStage, JobStatus
 from app.jobs.retention import RetentionJob
+from sqlalchemy import select
 
 
 @pytest.mark.asyncio
@@ -55,7 +54,7 @@ async def test_retention_prunes_old_completed_jobs(app, settings):
         )
 
         job_repo = JobRepository(session)
-        old_time = datetime.now(timezone.utc) - timedelta(days=30)
+        old_time = datetime.now(UTC) - timedelta(days=30)
         job = await job_repo.create(
             source_item_id=item.id,
             rule_id=rule.id,
@@ -117,7 +116,7 @@ async def test_retention_preserves_failed_jobs(app, settings):
         )
 
         job_repo = JobRepository(session)
-        old_time = datetime.now(timezone.utc) - timedelta(days=30)
+        old_time = datetime.now(UTC) - timedelta(days=30)
         job = await job_repo.create(
             source_item_id=item.id,
             rule_id=rule.id,
@@ -172,7 +171,7 @@ async def test_retention_preserves_needs_attention_jobs(app, settings):
         )
 
         job_repo = JobRepository(session)
-        old_time = datetime.now(timezone.utc) - timedelta(days=30)
+        old_time = datetime.now(UTC) - timedelta(days=30)
         job = await job_repo.create(
             source_item_id=item.id,
             rule_id=rule.id,
@@ -226,7 +225,7 @@ async def test_retention_preserves_recent_completed(app, settings):
         )
 
         job_repo = JobRepository(session)
-        recent_time = datetime.now(timezone.utc) - timedelta(days=1)
+        recent_time = datetime.now(UTC) - timedelta(days=1)
         job = await job_repo.create(
             source_item_id=item.id,
             rule_id=rule.id,
@@ -280,7 +279,7 @@ async def test_retention_preserves_source_items(app, settings):
         )
 
         job_repo = JobRepository(session)
-        old_time = datetime.now(timezone.utc) - timedelta(days=30)
+        old_time = datetime.now(UTC) - timedelta(days=30)
         await job_repo.create(
             source_item_id=item.id,
             rule_id=rule.id,

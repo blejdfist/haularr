@@ -5,12 +5,12 @@ from __future__ import annotations
 import logging
 
 import pytest
-from sqlalchemy import func, select, update
-
 from app.api.routes_sse import job_changes
 from app.database.models import Job, JobFile
 from app.database.session import get_session_factory
 from app.logging_buffer import install_log_handler
+from sqlalchemy import func, select, update
+
 from tests.unit.test_jobs_list import _seed
 
 

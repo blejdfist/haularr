@@ -7,6 +7,8 @@ Acceptance criteria:
 
 from __future__ import annotations
 
+from datetime import UTC
+
 import pytest
 
 
@@ -22,7 +24,6 @@ async def test_source_items_empty(auth_client):
             "connection_config": {},
         },
     )
-    source_id = r.json()["id"]
 
     r = await auth_client.get("/api/v1/source-items")
     assert r.status_code == 200
@@ -57,8 +58,8 @@ async def test_queue_requires_matching_label(auth_client, settings):
     source_id = r.json()["id"]
 
     # Create a source item directly in DB
-    from app.database.session import get_session_factory
     from app.database.models import SourceItem
+    from app.database.session import get_session_factory
 
     factory = get_session_factory(settings)
     async with factory() as session:
@@ -88,7 +89,7 @@ async def test_queue_requires_matching_label(auth_client, settings):
 
 async def _seed(auth_client, settings, specs):
     """specs: (remote_id, eligibility, has_job, ignored). Returns {remote_id: item_id}."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from app.database.models import Job, SourceItem, SourceLabelRule
     from app.database.session import get_session_factory
@@ -119,7 +120,7 @@ async def _seed(auth_client, settings, specs):
                 remote_path="/d",
                 size_bytes=1,
                 last_eligibility=elig,
-                ignored_at=datetime.now(timezone.utc) if ignored else None,
+                ignored_at=datetime.now(UTC) if ignored else None,
             )
             session.add(item)
             await session.flush()
@@ -199,9 +200,9 @@ async def test_queue_snapshot_has_title_and_list_has_source_name(auth_client, se
 
 @pytest.mark.asyncio
 async def test_delete_source_with_items_and_jobs(auth_client, settings):
-    from sqlalchemy import select
     from app.database.models import Job, SourceItem, SourceLabelRule
     from app.database.session import get_session_factory
+    from sqlalchemy import select
 
     await _seed(auth_client, settings, [("a", "missing", True, False)])
     sid = (await auth_client.get("/api/v1/sources")).json()[0]["id"]

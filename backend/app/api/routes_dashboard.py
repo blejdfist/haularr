@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
-from sqlalchemy import func, select, and_
-from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import UTC
+
+from fastapi import APIRouter
+from sqlalchemy import and_, func, select
 
 from app.database.models import Job, SourceInstance, SourceItem
-
-from app.database.session import get_session
+from app.database.session import SessionDep
 
 router = APIRouter(tags=["system"])
 
 
 @router.get("/dashboard")
-async def get_dashboard(session: AsyncSession = Depends(get_session)):
+async def get_dashboard(session: SessionDep):
     """Job counts by status, completions, source scan health and the 10 most recently ended jobs."""
 
     # Job counts by status
@@ -33,7 +33,7 @@ async def get_dashboard(session: AsyncSession = Depends(get_session)):
 
     # Enabled sources
     enabled_result = await session.execute(
-        select(func.count(SourceInstance.id)).where(SourceInstance.enabled == True)  # noqa: E712
+        select(func.count(SourceInstance.id)).where(SourceInstance.enabled == True)
     )
     enabled_sources = enabled_result.scalar_one()
 
@@ -42,9 +42,9 @@ async def get_dashboard(session: AsyncSession = Depends(get_session)):
     total_items = item_result.scalar_one()
 
     # Completed today
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
-    today_start = datetime.now(timezone.utc) - timedelta(hours=24)
+    today_start = datetime.now(UTC) - timedelta(hours=24)
     completed_today_result = await session.execute(
         select(func.count(Job.id)).where(
             and_(
@@ -59,7 +59,7 @@ async def get_dashboard(session: AsyncSession = Depends(get_session)):
         await session.execute(
             select(func.count(Job.id)).where(
                 Job.status.in_(["completed", "completed_with_warnings"]),
-                Job.ended_at >= datetime.now(timezone.utc) - timedelta(days=7),
+                Job.ended_at >= datetime.now(UTC) - timedelta(days=7),
             )
         )
     ).scalar_one()

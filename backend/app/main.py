@@ -5,10 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sys
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncGenerator
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -33,7 +32,7 @@ def _alembic_config(settings: Settings):
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Application startup and shutdown lifecycle."""
     settings: Settings = app.state.settings
     logging.basicConfig(level=getattr(logging, settings.log_level))
@@ -62,9 +61,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
 
     # Initialize database
-    from app.database.session import get_engine, close_engine
+    from app.database.session import close_engine, get_engine
 
-    engine = get_engine(settings)
+    get_engine(settings)
 
     # Run migrations on startup
     logger.info("Running database migrations...")
@@ -86,8 +85,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Load persisted settings from DB (overrides env/file defaults)
     await _load_persisted_settings(settings)
 
-    from app.jobs.scheduler import JobScheduler
     from app.jobs.recovery import Recovery
+    from app.jobs.scheduler import JobScheduler
 
     if settings.demo:
         # Fake data only: nothing may run against the made-up hosts. The scheduler and
@@ -148,7 +147,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.retention_task.cancel()
         try:
             await asyncio.wait_for(app.state.retention_task, timeout=5.0)
-        except (asyncio.CancelledError, asyncio.TimeoutError):
+        except (TimeoutError, asyncio.CancelledError):
             pass
     if hasattr(app.state, "supervisor"):
         await supervisor.stop()
@@ -174,8 +173,8 @@ async def _load_persisted_settings(settings: Settings) -> None:
         "stage_lease_seconds",
     ]
     try:
-        from app.database.session import get_session_factory
         from app.database.repositories import SettingsRepository
+        from app.database.session import get_session_factory
 
         factory = get_session_factory(settings)
         async with factory() as session:

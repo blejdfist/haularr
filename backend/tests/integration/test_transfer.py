@@ -7,12 +7,7 @@ Acceptance criteria:
 
 from __future__ import annotations
 
-import asyncio
 import os
-import tempfile
-from pathlib import Path
-
-import pytest
 
 from app.adapters.transfers.ftps import FTPSAdapter
 from app.domain.models import RemoteFileDTO, SourceItemDTO, SourceStatus

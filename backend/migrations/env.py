@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 from logging.config import fileConfig
 from pathlib import Path
@@ -16,8 +15,8 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.database.models import Base  # noqa: E402
-from app.settings import Settings  # noqa: E402
+from app.database.models import Base
+from app.settings import Settings
 
 # Alembic config object
 config = context.config

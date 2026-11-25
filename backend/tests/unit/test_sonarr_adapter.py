@@ -1,7 +1,6 @@
 import httpx
 import pytest
 import respx
-
 from app.adapters.libraries.sonarr import SonarrAdapter
 
 

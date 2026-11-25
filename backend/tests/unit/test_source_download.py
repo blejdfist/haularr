@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import pytest
-from sqlalchemy import select
+from datetime import UTC
 
+import pytest
 from app.database.models import Job, SourceItem, StageRun
 from app.database.repositories import LabelRuleRepository, SourceRepository
 from app.database.session import get_session_factory
 from app.domain.models import RemoteFileDTO, SourceItemDTO, SourceStatus
+from sqlalchemy import select
 
 KEY = b"k" * 32
 
@@ -431,9 +432,9 @@ async def test_removed_item_keeps_finished_job_history(seedbox, settings):
     async with get_session_factory(settings)() as session:
         job = (await session.execute(select(Job))).scalar_one()
         job.stage, job.status = "cleanup", "completed"
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        job.ended_at = datetime.now(timezone.utc)
+        job.ended_at = datetime.now(UTC)
         await session.commit()
     fake.items = []
     await scan()
@@ -443,7 +444,7 @@ async def test_removed_item_keeps_finished_job_history(seedbox, settings):
 
 
 async def test_job_skipped_by_earlier_build_is_cleaned_up(seedbox, settings):
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     fake, scan, _ = seedbox
     fake.items = [_dto()]
@@ -451,7 +452,7 @@ async def test_job_skipped_by_earlier_build_is_cleaned_up(seedbox, settings):
     async with get_session_factory(settings)() as session:
         job = (await session.execute(select(Job))).scalar_one()
         job.stage, job.status, job.error_code = "check_library", "skipped", "source_removed"
-        job.ended_at = datetime.now(timezone.utc)
+        job.ended_at = datetime.now(UTC)
         await session.commit()
     fake.items = []
     await scan()

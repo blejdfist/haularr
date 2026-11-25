@@ -8,13 +8,12 @@ not be redownloaded because its stage DB update was interrupted.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from sqlalchemy import select, update, and_
+from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import Job, StageRun, JobFile
-from app.database.repositories import JobRepository
+from app.database.models import Job, JobFile, StageRun
 from app.database.session import get_session_factory
 from app.domain.models import JobStatus, StageRunStatus, TransferStatus
 from app.logging_buffer import job_name
@@ -24,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Recovery:
@@ -123,7 +122,7 @@ class Recovery:
         """
         if job.stage == "transfer":
             config = job.config_snapshot_json
-            temp_dir = config.get("temporary_directory", "/tmp")
+            config.get("temporary_directory", "/tmp")
             # Job files that were marked in_progress are reset to pending
             # so the download stage will resume from the .part file offset
             logger.info("Reconciling download for job %s — .part files will resume", job_name(job))

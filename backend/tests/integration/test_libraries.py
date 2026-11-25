@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import pytest
+from datetime import UTC
 from unittest.mock import AsyncMock, patch
 
-from app.adapters.libraries.sonarr import SonarrAdapter
+import pytest
 from app.adapters.libraries.radarr import RadarrAdapter
+from app.adapters.libraries.sonarr import SonarrAdapter
 from app.domain.models import MediaType
 
 
@@ -198,14 +199,15 @@ async def test_sonarr_inspect_import_without_match_takes_each_files_series():
 
 @pytest.mark.asyncio
 async def test_radarr_reconcile_without_match_checks_each_imported_movie():
-    from datetime import datetime, timezone
+    from datetime import datetime
+
     from app.domain.models import ImportOperation, MediaMatch
 
     adapter = RadarrAdapter(library_id="test", base_url="http://radarr:7878", api_key="k")
     op = ImportOperation(
         operation_id="9",
         command_id=9,
-        submitted_at=datetime.now(timezone.utc),
+        submitted_at=datetime.now(UTC),
         candidates=["/a.mkv", "/b.mkv"],
         media_ids=[1, 2],
     )

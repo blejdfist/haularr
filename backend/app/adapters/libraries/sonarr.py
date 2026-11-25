@@ -13,7 +13,7 @@ Important:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -213,7 +213,7 @@ class SonarrAdapter:
         return ImportOperation(
             operation_id=str(command_id),
             command_id=command_id,
-            submitted_at=datetime.now(timezone.utc),
+            submitted_at=datetime.now(UTC),
             candidates=[c.absolute_path for c in selected_candidates],
             media_ids=sorted({c.media_id for c in selected_candidates if c.media_id}),
         )

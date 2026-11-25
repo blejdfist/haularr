@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -166,7 +166,7 @@ class RtorrentAdapter:
         )
 
     @classmethod
-    def from_config(cls, source_id: str, config: dict) -> "RtorrentAdapter":
+    def from_config(cls, source_id: str, config: dict) -> RtorrentAdapter:
         """Build adapter from structured config dict.
 
         Accepts either:
@@ -238,7 +238,7 @@ class RtorrentAdapter:
             size_bytes,
             completed_bytes,
             ts_finished,
-            base_path,
+            _base_path,
             message,
             directory,
             down_rate,
@@ -258,7 +258,7 @@ class RtorrentAdapter:
 
         completed_at: datetime | None = None
         if ts_finished and int(ts_finished) > 0:
-            completed_at = datetime.fromtimestamp(int(ts_finished), tz=timezone.utc)
+            completed_at = datetime.fromtimestamp(int(ts_finished), tz=UTC)
 
         labels = [custom1.strip()] if custom1 and custom1.strip() else []
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC
+
 import pytest
 
 
@@ -27,12 +29,12 @@ async def test_dashboard_empty(auth_client):
 
 async def _seed(settings, specs, error=None):
     """specs: [(status, ended_days_ago|None)]; also creates a source with last_scan_error."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from app.database.models import Job, SourceInstance, SourceItem, SourceLabelRule
     from app.database.session import get_session_factory
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     async with get_session_factory(settings)() as session:
         src = SourceInstance(
             name="Src",
@@ -92,4 +94,4 @@ async def test_dashboard_by_status(auth_client, settings):
 async def test_dashboard_source_health(auth_client, settings):
     sid = await _seed(settings, [], error="boom")
     health = (await auth_client.get("/api/v1/dashboard")).json()["source_health"]
-    assert [h for h in health if h["id"] == sid][0]["last_scan_error"] == "boom"
+    assert next(h for h in health if h["id"] == sid)["last_scan_error"] == "boom"

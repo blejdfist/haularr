@@ -5,10 +5,9 @@ from __future__ import annotations
 import sqlite3
 
 import pytest
-from sqlalchemy import delete
-
 from app.database.models import User
 from app.database.session import get_session_factory
+from sqlalchemy import delete
 
 
 @pytest.mark.asyncio
@@ -37,7 +36,6 @@ async def test_setup_login_and_deleted_user(client, settings):
 
 def test_migration_imports_legacy_admin_env(tmp_path, monkeypatch):
     from alembic import command
-
     from app.main import _alembic_config
     from app.settings import Settings
 

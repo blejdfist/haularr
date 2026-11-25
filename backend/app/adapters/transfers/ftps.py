@@ -17,25 +17,22 @@ Connection config:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
-import socket
 import ssl
 import threading
-import time
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
+from ftplib import FTP_TLS, error_perm
 
 import anyio
-from ftplib import FTP_TLS, error_perm, error_temp, error_reply
 
 from app.domain.models import (
     RemoteFileDTO,
     RemoteManifest,
     SourceItemDTO,
     TransferResult,
-    TransferStatus,
 )
 
 logger = logging.getLogger(__name__)
@@ -152,17 +149,15 @@ class FTPSAdapter:
                     except Exception as exc:
                         logger.debug("inspect: error checking %s: %s", remote_path, exc)
             finally:
-                try:
+                with contextlib.suppress(Exception):
                     ftp.quit()
-                except Exception:
-                    pass
             return found
 
         files = await anyio.to_thread.run_sync(_inspect)
         return RemoteManifest(
             endpoint_name=self._host,
             files=files,
-            checked_at=datetime.now(timezone.utc),
+            checked_at=datetime.now(UTC),
         )
 
     async def transfer_file(
@@ -266,10 +261,8 @@ class FTPSAdapter:
                         endpoint_name=self._host,
                     )
                 finally:
-                    try:
+                    with contextlib.suppress(Exception):
                         ftp.quit()
-                    except Exception:
-                        pass
             except Exception as exc:
                 logger.error("FTPS transfer failed for %s: %s", remote_path, exc)
                 return TransferResult(

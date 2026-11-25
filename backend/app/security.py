@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
 import bcrypt
 from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
-from app.settings import Settings, get_settings
+from app.settings import Settings
 
 ALGORITHM = "HS256"
 
@@ -49,7 +50,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(data: dict, settings: Settings) -> str:
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
+    expire = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.secret_key, algorithm=ALGORITHM)
 
@@ -73,17 +74,16 @@ def get_or_create_master_key(config_dir: Path) -> bytes:
     key_bytes = secrets.token_bytes(32)
     config_dir.mkdir(parents=True, exist_ok=True)
     key_path.write_bytes(key_bytes)
-    try:
+    with contextlib.suppress(OSError):  # Windows may not support chmod
         os.chmod(key_path, 0o600)
-    except Exception:
-        pass  # Windows may not support chmod
     return key_bytes
 
 
 def encrypt_secret(plaintext: str, master_key: bytes) -> str:
     """Simple XOR-based encryption placeholder; replace with Fernet in prod."""
+    import base64
+
     from cryptography.fernet import Fernet
-    import base64, hashlib
 
     # Derive a Fernet key from master_key
     fernet_key = base64.urlsafe_b64encode(master_key)
@@ -92,8 +92,9 @@ def encrypt_secret(plaintext: str, master_key: bytes) -> str:
 
 
 def decrypt_secret(ciphertext: str, master_key: bytes) -> str:
-    from cryptography.fernet import Fernet
     import base64
+
+    from cryptography.fernet import Fernet
 
     fernet_key = base64.urlsafe_b64encode(master_key)
     f = Fernet(fernet_key)

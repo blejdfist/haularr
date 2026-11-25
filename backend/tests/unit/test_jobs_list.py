@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
-
 from app.database.models import Job, LibraryInstance, SourceItem
 from app.database.repositories import LabelRuleRepository, SourceRepository
 from app.database.session import get_session_factory
@@ -14,7 +13,7 @@ from app.database.session import get_session_factory
 async def _seed(settings, specs, library_id="lib-1"):
     """specs: list of (status, age_minutes). Returns title and library name."""
     factory = get_session_factory(settings)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     async with factory() as session:
         source = await SourceRepository(session).create(
             name="S", adapter_type="rtorrent", connection_config_json={}, credential_ref=""

@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
-from sqlalchemy import select
-
 from app.database.models import Job, JobFile, TransferEndpoint, TransferInstance
 from app.database.session import get_session_factory
 from app.domain.models import RemoteFileDTO, RemoteManifest, StageRunStatus, TransferResult
+from sqlalchemy import select
+
 from tests.unit.test_waiting_fetch import _job
 
 DATA = b"0123456789"
@@ -40,8 +41,7 @@ def stage(app, settings, tmp_path, monkeypatch, hidden):
 
     async def fake_transfer(self, remote_file, remote_base_path, destination_part_path, **kw):
         calls.append(remote_file.relative_path)
-        with open(destination_part_path, "wb") as f:
-            f.write(DATA)
+        Path(destination_part_path).write_bytes(DATA)
         return TransferResult(success=True, bytes_transferred=len(DATA), endpoint_name="h")
 
     monkeypatch.setattr(FTPSAdapter, "transfer_file", fake_transfer)
@@ -50,7 +50,7 @@ def stage(app, settings, tmp_path, monkeypatch, hidden):
         if "*" in hidden:
             raise ConnectionError("550 no such directory")
         files = [f for f in manifest if f.relative_path not in hidden]
-        return RemoteManifest(endpoint_name="h", files=files, checked_at=datetime.now(timezone.utc))
+        return RemoteManifest(endpoint_name="h", files=files, checked_at=datetime.now(UTC))
 
     monkeypatch.setattr(FTPSAdapter, "inspect", fake_inspect)
 
@@ -122,7 +122,7 @@ async def _pipeline(run):
 
 @pytest.mark.asyncio
 async def test_single_file_release_downloads_flat_and_moves(stage, tmp_path):
-    setup, run, calls, _, names = stage
+    setup, run, _calls, _, names = stage
     names[:] = ["T"]  # single-file torrent: the file is named like the item
     await setup()
     await _pipeline(run)
@@ -132,7 +132,7 @@ async def test_single_file_release_downloads_flat_and_moves(stage, tmp_path):
 
 @pytest.mark.asyncio
 async def test_folder_release_moves_whole_folder(stage, tmp_path):
-    setup, run, calls, _, names = stage
+    setup, run, _calls, _, names = stage
     names[:] = ["a.mkv", "Subs/en.srt"]
     await setup()
     await _pipeline(run)
@@ -152,7 +152,7 @@ async def test_rar_release_extracts_in_place_and_moves_only_extracted(stage, tmp
         return ExtractionResult(success=True, extracted_files=["ep.mkv"])
 
     monkeypatch.setattr(extraction, "extract_archive", fake_extract)
-    setup, run, calls, _, names = stage
+    setup, run, _calls, _, names = stage
     names[:] = ["t.rar", "t.r00", "t.nfo"]
     await setup()
     await _pipeline(run)
@@ -177,7 +177,7 @@ async def test_pack_extracts_per_release_and_nested_archives(stage, tmp_path, mo
         return ExtractionResult(success=True)
 
     monkeypatch.setattr(extraction, "extract_archive", fake_extract)
-    setup, run, calls, _, names = stage
+    setup, run, _calls, _, names = stage
     names[:] = ["A/a.rar", "B/b.rar", "B/Subs/subs.rar"]
     await setup()
     await _pipeline(run)
@@ -232,8 +232,7 @@ async def test_every_expected_file_is_listed_with_its_own_status(stage, settings
             seen_during_a.update(
                 {f.remote_relpath: f.transfer_status for f in await _files(settings, job_id)}
             )
-            with open(destination_part_path, "wb") as f:
-                f.write(DATA)
+            Path(destination_part_path).write_bytes(DATA)
             return TransferResult(success=True, bytes_transferred=len(DATA), endpoint_name="h")
         return TransferResult(success=False, bytes_transferred=0, endpoint_name="h", error="boom")
 

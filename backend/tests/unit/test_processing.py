@@ -13,25 +13,20 @@ from __future__ import annotations
 
 import binascii
 import os
-import tempfile
-from pathlib import Path
 
 import pytest
-
+from app.processing.cleanup import cleanup_path_a, cleanup_path_b
+from app.processing.extraction import (
+    _validate_archive_path,
+    detect_archives,
+    extract_zip,
+)
 from app.processing.verification import (
     compute_crc32,
     find_sfv_files,
     parse_sfv,
     verify_files,
 )
-from app.processing.extraction import (
-    detect_archives,
-    extract_zip,
-    extract_archive,
-    _validate_archive_path,
-)
-from app.processing.cleanup import cleanup_path_a, cleanup_path_b
-
 
 # ---------------------------------------------------------------------------
 # SFV Verification tests

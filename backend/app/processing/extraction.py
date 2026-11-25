@@ -10,7 +10,6 @@ Security:
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 import zipfile
 from dataclasses import dataclass, field
@@ -37,8 +36,6 @@ class ExtractionResult:
 def detect_archives(local_dir: Path) -> list[Path]:
     """Find archive files that should be extracted."""
     archives = []
-    archive_exts = {".rar", ".zip"}
-    seen_rar_bases = set()  # Avoid processing multiple parts of same RAR set
 
     for f in sorted(local_dir.rglob("*")):
         if not f.is_file():
@@ -54,11 +51,7 @@ def detect_archives(local_dir: Path) -> list[Path]:
         elif ext == ".rar":
             # Only the first volume of a multipart RAR: file.part01.rar, or file.rar
             name_base = f.stem
-            if (
-                ".part" not in name_base
-                or name_base.endswith(".part01")
-                or name_base.endswith(".part1")
-            ):
+            if ".part" not in name_base or name_base.endswith((".part01", ".part1")):
                 archives.append(f)
     return archives
 
@@ -185,6 +178,7 @@ def extract_rar(archive_path: Path, dest_dir: Path) -> ExtractionResult:
                 cmd,
                 capture_output=True,
                 text=True,
+                check=False,
                 timeout=4 * 3600,  # a 80 GB remux to a slow disk takes well over 10 minutes
             )
             if proc.returncode == 0:

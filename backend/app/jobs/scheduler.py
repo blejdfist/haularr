@@ -11,10 +11,7 @@ import asyncio
 import logging
 import random
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Any
-
-from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import UTC, datetime, timedelta
 
 from app.database.repositories import JobRepository
 from app.database.session import get_session_factory
@@ -25,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class StageSemaphore:
@@ -44,7 +41,6 @@ class StageSemaphore:
         if new_limit == self._limit:
             return
         # Rebuild semaphore with new limit — existing holders keep running
-        old = self._semaphore
         self._limit = new_limit
         self._semaphore = asyncio.Semaphore(new_limit)
 
@@ -52,7 +48,7 @@ class StageSemaphore:
         try:
             await asyncio.wait_for(self._semaphore.acquire(), timeout=0.1)
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False
 
     def release(self) -> None:
@@ -130,7 +126,7 @@ class JobScheduler:
             self._task.cancel()
             try:
                 await asyncio.wait_for(self._task, timeout=5.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
+            except (TimeoutError, asyncio.CancelledError):
                 pass
             self._task = None
 

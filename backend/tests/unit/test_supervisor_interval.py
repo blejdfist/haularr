@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from app.database.models import Job, SourceItem
 from app.database.repositories import LabelRuleRepository, SourceRepository
 from app.database.session import get_session_factory

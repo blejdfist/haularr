@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -39,12 +37,11 @@ def settings(temp_config_dir):
 @pytest_asyncio.fixture
 async def app(settings):
     """Create the FastAPI app with test settings and run migrations."""
-    from app.main import create_app
+    from app.database.models import Base
 
     # Create tables directly (faster than Alembic for tests, avoids async loop issues)
-    from app.database.session import get_engine, close_engine
-    from app.database.models import Base
-    from sqlalchemy.ext.asyncio import AsyncEngine
+    from app.database.session import close_engine, get_engine
+    from app.main import create_app
 
     os.environ["HAULARR_CONFIG_DIR"] = str(settings.config_dir)
     settings.config_dir.mkdir(parents=True, exist_ok=True)
@@ -80,7 +77,7 @@ async def auth_client(app):
     """Create an authenticated async HTTP client (admin account pre-set up)."""
     from app.database.models import User
     from app.database.session import get_session_factory
-    from app.security import hash_password, create_access_token
+    from app.security import create_access_token, hash_password
 
     settings = app.state.settings
     user = User(username="admin", password_hash=hash_password("testpass123"), is_admin=True)
@@ -101,7 +98,7 @@ async def auth_client(app):
 @pytest_asyncio.fixture
 async def db_session(settings):
     """Create a database session for direct DB testing."""
-    from app.database.session import get_session_factory, close_engine, get_engine
+    from app.database.session import close_engine, get_engine, get_session_factory
 
     # Ensure engine is created
     get_engine(settings)

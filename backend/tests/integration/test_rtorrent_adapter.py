@@ -5,9 +5,9 @@ Tests the XML-RPC request building and response parsing without a real rTorrent 
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from app.adapters.sources.rtorrent import RtorrentAdapter, _parse_xmlrpc_response, _xmlrpc_call
 
 
@@ -135,9 +135,11 @@ async def test_list_items_raises_on_fault():
     """A failed listing must surface as a scan error, not as an empty source."""
     adapter = RtorrentAdapter(source_id="test", xmlrpc_url="http://example.com/RPC2")
     err = RuntimeError("XML-RPC fault: {'faultCode': -503, 'faultString': 'Could not find view.'}")
-    with patch.object(adapter, "_call", new_callable=AsyncMock, side_effect=err):
-        with pytest.raises(RuntimeError, match="Could not find view"):
-            await adapter.list_items()
+    with (
+        patch.object(adapter, "_call", new_callable=AsyncMock, side_effect=err),
+        pytest.raises(RuntimeError, match="Could not find view"),
+    ):
+        await adapter.list_items()
 
 
 # Field values as reported by a real rTorrent (seedbox) for both torrent shapes.

@@ -2,20 +2,15 @@
 
 from __future__ import annotations
 
-import pytest
-
 from app.domain.models import (
     AdapterType,
     EligibilityStatus,
     JobStage,
     JobStatus,
-    MediaType,
     OnboardingState,
     RemoteFileDTO,
     SourceItemDTO,
     SourceStatus,
-    StageRunStatus,
-    TransferStatus,
 )
 
 
