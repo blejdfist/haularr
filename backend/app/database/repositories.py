@@ -421,8 +421,8 @@ class JobRepository:
         total_result = await self.session.execute(count_query)
         total = total_result.scalar_one()
 
-        # Same timestamp the UI shows as "When": finished jobs by end time, others by creation.
-        order = [func.coalesce(Job.ended_at, Job.created_at).desc()]
+        # Creation order stays stable through progress, completion and restarts.
+        order = [Job.created_at.desc(), Job.id.asc()]
         if sort == "attention":
             order.insert(0, case((Job.status.in_(["failed", "needs_attention"]), 0), else_=1))
         query = query.order_by(*order).offset(offset).limit(limit)

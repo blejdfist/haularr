@@ -285,7 +285,7 @@
               </div>
             </td>
             <td class="hidden px-4 py-3.5 sm:table-cell">{@render steps(j)}</td>
-            <td class="hidden py-3.5 pr-3 pl-4 text-right whitespace-nowrap text-gray-500 dark:text-gray-400 tabular-nums sm:table-cell">{ago(j.ended_at ?? j.created_at)}</td>
+            <td class="hidden py-3.5 pr-3 pl-4 text-right whitespace-nowrap text-gray-500 dark:text-gray-400 tabular-nums sm:table-cell">{ago(j.created_at)}</td>
           </tr>
         {:else}
           {#if !loaded}
