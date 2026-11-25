@@ -42,7 +42,6 @@ RUN UV_PYTHON_DOWNLOADS=never uv sync --frozen --no-dev --no-install-project
 # Copy backend source
 COPY backend/ ./backend/
 COPY alembic.ini ./
-COPY main.py ./
 
 # Copy built frontend
 COPY --from=frontend-build /app/frontend/build ./frontend/build
