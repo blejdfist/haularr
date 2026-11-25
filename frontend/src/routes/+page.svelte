@@ -36,7 +36,7 @@
   let arrived = $state<Record<string, true>>({});
   const DONE = ['completed', 'completed_with_warnings'];
   // Tables sit on the page, not in a card: a quiet label row, hairlines between rows.
-  const HEAD_ROW = 'border-b border-gray-800 text-xs text-gray-400';
+  const HEAD_ROW = 'border-b border-gray-200 dark:border-gray-800 text-xs text-gray-500 dark:text-gray-400';
   const TH = 'px-4 pt-1 pb-2.5 font-medium';
   let drawerOpen = $state(false);
   let drawerJob = $state<string | null>(null);
@@ -53,10 +53,10 @@
   });
   const pill = (f: Filter, n: number) =>
     f === 'failed' && n
-      ? 'bg-red-500/15 text-red-400'
+      ? 'bg-red-500/15 text-red-600 dark:text-red-400'
       : f === 'active' && n
-        ? 'bg-blue-500/15 text-blue-300'
-        : 'bg-gray-700/60 text-gray-400';
+        ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300'
+        : 'bg-gray-200 dark:bg-gray-700/60 text-gray-500 dark:text-gray-400';
 
   type SourceHealth = { id: string; name: string; last_scan_at: string | null; last_scan_error: string | null };
   const sources: SourceHealth[] = $derived(dash?.source_health ?? []);
@@ -159,14 +159,14 @@
   <header class="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
     <div>
       <h1 class="text-2xl font-bold">Dashboard</h1>
-      <p class="mt-1 text-sm text-gray-400">
+      <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
         {#if dash}{dash.jobs.completed_7d} completed in the last 7 days{:else}&nbsp;{/if}
       </p>
     </div>
     {#if dash}
       <a
         href="/sources/"
-        class="-mx-3 inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800 hover:text-white focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-none"
+        class="-mx-3 inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-none"
       >
         <span
           class="h-2 w-2 shrink-0 rounded-full {broken.length ? 'bg-red-500' : sources.length ? 'bg-green-500' : 'bg-gray-500'}"
@@ -184,7 +184,7 @@
     {/if}
   </header>
 
-  <div class="flex flex-wrap items-end justify-between gap-x-4 gap-y-3 border-b border-gray-700">
+  <div class="flex flex-wrap items-end justify-between gap-x-4 gap-y-3 border-b border-gray-200 dark:border-gray-700">
     <nav class="-mb-px flex max-w-full [scrollbar-width:none] overflow-x-auto" aria-label="Filter transfers">
       {#each FILTERS as x}
         {@const n = counts[x]}
@@ -194,8 +194,8 @@
           onclick={() => setFilter(x)}
           class="flex items-center gap-2 border-b-2 px-3 pt-1 pb-3 text-sm font-medium whitespace-nowrap capitalize transition-colors duration-150 focus-visible:bg-gray-800 focus-visible:outline-none {filter ===
           x
-            ? 'border-primary-500 text-white'
-            : 'border-transparent text-gray-400 hover:border-gray-500 hover:text-gray-200'}"
+            ? 'border-primary-500 text-gray-900 dark:text-white'
+            : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-400 hover:text-gray-700 dark:hover:border-gray-500 dark:hover:text-gray-200'}"
         >
           {x}
           {#if n != null && dash}
@@ -211,7 +211,7 @@
         type="search"
         placeholder="Filter by title"
         bind:value={search}
-        class="block w-full rounded-lg border border-gray-600 bg-gray-800 py-2 pr-3 pl-9 text-sm text-white placeholder:text-gray-400 focus:border-primary-500 focus:ring-primary-500"
+        class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white py-2 pr-3 pl-9 text-sm text-gray-900 dark:bg-gray-800 dark:text-white placeholder:text-gray-400 focus:border-primary-500 focus:ring-primary-500"
       />
     </label>
   </div>
@@ -228,19 +228,19 @@
           <th scope="col" class="{TH} pr-3"><span class="sr-only">Action</span></th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-gray-800">
+      <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
         {#each shownSkipped as i (i.id)}
-          <tr class="transition-colors duration-150 hover:bg-gray-800/50">
-            <td class="py-3.5 pr-4 pl-3 font-medium break-words text-gray-100">{i.title ?? '—'}</td>
-            <td class="hidden px-4 py-3.5 text-gray-400 sm:table-cell">{i.source_name ?? i.source_id} · {(i.labels ?? []).join(', ') || '—'}</td>
-            <td class="hidden px-4 py-3.5 whitespace-nowrap text-gray-400 sm:table-cell">Already in library</td>
+          <tr class="transition-colors duration-150 hover:bg-gray-100 dark:hover:bg-gray-800/50">
+            <td class="py-3.5 pr-4 pl-3 font-medium break-words text-gray-900 dark:text-gray-100">{i.title ?? '—'}</td>
+            <td class="hidden px-4 py-3.5 text-gray-500 dark:text-gray-400 sm:table-cell">{i.source_name ?? i.source_id} · {(i.labels ?? []).join(', ') || '—'}</td>
+            <td class="hidden px-4 py-3.5 whitespace-nowrap text-gray-500 dark:text-gray-400 sm:table-cell">Already in library</td>
             <td class="py-3.5 pr-3 pl-4 text-right"><Button size="xs" color="alternative" class="whitespace-nowrap" onclick={() => fetchAnyway(i.id)}>Fetch anyway</Button></td>
           </tr>
         {/each}
       </tbody>
     </table>
     {#if loaded && !shownSkipped.length}
-      <p class="py-10 text-center text-gray-300">{q ? `Nothing skipped matches “${search.trim()}”` : EMPTY.skipped}</p>
+      <p class="py-10 text-center text-gray-600 dark:text-gray-300">{q ? `Nothing skipped matches “${search.trim()}”` : EMPTY.skipped}</p>
     {/if}
   {:else}
     <table class="w-full text-left text-sm">
@@ -252,13 +252,13 @@
           <th scope="col" class="{TH} pr-3 text-right">When</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-gray-800">
+      <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
         {#each shownJobs as j (j.id)}
           {@const reason = reasonFor(j)}
           {@const kind = jobIcon(j.status, !!reason)}
           {@const problem = kind === 'warning' || kind === 'failed' ? reason : undefined}
           <tr
-            class="cursor-pointer transition-colors duration-150 hover:bg-gray-800/50 focus-visible:bg-gray-800/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-500 {arrived[j.id] ? 'arrived' : ''}"
+            class="cursor-pointer transition-colors duration-150 hover:bg-gray-100 dark:hover:bg-gray-800/50 focus-visible:bg-gray-100 dark:focus-visible:bg-gray-800/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-500 {arrived[j.id] ? 'arrived' : ''}"
             tabindex="0"
             onclick={() => openJob(j.id)}
             onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), openJob(j.id))}
@@ -269,11 +269,11 @@
               <div class="flex items-start gap-3">
                 <StatusIcon {kind} tip={problem} draw={!!arrived[j.id]} />
                 <div class="min-w-0 flex-1">
-                  <div class="truncate font-medium text-gray-100" title={j.title ?? ''}>{j.title ?? '—'}</div>
+                  <div class="truncate font-medium text-gray-900 dark:text-gray-100" title={j.title ?? ''}>{j.title ?? '—'}</div>
                   <!-- Only trouble earns a second line; everything else about the job is in the drawer. -->
                   {#if problem}
                     <div
-                      class="mt-0.5 truncate text-xs font-normal {kind === 'failed' ? 'text-red-400' : 'text-amber-400'}"
+                      class="mt-0.5 truncate text-xs font-normal {kind === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}"
                       title={problem}
                     >
                       {problem}
@@ -285,7 +285,7 @@
               </div>
             </td>
             <td class="hidden px-4 py-3.5 sm:table-cell">{@render steps(j)}</td>
-            <td class="hidden py-3.5 pr-3 pl-4 text-right whitespace-nowrap text-gray-400 tabular-nums sm:table-cell">{ago(j.ended_at ?? j.created_at)}</td>
+            <td class="hidden py-3.5 pr-3 pl-4 text-right whitespace-nowrap text-gray-500 dark:text-gray-400 tabular-nums sm:table-cell">{ago(j.ended_at ?? j.created_at)}</td>
           </tr>
         {:else}
           {#if !loaded}
@@ -293,12 +293,12 @@
               <tr>
                 <td class="py-3.5 pr-4 pl-3">
                   <div class="flex items-center gap-3">
-                    <div class="h-5 w-5 shrink-0 animate-pulse rounded-full bg-gray-800"></div>
-                    <div class="h-3.5 w-2/3 animate-pulse rounded bg-gray-800"></div>
+                    <div class="h-5 w-5 shrink-0 animate-pulse rounded-full bg-gray-200 dark:bg-gray-800"></div>
+                    <div class="h-3.5 w-2/3 animate-pulse rounded bg-gray-200 dark:bg-gray-800"></div>
                   </div>
                 </td>
-                <td class="hidden px-4 py-3.5 sm:table-cell"><div class="h-2.5 w-62 animate-pulse rounded-full bg-gray-800"></div></td>
-                <td class="hidden py-3.5 pr-3 pl-4 sm:table-cell"><div class="ml-auto h-3 w-12 animate-pulse rounded bg-gray-800"></div></td>
+                <td class="hidden px-4 py-3.5 sm:table-cell"><div class="h-2.5 w-62 animate-pulse rounded-full bg-gray-200 dark:bg-gray-800"></div></td>
+                <td class="hidden py-3.5 pr-3 pl-4 sm:table-cell"><div class="ml-auto h-3 w-12 animate-pulse rounded bg-gray-200 dark:bg-gray-800"></div></td>
               </tr>
             {/each}
           {/if}
@@ -307,7 +307,7 @@
     </table>
     {#if loaded && !shownJobs.length}
       <div class="py-10 text-center">
-        <p class="text-gray-300">{q ? `No transfers match “${search.trim()}”` : EMPTY[filter]}</p>
+        <p class="text-gray-600 dark:text-gray-300">{q ? `No transfers match “${search.trim()}”` : EMPTY[filter]}</p>
         {#if !q && filter === 'all' && !sources.length}
           <p class="mt-1 text-sm text-gray-500">
             Transfers show up here once a <a href="/sources/" class="text-primary-400 underline-offset-2 hover:underline">source</a> finds something to fetch.

@@ -6,6 +6,12 @@
     <link rel="icon" type="image/png" sizes="32x32" href="%sveltekit.assets%/favicon.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="%sveltekit.assets%/icon.png" />
     <link rel="apple-touch-icon" href="%sveltekit.assets%/apple-touch-icon.png" />
+    <script>
+      // Apply the saved theme before first paint (dark unless the user picked light).
+      try {
+        if (localStorage.getItem('theme') === 'light') document.documentElement.classList.remove('dark');
+      } catch {}
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">
