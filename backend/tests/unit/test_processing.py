@@ -75,7 +75,13 @@ class TestSFVVerification:
         sfv_path.write_text(f"file.mkv {crc}\n")
         entries = parse_sfv(sfv_path)
 
-        job_files = [{"remote_relpath": "file.mkv", "size_bytes": len(file_data), "local_relpath": "file.mkv"}]
+        job_files = [
+            {
+                "remote_relpath": "file.mkv",
+                "size_bytes": len(file_data),
+                "local_relpath": "file.mkv",
+            }
+        ]
         result = verify_files(tmp_path, job_files, entries)
 
         assert len(result.verified) == 1
@@ -91,8 +97,15 @@ class TestSFVVerification:
 
         # Wrong CRC — use SFVEntry
         from app.processing.verification import SFVEntry
+
         entries = [SFVEntry(filename="file.mkv", crc32="00000000")]
-        job_files = [{"remote_relpath": "file.mkv", "size_bytes": len(file_data), "local_relpath": "file.mkv"}]
+        job_files = [
+            {
+                "remote_relpath": "file.mkv",
+                "size_bytes": len(file_data),
+                "local_relpath": "file.mkv",
+            }
+        ]
         result = verify_files(tmp_path, job_files, entries)
 
         assert len(result.verified) == 0
@@ -104,7 +117,9 @@ class TestSFVVerification:
         file_path = tmp_path / "file.mkv"
         file_path.write_bytes(b"short")
 
-        job_files = [{"remote_relpath": "file.mkv", "size_bytes": 1000, "local_relpath": "file.mkv"}]
+        job_files = [
+            {"remote_relpath": "file.mkv", "size_bytes": 1000, "local_relpath": "file.mkv"}
+        ]
         result = verify_files(tmp_path, job_files)
 
         assert len(result.failed) == 1
@@ -124,7 +139,13 @@ class TestSFVVerification:
 
     def test_verify_files_missing(self, tmp_path):
         """Missing files are reported."""
-        job_files = [{"remote_relpath": "nonexistent.mkv", "size_bytes": 100, "local_relpath": "nonexistent.mkv"}]
+        job_files = [
+            {
+                "remote_relpath": "nonexistent.mkv",
+                "size_bytes": 100,
+                "local_relpath": "nonexistent.mkv",
+            }
+        ]
         result = verify_files(tmp_path, job_files)
 
         assert len(result.missing) == 1
@@ -149,6 +170,7 @@ class TestExtraction:
     def test_detect_archives_zip(self, tmp_path):
         """ZIP files are detected as archives."""
         import zipfile
+
         zip_path = tmp_path / "test.zip"
         with zipfile.ZipFile(zip_path, "w") as zf:
             zf.writestr("file.txt", "content")
@@ -166,6 +188,7 @@ class TestExtraction:
     def test_extract_zip_basic(self, tmp_path):
         """ZIP extraction works for valid files."""
         import zipfile
+
         zip_path = tmp_path / "test.zip"
         extract_dir = tmp_path / "extracted"
 
@@ -182,6 +205,7 @@ class TestExtraction:
     def test_extract_zip_rejects_path_traversal(self, tmp_path):
         """ZIP with path traversal is rejected."""
         import zipfile
+
         zip_path = tmp_path / "malicious.zip"
         extract_dir = tmp_path / "extracted"
 
@@ -263,7 +287,9 @@ class TestCleanup:
         (release_dir / "file.mkv").write_bytes(b"data")
 
         result = cleanup_path_b(
-            str(completed_dir), "Test.Release", "job_123",
+            str(completed_dir),
+            "Test.Release",
+            "job_123",
             library_configured=False,
             import_confirmed=False,
         )
@@ -278,7 +304,9 @@ class TestCleanup:
         release_dir.mkdir(parents=True)
 
         result = cleanup_path_b(
-            str(completed_dir), "Test.Release", "job_123",
+            str(completed_dir),
+            "Test.Release",
+            "job_123",
             library_configured=True,
             import_confirmed=False,
         )
@@ -294,7 +322,9 @@ class TestCleanup:
         (release_dir / "file.mkv").write_bytes(b"data")
 
         result = cleanup_path_b(
-            str(completed_dir), "Test.Release", "job_123",
+            str(completed_dir),
+            "Test.Release",
+            "job_123",
             library_configured=True,
             import_confirmed=True,
         )
@@ -311,6 +341,8 @@ def test_cleanup_removes_single_file_items(tmp_path):
     (tmp_path / "a" / "X.mkv").write_bytes(b"v")
     (tmp_path / "b" / "X.mkv").write_bytes(b"v")
     assert cleanup_path_a(str(tmp_path / "a"), "X.mkv", "j").success
-    assert cleanup_path_b(str(tmp_path / "b"), "X.mkv", "j", library_configured=True, import_confirmed=True).success
+    assert cleanup_path_b(
+        str(tmp_path / "b"), "X.mkv", "j", library_configured=True, import_confirmed=True
+    ).success
     assert not (tmp_path / "a" / "X.mkv").exists()
     assert not (tmp_path / "b" / "X.mkv").exists()

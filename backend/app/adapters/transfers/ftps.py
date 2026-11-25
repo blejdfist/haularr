@@ -108,7 +108,7 @@ class FTPSAdapter:
         """Apply path mappings to convert source path to FTPS-visible path."""
         for sp, rp in zip(source_prefixes, remote_prefixes):
             if remote_base.startswith(sp):
-                mapped = remote_base[len(sp):].lstrip("/")
+                mapped = remote_base[len(sp) :].lstrip("/")
                 return f"{rp.rstrip('/')}/{mapped}/{relpath}".replace("//", "/")
         # Fallback: join base and relpath
         return f"{remote_base.rstrip('/')}/{relpath}".replace("//", "/")
@@ -142,7 +142,9 @@ class FTPSAdapter:
                             # Size mismatch — still include but flag
                             logger.warning(
                                 "Size mismatch for %s: expected %d got %d",
-                                remote_path, f.size_bytes, size,
+                                remote_path,
+                                f.size_bytes,
+                                size,
                             )
                             found.append(f)
                     except error_perm as exc:  # usually not found; log so other refusals show up
@@ -201,9 +203,7 @@ class FTPSAdapter:
                 ftp = self._connect()
                 try:
                     # Ensure parent dir exists locally
-                    os.makedirs(
-                        os.path.dirname(destination_part_path), exist_ok=True
-                    )
+                    os.makedirs(os.path.dirname(destination_part_path), exist_ok=True)
 
                     # Check resume: validate local .part size
                     if resume_offset > 0 and os.path.exists(destination_part_path):
@@ -211,7 +211,8 @@ class FTPSAdapter:
                         if local_size != resume_offset:
                             logger.warning(
                                 "Resume offset mismatch: expected %d, local %d — restarting",
-                                resume_offset, local_size,
+                                resume_offset,
+                                local_size,
                             )
                             resume_offset = 0
                             bytes_transferred = 0
@@ -219,6 +220,7 @@ class FTPSAdapter:
                     mode = "ab" if resume_offset > 0 else "wb"
 
                     with open(destination_part_path, mode) as f:
+
                         def _callback(block: bytes) -> None:
                             nonlocal bytes_transferred
                             _check_abort()

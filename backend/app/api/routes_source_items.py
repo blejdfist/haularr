@@ -10,12 +10,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import SourceInstance
-from app.database.repositories import SourceItemRepository, SourceRepository, LabelRuleRepository, JobRepository
+from app.database.repositories import (
+    SourceItemRepository,
+    SourceRepository,
+    LabelRuleRepository,
+    JobRepository,
+)
 from app.domain.models import JobStage, JobStatus
 from app.database.session import get_session
 
 router = APIRouter(tags=["source-items"])
-
 
 
 class QueueRequest(BaseModel):
@@ -29,9 +33,13 @@ async def list_source_items(
     request: Request,
     source_id: str | None = Query(None),
     label: str | None = Query(None),
-    eligibility: str | None = Query(None, description="Last classification, e.g. `eligible`, `already_available`."),
+    eligibility: str | None = Query(
+        None, description="Last classification, e.g. `eligible`, `already_available`."
+    ),
     search: str | None = Query(None, description="Case-insensitive substring of the title."),
-    has_job: bool | None = Query(None, description="Only items that have (true) or lack (false) a job."),
+    has_job: bool | None = Query(
+        None, description="Only items that have (true) or lack (false) a job."
+    ),
     include_ignored: bool = Query(False, description="Include items marked ignored."),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
@@ -49,9 +57,7 @@ async def list_source_items(
         offset=offset,
         limit=limit,
     )
-    names = dict(
-        (await session.execute(select(SourceInstance.id, SourceInstance.name))).all()
-    )
+    names = dict((await session.execute(select(SourceInstance.id, SourceInstance.name))).all())
     return {
         "items": [_item_to_dict(i, names) for i in items],
         "total": total,
@@ -97,8 +103,11 @@ async def get_source_item(item_id: str, session: AsyncSession = Depends(get_sess
 async def ignore_item(item_id: str, session: AsyncSession = Depends(get_session)):
     """Hide an item from the default list and from automatic queueing."""
     from datetime import datetime, timezone
+
     repo = SourceItemRepository(session)
-    obj = await repo.update(item_id, ignored_at=datetime.now(timezone.utc), last_eligibility="ignored")
+    obj = await repo.update(
+        item_id, ignored_at=datetime.now(timezone.utc), last_eligibility="ignored"
+    )
     if not obj:
         raise HTTPException(status_code=404, detail="Source item not found")
     await session.commit()
@@ -150,7 +159,12 @@ async def queue_item(
     from app.services.jobs import create_job
 
     job = await create_job(
-        session, item, rule, request.app.state.settings, approved=True, kind="job.created",
+        session,
+        item,
+        rule,
+        request.app.state.settings,
+        approved=True,
+        kind="job.created",
         message=f"Job created by user{' (force transfer)' if body.force_transfer else ''}",
     )
     await session.commit()

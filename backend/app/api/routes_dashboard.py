@@ -13,16 +13,13 @@ from app.database.session import get_session
 router = APIRouter(tags=["system"])
 
 
-
 @router.get("/dashboard")
 async def get_dashboard(session: AsyncSession = Depends(get_session)):
     """Job counts by status, completions, source scan health and the 10 most recently ended jobs."""
 
     # Job counts by status
     status_counts = {}
-    result = await session.execute(
-        select(Job.status, func.count(Job.id)).group_by(Job.status)
-    )
+    result = await session.execute(select(Job.status, func.count(Job.id)).group_by(Job.status))
     for status_val, count in result.all():
         status_counts[status_val] = count
 
@@ -41,13 +38,12 @@ async def get_dashboard(session: AsyncSession = Depends(get_session)):
     enabled_sources = enabled_result.scalar_one()
 
     # Source item counts
-    item_result = await session.execute(
-        select(func.count(SourceItem.id))
-    )
+    item_result = await session.execute(select(func.count(SourceItem.id)))
     total_items = item_result.scalar_one()
 
     # Completed today
     from datetime import datetime, timedelta, timezone
+
     today_start = datetime.now(timezone.utc) - timedelta(hours=24)
     completed_today_result = await session.execute(
         select(func.count(Job.id)).where(
@@ -80,10 +76,7 @@ async def get_dashboard(session: AsyncSession = Depends(get_session)):
 
     # Recently completed/failed (last 10)
     recent_result = await session.execute(
-        select(Job)
-        .where(Job.ended_at.is_not(None))
-        .order_by(Job.ended_at.desc())
-        .limit(10)
+        select(Job).where(Job.ended_at.is_not(None)).order_by(Job.ended_at.desc()).limit(10)
     )
     recent_jobs = [
         {

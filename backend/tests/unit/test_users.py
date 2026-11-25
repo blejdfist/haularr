@@ -22,7 +22,9 @@ async def test_setup_login_and_deleted_user(client, settings):
     assert (await client.get("/api/v1/auth/setup")).json() == {"needed": False}
     assert (await client.post("/api/v1/auth/setup", json=creds)).status_code == 409
 
-    assert (await client.post("/api/v1/auth/login", json={**creds, "password": "no"})).status_code == 401
+    assert (
+        await client.post("/api/v1/auth/login", json={**creds, "password": "no"})
+    ).status_code == 401
     token = (await client.post("/api/v1/auth/login", json=creds)).json()["access_token"]
     auth = {"Authorization": f"Bearer {token}"}
     assert (await client.get("/api/v1/settings", headers=auth)).status_code == 200
@@ -44,7 +46,9 @@ def test_migration_imports_legacy_admin_env(tmp_path, monkeypatch):
         "HAULARR_ADMIN_USERNAME=jim\nHAULARR_ADMIN_PASSWORD_HASH=$2b$12$abc\n", encoding="utf-8"
     )
     command.upgrade(_alembic_config(Settings(config_dir=tmp_path)), "head")
-    rows = sqlite3.connect(tmp_path / "haularr.db").execute(
-        "select username, password_hash, is_admin from users"
-    ).fetchall()
+    rows = (
+        sqlite3.connect(tmp_path / "haularr.db")
+        .execute("select username, password_hash, is_admin from users")
+        .fetchall()
+    )
     assert rows == [("jim", "$2b$12$abc", 1)]

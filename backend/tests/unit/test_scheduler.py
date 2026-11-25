@@ -16,7 +16,12 @@ import pytest
 from sqlalchemy import select
 
 from app.database.models import Job, SourceItem, SourceLabelRule, SourceInstance, StageRun
-from app.database.repositories import JobRepository, SourceItemRepository, SourceRepository, LabelRuleRepository
+from app.database.repositories import (
+    JobRepository,
+    SourceItemRepository,
+    SourceRepository,
+    LabelRuleRepository,
+)
 from app.domain.models import JobStage, JobStatus, StageRunStatus
 
 
@@ -53,7 +58,8 @@ async def test_concurrency_limit_three_download_jobs(app, settings, tmp_path):
         source = await source_repo.create(
             name="Test Source",
             adapter_type="rtorrent",
-            connection_config_json={}, credential_ref="",
+            connection_config_json={},
+            credential_ref="",
         )
 
         # Create label rule
@@ -72,7 +78,7 @@ async def test_concurrency_limit_three_download_jobs(app, settings, tmp_path):
             item, _ = await item_repo.upsert(
                 source_id=source.id,
                 remote_id=f"hash_{i}",
-                title=f"Test.Show.S01E{i+1}",
+                title=f"Test.Show.S01E{i + 1}",
                 labels_json=["tv"],
                 source_status="completed",
                 remote_path=f"/downloads/Show{i}",
@@ -101,6 +107,7 @@ async def test_concurrency_limit_three_download_jobs(app, settings, tmp_path):
 
     # Create scheduler with limit=3
     from app.settings import Settings
+
     test_settings = Settings(
         config_dir=settings.config_dir,
         static_dir=settings.static_dir,
@@ -159,7 +166,8 @@ async def test_lease_expiry_and_recovery(app, settings):
         source = await source_repo.create(
             name="Test",
             adapter_type="rtorrent",
-            connection_config_json={}, credential_ref="",
+            connection_config_json={},
+            credential_ref="",
         )
 
         label_repo = LabelRuleRepository(session)
@@ -230,7 +238,12 @@ async def test_stage_ordering(app):
 async def test_job_claim_atomicity(app, settings):
     """Job claim is atomic — only one worker gets a job."""
     from app.database.session import get_session_factory
-    from app.database.repositories import JobRepository, SourceRepository, LabelRuleRepository, SourceItemRepository
+    from app.database.repositories import (
+        JobRepository,
+        SourceRepository,
+        LabelRuleRepository,
+        SourceItemRepository,
+    )
     import uuid
 
     factory = get_session_factory(settings)
@@ -240,7 +253,8 @@ async def test_job_claim_atomicity(app, settings):
         source = await source_repo.create(
             name="Test",
             adapter_type="rtorrent",
-            connection_config_json={}, credential_ref="",
+            connection_config_json={},
+            credential_ref="",
         )
         label_repo = LabelRuleRepository(session)
         rule = await label_repo.create(
@@ -291,7 +305,12 @@ async def test_job_claim_atomicity(app, settings):
 async def test_duplicate_active_job_blocked(app, settings):
     """At most one non-terminal job per source item."""
     from app.database.session import get_session_factory
-    from app.database.repositories import JobRepository, SourceRepository, LabelRuleRepository, SourceItemRepository
+    from app.database.repositories import (
+        JobRepository,
+        SourceRepository,
+        LabelRuleRepository,
+        SourceItemRepository,
+    )
 
     factory = get_session_factory(settings)
 
@@ -300,7 +319,8 @@ async def test_duplicate_active_job_blocked(app, settings):
         source = await source_repo.create(
             name="Test",
             adapter_type="rtorrent",
-            connection_config_json={}, credential_ref="",
+            connection_config_json={},
+            credential_ref="",
         )
         label_repo = LabelRuleRepository(session)
         rule = await label_repo.create(

@@ -6,7 +6,10 @@ MAP = [{"local_prefix": r"D:\Temp\haularr\downloads", "library_prefix": "/downlo
 
 
 def test_windows_path_into_container_path():
-    assert _library_path(r"D:\Temp\haularr\downloads\completed\tv\X.mkv", MAP) == "/downloads/completed/tv/X.mkv"
+    assert (
+        _library_path(r"D:\Temp\haularr\downloads\completed\tv\X.mkv", MAP)
+        == "/downloads/completed/tv/X.mkv"
+    )
 
 
 def test_prefix_match_ignores_case_and_slash_style():

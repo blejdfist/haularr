@@ -47,10 +47,16 @@ def initial_position(item: SourceItem) -> tuple[str, str]:
 
 async def start_download_run(session: AsyncSession, job_id: str) -> None:
     """Open the source_download run that discovery writes progress into."""
-    session.add(StageRun(
-        job_id=job_id, stage=JobStage.SOURCE_DOWNLOAD.value, attempt=1,
-        status="running", started_at=_utcnow(), progress_json={},
-    ))
+    session.add(
+        StageRun(
+            job_id=job_id,
+            stage=JobStage.SOURCE_DOWNLOAD.value,
+            attempt=1,
+            status="running",
+            started_at=_utcnow(),
+            progress_json={},
+        )
+    )
     await session.flush()
 
 
@@ -70,7 +76,8 @@ async def create_job(
         "source_id": item.source_id,
         "source_name": source.name if source else "",
         "label": rule.label,
-        "transfer_id": rule.transfer_override_id or (source.default_transfer_id if source else None),
+        "transfer_id": rule.transfer_override_id
+        or (source.default_transfer_id if source else None),
         "library_instance_id": rule.library_instance_id,
         "temporary_directory": rule.temporary_directory,
         "completed_directory": rule.completed_directory,
@@ -92,7 +99,10 @@ async def create_job(
     if stage == JobStage.SOURCE_DOWNLOAD.value:
         await start_download_run(session, job.id)
     await job_repo.add_event(
-        job_id=job.id, severity="info", kind=kind, message=message,
+        job_id=job.id,
+        severity="info",
+        kind=kind,
+        message=message,
         details_json={"eligibility": item.last_eligibility},
     )
     logger.info("Created job %s (label=%s, stage=%s)", named(item.title, job.id), rule.label, stage)
@@ -103,12 +113,14 @@ async def update_download(
     session: AsyncSession, job: Job, item: SourceItem, files: list[RemoteFileDTO] | None
 ) -> None:
     """Record the seedbox's progress for a downloading job; hand it to the scheduler once done."""
-    run = (await session.execute(
-        select(StageRun)
-        .where(StageRun.job_id == job.id, StageRun.stage == JobStage.SOURCE_DOWNLOAD.value)
-        .order_by(StageRun.started_at.desc())
-        .limit(1)
-    )).scalar_one_or_none()
+    run = (
+        await session.execute(
+            select(StageRun)
+            .where(StageRun.job_id == job.id, StageRun.stage == JobStage.SOURCE_DOWNLOAD.value)
+            .order_by(StageRun.started_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
     if run is None:  # e.g. a job restarted before this stage existed
         await start_download_run(session, job.id)
         return await update_download(session, job, item, files)
@@ -133,7 +145,10 @@ async def update_download(
         job.stage = JobStage.CHECK_LIBRARY.value
         job.status = JobStatus.QUEUED.value
         await JobRepository(session).add_event(
-            job_id=job.id, severity="info", kind="stage.completed",
-            stage=JobStage.SOURCE_DOWNLOAD.value, message="Download on the seedbox finished",
+            job_id=job.id,
+            severity="info",
+            kind="stage.completed",
+            stage=JobStage.SOURCE_DOWNLOAD.value,
+            message="Download on the seedbox finished",
         )
     await session.flush()

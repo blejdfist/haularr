@@ -40,11 +40,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Capture recent log records in memory so they can be shown in the UI.
     from app.logging_buffer import install_log_handler, remove_log_handler
+
     install_log_handler()
 
     if settings.demo:
         # Throwaway database: a fresh OS temp folder per run, deleted on shutdown.
         import tempfile
+
         settings.config_dir = Path(tempfile.mkdtemp(prefix="haularr-demo-"))
         os.environ["HAULARR_CONFIG_DIR"] = str(settings.config_dir)  # migrations read it
 
@@ -52,6 +54,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings.config_dir.mkdir(parents=True, exist_ok=True)
 
     from app.logging_buffer import install_file_handler, remove_file_handler
+
     install_file_handler(
         settings.config_dir / "logs" / "haularr.log",
         max_bytes=settings.log_file_max_mb * 1024 * 1024,
@@ -60,6 +63,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Initialize database
     from app.database.session import get_engine, close_engine
+
     engine = get_engine(settings)
 
     # Run migrations on startup
@@ -75,6 +79,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Initialize master key
     from app.security import get_or_create_master_key
+
     app.state.master_key = get_or_create_master_key(settings.config_dir)
     logger.info("Master key initialized at %s/.master_key", settings.config_dir)
 
@@ -88,8 +93,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # Fake data only: nothing may run against the made-up hosts. The scheduler and
         # supervisor exist (routes use them) but never start.
         from app.demo import run_ticker, seed
+
         await seed(settings, app.state.master_key)
         from app.jobs.supervisor import DiscoverySupervisor
+
         app.state.scheduler = JobScheduler(settings)
         app.state.supervisor = DiscoverySupervisor(settings, app.state.master_key)
         demo_task = asyncio.create_task(run_ticker(settings))
@@ -104,6 +111,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         remove_log_handler()
         remove_file_handler()
         import shutil
+
         shutil.rmtree(settings.config_dir, ignore_errors=True)
         return
 
@@ -119,12 +127,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Start discovery supervisor
     from app.jobs.supervisor import DiscoverySupervisor
+
     supervisor = DiscoverySupervisor(settings, app.state.master_key)
     app.state.supervisor = supervisor
     await supervisor.start()
 
     # Start retention background task
     from app.jobs.retention import RetentionJob
+
     retention = RetentionJob(settings)
     app.state.retention_task = asyncio.create_task(retention.run_periodic(3600))
 
@@ -153,10 +163,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 async def _load_persisted_settings(settings: Settings) -> None:
     """Load settings previously saved to DB (overrides env/file defaults)."""
     _SETTING_FIELDS = [
-        "max_concurrent_download_jobs", "max_concurrent_verify_jobs",
-        "max_concurrent_extract_jobs", "max_concurrent_publish_jobs",
-        "max_concurrent_import_jobs", "completed_history_days",
-        "discovery_interval_seconds", "retry_limit", "stage_lease_seconds",
+        "max_concurrent_download_jobs",
+        "max_concurrent_verify_jobs",
+        "max_concurrent_extract_jobs",
+        "max_concurrent_publish_jobs",
+        "max_concurrent_import_jobs",
+        "completed_history_days",
+        "discovery_interval_seconds",
+        "retry_limit",
+        "stage_lease_seconds",
     ]
     try:
         from app.database.session import get_session_factory
@@ -175,11 +190,23 @@ async def _load_persisted_settings(settings: Settings) -> None:
 
 OPENAPI_TAGS = [
     {"name": "auth", "description": "Admin account setup and login (no token required)."},
-    {"name": "sources", "description": "Torrent clients to watch, their FTP fetch config and tag rules."},
-    {"name": "source-items", "description": "Inventory of torrents seen on the sources; queue them as jobs."},
-    {"name": "jobs", "description": "Download/verify/extract/import pipeline runs and their controls."},
+    {
+        "name": "sources",
+        "description": "Torrent clients to watch, their FTP fetch config and tag rules.",
+    },
+    {
+        "name": "source-items",
+        "description": "Inventory of torrents seen on the sources; queue them as jobs.",
+    },
+    {
+        "name": "jobs",
+        "description": "Download/verify/extract/import pipeline runs and their controls.",
+    },
     {"name": "libraries", "description": "Sonarr/Radarr instances that imports are handed to."},
-    {"name": "system", "description": "Health, dashboard counts, settings, logs and config export."},
+    {
+        "name": "system",
+        "description": "Health, dashboard counts, settings, logs and config export.",
+    },
     {"name": "events", "description": "Server-Sent Event streams of changes, for live UIs."},
 ]
 
@@ -210,8 +237,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from fastapi import Depends
 
     from app.api import (
-        routes_auth, routes_dashboard, routes_export, routes_health, routes_jobs,
-        routes_libraries, routes_logs, routes_settings, routes_source_items, routes_sources,
+        routes_auth,
+        routes_dashboard,
+        routes_export,
+        routes_health,
+        routes_jobs,
+        routes_libraries,
+        routes_logs,
+        routes_settings,
+        routes_source_items,
+        routes_sources,
         routes_sse,
     )
     from app.security import get_current_user
@@ -221,8 +256,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(routes_auth.auth_router, prefix=api_prefix)
     auth = [Depends(get_current_user)]
     for module in (
-        routes_sources, routes_source_items, routes_jobs, routes_libraries,
-        routes_dashboard, routes_settings, routes_export, routes_logs, routes_sse,
+        routes_sources,
+        routes_source_items,
+        routes_jobs,
+        routes_libraries,
+        routes_dashboard,
+        routes_settings,
+        routes_export,
+        routes_logs,
+        routes_sse,
     ):
         app.include_router(module.router, prefix=api_prefix, dependencies=auth)
 
@@ -262,7 +304,9 @@ def cli() -> None:
         prog="haularr",
         description="Run the Haularr server. Configure via HAULARR_* environment variables or .env.",
     )
-    parser.add_argument("--reload", action="store_true", help="restart on code changes (development)")
+    parser.add_argument(
+        "--reload", action="store_true", help="restart on code changes (development)"
+    )
     reload = parser.parse_args().reload
     settings = get_settings()
     uvicorn.run(

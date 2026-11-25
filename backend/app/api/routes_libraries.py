@@ -14,7 +14,6 @@ from app.database.session import get_session
 router = APIRouter(tags=["libraries"])
 
 
-
 class LibraryCreate(BaseModel):
     name: str
     adapter_type: str  # "sonarr" | "radarr"
@@ -34,6 +33,7 @@ class LibraryUpdate(BaseModel):
 
 class LibraryTestConfig(BaseModel):
     """Test unsaved settings; empty api_key with library_id reuses the stored key."""
+
     adapter_type: Literal["sonarr", "radarr"]
     base_url: str
     api_key: str = ""
@@ -130,14 +130,12 @@ async def delete_library(library_id: str, session: AsyncSession = Depends(get_se
         from app.database.models import FileImport, MediaMatch, SourceLabelRule
 
         used = await session.scalar(
-            select(func.count()).select_from(SourceLabelRule).where(
-                SourceLabelRule.library_instance_id == library_id
-            )
+            select(func.count())
+            .select_from(SourceLabelRule)
+            .where(SourceLabelRule.library_instance_id == library_id)
         )
         if used:
-            raise HTTPException(
-                status_code=409, detail=f"Library is used by {used} tag mapping(s)"
-            )
+            raise HTTPException(status_code=409, detail=f"Library is used by {used} tag mapping(s)")
         # History refs are nullable; keep the rows, drop the link
         for model in (MediaMatch, FileImport):
             await session.execute(

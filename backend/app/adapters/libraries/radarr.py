@@ -133,9 +133,7 @@ class RadarrAdapter:
             existing_quality=existing_quality,
         )
 
-    async def inspect_import(
-        self, ready_path: str, match: MediaMatch
-    ) -> ImportInspection:
+    async def inspect_import(self, ready_path: str, match: MediaMatch) -> ImportInspection:
         """Inspect files at ready_path using Radarr's ManualImport GET.
 
         No catalog_id (the user skipped the library check, e.g. a multi-movie pack): each
@@ -149,7 +147,7 @@ class RadarrAdapter:
             return ImportInspection(all_rejected=True)
 
         candidates = []
-        for item in (candidates_raw or []):
+        for item in candidates_raw or []:
             path = item.get("path", "")
             rejections = [r.get("reason", "") for r in item.get("rejections", [])]
             quality = item.get("quality", {}).get("quality", {}).get("name", "")
@@ -182,13 +180,15 @@ class RadarrAdapter:
         """Submit accepted candidates via ManualImport command."""
         files = []
         for c in selected_candidates:
-            files.append({
-                "path": c.absolute_path,
-                "movieId": c.media_id,
-                "quality": c.quality_model,  # as detected by Radarr in the GET
-                "languages": c.languages,
-                "releaseGroup": c.release_group,
-            })
+            files.append(
+                {
+                    "path": c.absolute_path,
+                    "movieId": c.media_id,
+                    "quality": c.quality_model,  # as detected by Radarr in the GET
+                    "languages": c.languages,
+                    "releaseGroup": c.release_group,
+                }
+            )
 
         body = {
             "name": "ManualImport",
@@ -228,10 +228,18 @@ class RadarrAdapter:
             movies = {i: await self._get(f"/movie/{i}") for i in ids}
             missing = [i for i, m in movies.items() if not m.get("hasFile")]
             if missing:
-                error = "Movie still has no file" if match.catalog_id is not None else f"Movies {missing} still have no file"
-                return ImportOutcome(success=False, details={"command_status": cmd_status, "error": error})
+                error = (
+                    "Movie still has no file"
+                    if match.catalog_id is not None
+                    else f"Movies {missing} still have no file"
+                )
+                return ImportOutcome(
+                    success=False, details={"command_status": cmd_status, "error": error}
+                )
             paths = [p for m in movies.values() if (p := (m.get("movieFile") or {}).get("path"))]
-            return ImportOutcome(success=True, imported_paths=paths, details={"command_status": cmd_status})
+            return ImportOutcome(
+                success=True, imported_paths=paths, details={"command_status": cmd_status}
+            )
         elif cmd_status in ("failed", "aborted"):
             return ImportOutcome(
                 success=False,

@@ -54,7 +54,11 @@ def detect_archives(local_dir: Path) -> list[Path]:
         elif ext == ".rar":
             # Only the first volume of a multipart RAR: file.part01.rar, or file.rar
             name_base = f.stem
-            if ".part" not in name_base or name_base.endswith(".part01") or name_base.endswith(".part1"):
+            if (
+                ".part" not in name_base
+                or name_base.endswith(".part01")
+                or name_base.endswith(".part1")
+            ):
                 archives.append(f)
     return archives
 
@@ -71,7 +75,7 @@ def _validate_archive_path(path: str, base_dir: Path) -> Path:
         raise ValueError("Null byte in archive path")
 
     # Normalize and resolve
-    target = (base_dir / path)
+    target = base_dir / path
 
     # Check for absolute paths
     if Path(path).is_absolute():
@@ -130,7 +134,10 @@ def extract_zip(archive_path: Path, dest_dir: Path) -> ExtractionResult:
                     return result
 
                 total_output_size += info.file_size
-                if total_input_size > 0 and total_output_size / total_input_size > MAX_EXPANSION_RATIO:
+                if (
+                    total_input_size > 0
+                    and total_output_size / total_input_size > MAX_EXPANSION_RATIO
+                ):
                     result.success = False
                     result.error = f"Expansion ratio too high (limit: {MAX_EXPANSION_RATIO}x)"
                     return result

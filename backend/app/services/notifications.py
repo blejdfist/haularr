@@ -72,19 +72,29 @@ class NotificationService:
 
                 logger.warning(
                     "Notification to %s returned %d (attempt %d/%d)",
-                    target_url, response.status_code, attempt, max_retries,
+                    target_url,
+                    response.status_code,
+                    attempt,
+                    max_retries,
                 )
 
                 if attempt < max_retries:
                     # Exponential backoff
-                    await asyncio.sleep(2 ** attempt + 1)
+                    await asyncio.sleep(2**attempt + 1)
 
             except Exception as e:
                 logger.warning(
                     "Notification to %s failed (attempt %d/%d): %s",
-                    target_url, attempt, max_retries, e,
+                    target_url,
+                    attempt,
+                    max_retries,
+                    e,
                 )
                 if attempt < max_retries:
-                    await asyncio.sleep(2 ** attempt + 1)
+                    await asyncio.sleep(2**attempt + 1)
 
-        return {"success": False, "response_code": None, "error": f"Failed after {max_retries} attempts"}
+        return {
+            "success": False,
+            "response_code": None,
+            "error": f"Failed after {max_retries} attempts",
+        }

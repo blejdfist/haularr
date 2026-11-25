@@ -13,27 +13,41 @@ import pytest
 async def test_config_export_redacts_secrets(auth_client):
     """Config export endpoint never exposes credential values."""
     # Create a source with a connection secret
-    r = await auth_client.post("/api/v1/sources", json={
-        "name": "Test Source",
-        "adapter_type": "rtorrent",
-        "connection_config": {"xmlrpc_url": "https://secret.example/RPC2"}, "credential": "my-super-secret",
-    })
+    r = await auth_client.post(
+        "/api/v1/sources",
+        json={
+            "name": "Test Source",
+            "adapter_type": "rtorrent",
+            "connection_config": {"xmlrpc_url": "https://secret.example/RPC2"},
+            "credential": "my-super-secret",
+        },
+    )
     assert r.status_code == 201
     source_id = r.json()["id"]
 
     # Create a library with an API key
-    r = await auth_client.post("/api/v1/libraries", json={
-        "name": "Sonarr Main",
-        "adapter_type": "sonarr",
-        "base_url": "http://sonarr:8989",
-        "api_key_secret_ref": "enc:super-secret-api-key",
-    })
+    r = await auth_client.post(
+        "/api/v1/libraries",
+        json={
+            "name": "Sonarr Main",
+            "adapter_type": "sonarr",
+            "base_url": "http://sonarr:8989",
+            "api_key_secret_ref": "enc:super-secret-api-key",
+        },
+    )
     assert r.status_code == 201
 
     # Give the source an FTP fetch (its own transfer) with a password
-    r = await auth_client.patch(f"/api/v1/sources/{source_id}", json={"fetch": {
-        "host": "ftp.example.com", "username": "u", "password": "ftp-password",
-    }})
+    r = await auth_client.patch(
+        f"/api/v1/sources/{source_id}",
+        json={
+            "fetch": {
+                "host": "ftp.example.com",
+                "username": "u",
+                "password": "ftp-password",
+            }
+        },
+    )
     assert r.status_code == 200
 
     # Export config
@@ -60,11 +74,15 @@ async def test_config_export_redacts_secrets(auth_client):
 @pytest.mark.asyncio
 async def test_source_detail_redacts_connection(auth_client):
     """Source detail endpoint doesn't expose connection secret."""
-    r = await auth_client.post("/api/v1/sources", json={
-        "name": "Test",
-        "adapter_type": "rtorrent",
-        "connection_config": {}, "credential": "secret123",
-    })
+    r = await auth_client.post(
+        "/api/v1/sources",
+        json={
+            "name": "Test",
+            "adapter_type": "rtorrent",
+            "connection_config": {},
+            "credential": "secret123",
+        },
+    )
     source_id = r.json()["id"]
 
     r = await auth_client.get(f"/api/v1/sources/{source_id}")

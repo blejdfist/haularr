@@ -17,8 +17,13 @@ from sqlalchemy.orm import selectinload
 from app.logging_buffer import job_name
 
 _event_log = logging.getLogger("app.jobs.events")
-_SEVERITY = {"debug": logging.DEBUG, "info": logging.INFO, "warning": logging.WARNING,
-             "error": logging.ERROR, "critical": logging.CRITICAL}
+_SEVERITY = {
+    "debug": logging.DEBUG,
+    "info": logging.INFO,
+    "warning": logging.WARNING,
+    "error": logging.ERROR,
+    "critical": logging.CRITICAL,
+}
 
 from app.database.models import (
     AppSetting,
@@ -103,9 +108,7 @@ class LabelRuleRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_by_source_label(
-        self, source_id: str, label: str
-    ) -> SourceLabelRule | None:
+    async def get_by_source_label(self, source_id: str, label: str) -> SourceLabelRule | None:
         result = await self.session.execute(
             select(SourceLabelRule).where(
                 and_(
@@ -172,9 +175,7 @@ class TransferRepository:
     async def update(self, transfer_id: str, **kwargs: Any) -> TransferInstance | None:
         kwargs["updated_at"] = _utcnow()
         await self.session.execute(
-            update(TransferInstance)
-            .where(TransferInstance.id == transfer_id)
-            .values(**kwargs)
+            update(TransferInstance).where(TransferInstance.id == transfer_id).values(**kwargs)
         )
         return await self.get(transfer_id)
 
@@ -215,9 +216,7 @@ class LibraryRepository:
     async def update(self, library_id: str, **kwargs: Any) -> LibraryInstance | None:
         kwargs["updated_at"] = _utcnow()
         await self.session.execute(
-            update(LibraryInstance)
-            .where(LibraryInstance.id == library_id)
-            .values(**kwargs)
+            update(LibraryInstance).where(LibraryInstance.id == library_id).values(**kwargs)
         )
         return await self.get(library_id)
 
@@ -304,11 +303,7 @@ class SourceItemRepository:
         total_result = await self.session.execute(count_query)
         total = total_result.scalar_one()
 
-        query = (
-            query.order_by(SourceItem.first_seen_at.desc())
-            .offset(offset)
-            .limit(limit)
-        )
+        query = query.order_by(SourceItem.first_seen_at.desc()).offset(offset).limit(limit)
         result = await self.session.execute(query)
         return result.scalars().all(), total
 
@@ -345,9 +340,7 @@ class SourceItemRepository:
         await self.session.flush()
         return match
 
-    async def save_eligibility_check(
-        self, source_item_id: str, **kwargs: Any
-    ) -> EligibilityCheck:
+    async def save_eligibility_check(self, source_item_id: str, **kwargs: Any) -> EligibilityCheck:
         check = EligibilityCheck(source_item_id=source_item_id, **kwargs)
         self.session.add(check)
         await self.session.flush()
@@ -435,11 +428,7 @@ class JobRepository:
         order = [func.coalesce(Job.ended_at, Job.created_at).desc()]
         if sort == "attention":
             order.insert(0, case((Job.status.in_(["failed", "needs_attention"]), 0), else_=1))
-        query = (
-            query.order_by(*order)
-            .offset(offset)
-            .limit(limit)
-        )
+        query = query.order_by(*order).offset(offset).limit(limit)
         result = await self.session.execute(query)
         return result.scalars().all(), total
 
@@ -501,9 +490,7 @@ class JobRepository:
 
     async def update(self, job_id: str, **kwargs: Any) -> Job | None:
         kwargs["updated_at"] = _utcnow()
-        await self.session.execute(
-            update(Job).where(Job.id == job_id).values(**kwargs)
-        )
+        await self.session.execute(update(Job).where(Job.id == job_id).values(**kwargs))
         return await self.get(job_id)
 
     async def add_event(self, job_id: str, **kwargs: Any) -> JobEvent:
@@ -539,16 +526,12 @@ class SettingsRepository:
         self.session = session
 
     async def get(self, key: str) -> Any | None:
-        result = await self.session.execute(
-            select(AppSetting).where(AppSetting.key == key)
-        )
+        result = await self.session.execute(select(AppSetting).where(AppSetting.key == key))
         obj = result.scalar_one_or_none()
         return obj.value_json if obj else None
 
     async def set(self, key: str, value: Any) -> None:
-        result = await self.session.execute(
-            select(AppSetting).where(AppSetting.key == key)
-        )
+        result = await self.session.execute(select(AppSetting).where(AppSetting.key == key))
         obj = result.scalar_one_or_none()
         if obj is None:
             obj = AppSetting(key=key, value_json=value)

@@ -27,6 +27,7 @@ def temp_config_dir(tmp_path):
 @pytest.fixture
 def settings(temp_config_dir):
     from app.settings import Settings
+
     s = Settings(
         config_dir=temp_config_dir,
         static_dir=temp_config_dir / "nonexistent",  # No frontend in tests
@@ -57,6 +58,7 @@ async def app(settings):
 
     # Initialize master key
     from app.security import get_or_create_master_key
+
     application.state.master_key = get_or_create_master_key(settings.config_dir)
 
     yield application

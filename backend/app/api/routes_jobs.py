@@ -16,7 +16,6 @@ from app.database.session import get_session
 router = APIRouter(tags=["jobs"])
 
 
-
 @router.get("/jobs")
 async def list_jobs(
     status: str | None = Query(None, description="Comma-separated statuses, e.g. `failed,paused`."),
@@ -33,13 +32,21 @@ async def list_jobs(
     repo = JobRepository(session)
     jobs, total = await repo.list_filtered(
         status=[x for x in status.split(",") if x] if status else None,
-        stage=stage, source_id=source_id, offset=offset, limit=limit, sort=sort,
+        stage=stage,
+        source_id=source_id,
+        offset=offset,
+        limit=limit,
+        sort=sort,
     )
-    titles = dict((await session.execute(
-        select(SourceItem.id, SourceItem.title).where(
-            SourceItem.id.in_([j.source_item_id for j in jobs])
-        )
-    )).all())
+    titles = dict(
+        (
+            await session.execute(
+                select(SourceItem.id, SourceItem.title).where(
+                    SourceItem.id.in_([j.source_item_id for j in jobs])
+                )
+            )
+        ).all()
+    )
     libs = dict((await session.execute(select(LibraryInstance.id, LibraryInstance.name))).all())
     return {
         "items": [
@@ -174,11 +181,21 @@ async def restart_job(job_id: str, session: AsyncSession = Depends(get_session))
     item = await session.get(SourceItem, job.source_item_id)
     stage, status = initial_position(item) if item else (JobStage.CHECK_LIBRARY.value, "queued")
     await repo.update(
-        job_id, stage=stage, status=status, attempts=0,
-        next_run_at=None, error_code=None, error_detail=None, ended_at=None,
-        worker_token=None, lease_expires_at=None, download_bytes_done=0,
+        job_id,
+        stage=stage,
+        status=status,
+        attempts=0,
+        next_run_at=None,
+        error_code=None,
+        error_detail=None,
+        ended_at=None,
+        worker_token=None,
+        lease_expires_at=None,
+        download_bytes_done=0,
     )
-    await session.execute(delete(JobFile).where(JobFile.job_id == job_id))  # re-download from scratch
+    await session.execute(
+        delete(JobFile).where(JobFile.job_id == job_id)
+    )  # re-download from scratch
     # Runs left open (e.g. the seedbox download) belong to the old pass.
     await session.execute(
         update(StageRun)
@@ -188,7 +205,10 @@ async def restart_job(job_id: str, session: AsyncSession = Depends(get_session))
     if stage == JobStage.SOURCE_DOWNLOAD.value:
         await start_download_run(session, job_id)
     await repo.add_event(
-        job_id=job_id, severity="info", kind="job.restart", message="Job restarted from the beginning by user"
+        job_id=job_id,
+        severity="info",
+        kind="job.restart",
+        message="Job restarted from the beginning by user",
     )
     await session.commit()
     return {"status": "queued", "job_id": job_id}
@@ -202,12 +222,19 @@ async def approve_job(job_id: str, session: AsyncSession = Depends(get_session))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     if job.status != "waiting_approval":
-        raise HTTPException(status_code=409, detail=f"Job is {job.status}, not waiting for approval")
+        raise HTTPException(
+            status_code=409, detail=f"Job is {job.status}, not waiting for approval"
+        )
     await repo.update(
-        job_id, status="queued", error_code=None, error_detail=None,
+        job_id,
+        status="queued",
+        error_code=None,
+        error_detail=None,
         config_snapshot_json={**job.config_snapshot_json, "approved": True},
     )
-    await repo.add_event(job_id=job_id, severity="info", kind="job.approved", message="Job started by user")
+    await repo.add_event(
+        job_id=job_id, severity="info", kind="job.approved", message="Job started by user"
+    )
     await session.commit()
     return {"status": "queued", "job_id": job_id}
 
@@ -221,15 +248,25 @@ async def skip_library_check(job_id: str, session: AsyncSession = Depends(get_se
     job = await repo.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    if job.stage not in ("source_download", "check_library") or job.status in ("running", "cancelled"):
+    if job.stage not in ("source_download", "check_library") or job.status in (
+        "running",
+        "cancelled",
+    ):
         raise HTTPException(status_code=409, detail="Job is already past the library check")
-    changes: dict = {"config_snapshot_json": {**job.config_snapshot_json, "skip_library": True, "approved": True}}
+    changes: dict = {
+        "config_snapshot_json": {**job.config_snapshot_json, "skip_library": True, "approved": True}
+    }
     if job.stage == "check_library":
         # Also reopens a job ended as "Already in library": a pack can parse as one of its movies.
-        changes.update(status="queued", error_code=None, error_detail=None, next_run_at=None, ended_at=None)
+        changes.update(
+            status="queued", error_code=None, error_detail=None, next_run_at=None, ended_at=None
+        )
     await repo.update(job_id, **changes)
     await repo.add_event(
-        job_id=job_id, severity="info", kind="job.skip_library", message="Library check skipped by user"
+        job_id=job_id,
+        severity="info",
+        kind="job.skip_library",
+        message="Library check skipped by user",
     )
     await session.commit()
     return {"status": changes.get("status", job.status), "job_id": job_id}
@@ -239,6 +276,7 @@ async def skip_library_check(job_id: str, session: AsyncSession = Depends(get_se
 async def cancel_job(job_id: str, session: AsyncSession = Depends(get_session)):
     """Cancel a job."""
     from datetime import datetime, timezone
+
     repo = JobRepository(session)
     obj = await repo.update(job_id, status="cancelled", ended_at=datetime.now(timezone.utc))
     if not obj:
@@ -258,8 +296,10 @@ async def retry_import(job_id: str, session: AsyncSession = Depends(get_session)
     if not obj:
         raise HTTPException(status_code=404, detail="Job not found")
     await repo.add_event(
-        job_id=job_id, severity="info", kind="job.retry_import",
-        message="Import retry requested by user"
+        job_id=job_id,
+        severity="info",
+        kind="job.retry_import",
+        message="Import retry requested by user",
     )
     await session.commit()
     return {"status": "queued", "job_id": job_id, "stage": "inspect_import"}

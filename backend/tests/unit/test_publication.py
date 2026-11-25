@@ -58,7 +58,9 @@ def test_archive_folder_moves_only_extracted_files(dirs):
     for name in ("rel.rar", "rel.r00", "rel.sfv", "rel.nfo"):  # downloaded
         (rel / name).write_bytes(b"x")
     (rel / "ep.mkv").write_bytes(b"video")  # extracted in place
-    r = publish_item(rel, str(b), downloaded={"Rel/rel.rar", "Rel/rel.r00", "Rel/rel.sfv", "Rel/rel.nfo"})
+    r = publish_item(
+        rel, str(b), downloaded={"Rel/rel.rar", "Rel/rel.r00", "Rel/rel.sfv", "Rel/rel.nfo"}
+    )
     assert r.success, r.error
     assert r.published_path == str(b / "Rel")
     assert sorted(p.name for p in (b / "Rel").iterdir()) == ["ep.mkv"]

@@ -47,12 +47,17 @@ async def test_job_events_are_logged(app, settings, caplog):
     _, job_id = await _job(settings)
     title = "Some.Show.S01E01"
     async with get_session_factory(settings)() as session:
-        await session.execute(update(Job).where(Job.id == job_id).values(config_snapshot_json={"title": title}))
+        await session.execute(
+            update(Job).where(Job.id == job_id).values(config_snapshot_json={"title": title})
+        )
         await session.commit()
     with caplog.at_level(logging.INFO, logger="app.jobs.events"):
         async with get_session_factory(settings)() as session:
             await JobRepository(session).add_event(
-                job_id=job_id, severity="error", kind="stage.failed", stage="transfer",
+                job_id=job_id,
+                severity="error",
+                kind="stage.failed",
+                stage="transfer",
                 message="Stage download failed permanently: boom",
             )
     [rec] = [r for r in caplog.records if r.name == "app.jobs.events"]
@@ -88,7 +93,9 @@ def test_search_matches_exception_text():
     try:
         a, b = (1, 2, 3)
     except ValueError:
-        rec = logging.LogRecord("app.x", logging.ERROR, "", 0, "Job crashed", None, __import__("sys").exc_info())
+        rec = logging.LogRecord(
+            "app.x", logging.ERROR, "", 0, "Job crashed", None, __import__("sys").exc_info()
+        )
     h.emit(rec)
     assert len(h.snapshot(search="unpack")) == 1
 

@@ -25,10 +25,14 @@ async def test_sonarr_parse_not_registered():
         "parsedEpisodeInfo": {"seriesTitle": "Unknown Show"},
     }
 
-    mock = type("MockResp", (), {
-        "json": lambda self: mock_response,
-        "raise_for_status": lambda self: None,
-    })()
+    mock = type(
+        "MockResp",
+        (),
+        {
+            "json": lambda self: mock_response,
+            "raise_for_status": lambda self: None,
+        },
+    )()
 
     with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock):
         result = await adapter.parse("Unknown.Show.S01E01.1080p")
@@ -53,10 +57,14 @@ async def test_sonarr_parse_registered():
         "parsedEpisodeInfo": {"seriesTitle": "Test Show", "seasonNumber": 1},
     }
 
-    mock = type("MockResp", (), {
-        "json": lambda self: mock_response,
-        "raise_for_status": lambda self: None,
-    })()
+    mock = type(
+        "MockResp",
+        (),
+        {
+            "json": lambda self: mock_response,
+            "raise_for_status": lambda self: None,
+        },
+    )()
 
     with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock):
         result = await adapter.parse("Test.Show.S01E01.1080p")
@@ -81,10 +89,14 @@ async def test_radarr_parse_registered():
         "parsedMovieInfo": {"movieTitle": "Test Movie", "year": 2023},
     }
 
-    mock = type("MockResp", (), {
-        "json": lambda self: mock_response,
-        "raise_for_status": lambda self: None,
-    })()
+    mock = type(
+        "MockResp",
+        (),
+        {
+            "json": lambda self: mock_response,
+            "raise_for_status": lambda self: None,
+        },
+    )()
 
     with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock):
         result = await adapter.parse("Test.Movie.2023.1080p")
@@ -144,7 +156,9 @@ async def test_radarr_inspect_library_uses_parse_movie():
 
 
 def _resp(data):
-    return type("MockResp", (), {"json": lambda self: data, "raise_for_status": lambda self: None})()
+    return type(
+        "MockResp", (), {"json": lambda self: data, "raise_for_status": lambda self: None}
+    )()
 
 
 @pytest.mark.asyncio
@@ -188,10 +202,18 @@ async def test_radarr_reconcile_without_match_checks_each_imported_movie():
     from app.domain.models import ImportOperation, MediaMatch
 
     adapter = RadarrAdapter(library_id="test", base_url="http://radarr:7878", api_key="k")
-    op = ImportOperation(operation_id="9", command_id=9, submitted_at=datetime.now(timezone.utc),
-                         candidates=["/a.mkv", "/b.mkv"], media_ids=[1, 2])
-    replies = {"/api/v3/command/9": {"status": "completed"},
-               "/api/v3/movie/1": {"hasFile": True}, "/api/v3/movie/2": {"hasFile": False}}
+    op = ImportOperation(
+        operation_id="9",
+        command_id=9,
+        submitted_at=datetime.now(timezone.utc),
+        candidates=["/a.mkv", "/b.mkv"],
+        media_ids=[1, 2],
+    )
+    replies = {
+        "/api/v3/command/9": {"status": "completed"},
+        "/api/v3/movie/1": {"hasFile": True},
+        "/api/v3/movie/2": {"hasFile": False},
+    }
 
     async def get(self, url, params=None):
         return _resp(replies[url])

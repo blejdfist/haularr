@@ -19,14 +19,29 @@ async def _job(settings, status="queued", source_name="S", error_code=None) -> t
         rule = await LabelRuleRepository(session).create(
             source_id=source.id, label="tv", temporary_directory="/t", completed_directory="/c"
         )
-        item = SourceItem(source_id=source.id, remote_id="h", title="T", labels_json=["tv"],
-                          source_status="completed", remote_path="/p", size_bytes=1)
+        item = SourceItem(
+            source_id=source.id,
+            remote_id="h",
+            title="T",
+            labels_json=["tv"],
+            source_status="completed",
+            remote_path="/p",
+            size_bytes=1,
+        )
         session.add(item)
         await session.flush()
-        job = Job(source_item_id=item.id, rule_id=rule.id, stage="transfer", status=status,
-                  error_code=error_code,
-                  config_snapshot_json={"source_id": source.id, "transfer_id": None,
-                                        "temporary_directory": "/t"})
+        job = Job(
+            source_item_id=item.id,
+            rule_id=rule.id,
+            stage="transfer",
+            status=status,
+            error_code=error_code,
+            config_snapshot_json={
+                "source_id": source.id,
+                "transfer_id": None,
+                "temporary_directory": "/t",
+            },
+        )
         session.add(job)
         await session.commit()
         return source.id, job.id
@@ -109,8 +124,13 @@ async def test_manual_retry_resets_attempts(auth_client, settings):
 async def _runs(settings, job_id):
     from sqlalchemy import select
     from app.database.models import StageRun
+
     async with get_session_factory(settings)() as session:
-        return (await session.execute(select(StageRun).where(StageRun.job_id == job_id))).scalars().all()
+        return (
+            (await session.execute(select(StageRun).where(StageRun.job_id == job_id)))
+            .scalars()
+            .all()
+        )
 
 
 @pytest.mark.asyncio
@@ -153,7 +173,9 @@ async def test_update_progress_writes_stage_run(app, settings):
 
     _, job_id = await _job(settings)
     async with get_session_factory(settings)() as session:
-        run = await JobRepository(session).add_stage_run(job_id=job_id, stage="transfer", attempt=1, status="running")
+        run = await JobRepository(session).add_stage_run(
+            job_id=job_id, stage="transfer", attempt=1, status="running"
+        )
         await session.commit()
     await JobRunner(settings, job_id, "transfer", "tok")._update_progress(run.id, {"files": 1})
     [saved] = await _runs(settings, job_id)
@@ -187,9 +209,18 @@ async def test_restart_runs_job_from_the_beginning(auth_client, settings):
     r = await auth_client.post(f"/api/v1/jobs/{job_id}/restart")
     assert r.status_code == 200, r.text
     job = await _get(settings, job_id)
-    assert (job.stage, job.status, job.attempts, job.download_bytes_done) == ("check_library", "queued", 0, 0)
+    assert (job.stage, job.status, job.attempts, job.download_bytes_done) == (
+        "check_library",
+        "queued",
+        0,
+        0,
+    )
     async with get_session_factory(settings)() as session:
-        assert not (await session.execute(select(JobFile).where(JobFile.job_id == job_id))).scalars().all()
+        assert (
+            not (await session.execute(select(JobFile).where(JobFile.job_id == job_id)))
+            .scalars()
+            .all()
+        )
 
 
 @pytest.mark.asyncio
@@ -197,7 +228,9 @@ async def test_parked_already_available_ends_job_skipped(app, settings):
     from app.jobs.scheduler import JobScheduler
 
     _, job_id = await _job(settings, "running")
-    await JobScheduler(settings)._transition_needs_attention(job_id, "check_library", "already_available", "x")
+    await JobScheduler(settings)._transition_needs_attention(
+        job_id, "check_library", "already_available", "x"
+    )
     job = await _get(settings, job_id)
     assert job.status == "skipped"
     assert job.ended_at is not None

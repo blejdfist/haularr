@@ -37,8 +37,16 @@ def test_eligibility_status_values():
 
 def test_job_stage_order():
     assert [s.value for s in JobStage] == [
-        "source_download", "check_library", "transfer", "verify", "extract",
-        "move", "inspect_import", "import", "cleanup"]
+        "source_download",
+        "check_library",
+        "transfer",
+        "verify",
+        "extract",
+        "move",
+        "inspect_import",
+        "import",
+        "cleanup",
+    ]
 
 
 def test_job_status_values():

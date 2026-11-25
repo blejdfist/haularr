@@ -59,7 +59,9 @@ class Recovery:
             for job in expired_jobs:
                 logger.warning(
                     "Reclaiming job %s (stage %s) — lease expired at %s",
-                    job_name(job), job.stage, job.lease_expires_at,
+                    job_name(job),
+                    job.stage,
+                    job.lease_expires_at,
                 )
 
                 # Reconcile: check if the stage's files are on disk
@@ -78,9 +80,15 @@ class Recovery:
                     )
                 )
                 await session.execute(
-                    JobFile.__table__.insert()  # type: ignore[attr-defined]
-                    .values([]) if False else update(JobFile)
-                    .where(and_(JobFile.job_id == job.id, JobFile.transfer_status == TransferStatus.IN_PROGRESS.value))
+                    JobFile.__table__.insert().values([])  # type: ignore[attr-defined]
+                    if False
+                    else update(JobFile)
+                    .where(
+                        and_(
+                            JobFile.job_id == job.id,
+                            JobFile.transfer_status == TransferStatus.IN_PROGRESS.value,
+                        )
+                    )
                     .values(transfer_status=TransferStatus.PENDING.value)
                 )
 

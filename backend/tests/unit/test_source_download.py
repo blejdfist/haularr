@@ -35,9 +35,19 @@ class FakeSource:
 
 def _dto(done=400, total=1000, status=SourceStatus.ACTIVE, complete=False, label="tv", rate=1234):
     return SourceItemDTO(
-        remote_id="h1", name="Show.S01E01", labels=[label], status=status, total_bytes=total,
-        remote_base_path="/dl", metadata={"complete": complete, "completed_bytes": done,
-                                          "down_rate": rate, "message": "", "state": 1},
+        remote_id="h1",
+        name="Show.S01E01",
+        labels=[label],
+        status=status,
+        total_bytes=total,
+        remote_base_path="/dl",
+        metadata={
+            "complete": complete,
+            "completed_bytes": done,
+            "down_rate": rate,
+            "message": "",
+            "state": 1,
+        },
     )
 
 
@@ -54,7 +64,10 @@ async def seedbox(app, settings, monkeypatch):
             name="S", adapter_type="rtorrent", connection_config_json={}, credential_ref=""
         )
         rule = await LabelRuleRepository(session).create(
-            source_id=src.id, label="tv", temporary_directory="/t", completed_directory="/c",
+            source_id=src.id,
+            label="tv",
+            temporary_directory="/t",
+            completed_directory="/c",
             automatic_processing=True,
         )
         await session.commit()
@@ -73,9 +86,13 @@ async def _jobs(settings) -> list[Job]:
 
 async def _download_run(settings, job_id) -> StageRun:
     async with get_session_factory(settings)() as session:
-        return (await session.execute(
-            select(StageRun).where(StageRun.job_id == job_id, StageRun.stage == "source_download")
-        )).scalar_one()
+        return (
+            await session.execute(
+                select(StageRun).where(
+                    StageRun.job_id == job_id, StageRun.stage == "source_download"
+                )
+            )
+        ).scalar_one()
 
 
 async def test_incomplete_tagged_item_creates_downloading_job(seedbox, settings, monkeypatch):
@@ -220,9 +237,15 @@ async def test_restart_incomplete_item_goes_back_to_downloading(seedbox, setting
     [job] = await _jobs(settings)
     assert (job.stage, job.status) == ("source_download", "waiting_source")
     async with get_session_factory(settings)() as session:
-        runs = (await session.execute(
-            select(StageRun).where(StageRun.job_id == job.id, StageRun.status == "running")
-        )).scalars().all()
+        runs = (
+            (
+                await session.execute(
+                    select(StageRun).where(StageRun.job_id == job.id, StageRun.status == "running")
+                )
+            )
+            .scalars()
+            .all()
+        )
     assert [r.stage for r in runs] == ["source_download"]
 
 
@@ -267,7 +290,9 @@ async def test_manual_queue_is_preapproved(seedbox, settings, auth_client):
 
 
 @pytest.mark.parametrize("action", ["retry", "resume"])
-async def test_retry_or_resume_during_download_goes_back_to_waiting(seedbox, settings, auth_client, action):
+async def test_retry_or_resume_during_download_goes_back_to_waiting(
+    seedbox, settings, auth_client, action
+):
     """No worker runs source_download, so 'queued' there would never move."""
     fake, scan, _ = seedbox
     fake.items = [_dto()]
@@ -340,6 +365,7 @@ async def test_progress_scan_still_creates_downloading_jobs(seedbox, settings):
     await scan()  # empty seedbox
     async with get_session_factory(settings)() as session:
         from app.database.models import SourceInstance
+
         source_id = (await session.execute(select(SourceInstance.id))).scalar_one()
     fake.items = [_dto()]
     await DiscoveryService(settings, KEY).run_discovery_for_source(source_id, progress_only=True)
@@ -406,6 +432,7 @@ async def test_removed_item_keeps_finished_job_history(seedbox, settings):
         job = (await session.execute(select(Job))).scalar_one()
         job.stage, job.status = "cleanup", "completed"
         from datetime import datetime, timezone
+
         job.ended_at = datetime.now(timezone.utc)
         await session.commit()
     fake.items = []

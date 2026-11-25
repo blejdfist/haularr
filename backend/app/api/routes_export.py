@@ -11,7 +11,6 @@ from app.database.session import get_session
 router = APIRouter(tags=["system"])
 
 
-
 @router.get("/config/export")
 async def export_config(request: Request, session: AsyncSession = Depends(get_session)):
     """Export settings, sources, tag rules, transfers and libraries with all secrets redacted."""
@@ -68,7 +67,7 @@ async def export_config(request: Request, session: AsyncSession = Depends(get_se
                 "poll_interval": s.poll_interval,
                 "onboarding_state": s.onboarding_state,
                 "connection_config": s.connection_config_json,  # Non-secret fields only
-                "credential_ref": "***REDACTED***",             # Never export credential
+                "credential_ref": "***REDACTED***",  # Never export credential
                 "default_transfer_id": s.default_transfer_id,
             }
             for s in sources

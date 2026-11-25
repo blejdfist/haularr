@@ -82,12 +82,16 @@ async def job_changes(
         .group_by(JobFile.job_id, JobFile.transfer_status)
     ):
         files.setdefault(job_id, {})[status] = n
-    runs = dict((await session.execute(
-        select(StageRun.job_id, StageRun.progress_json).where(
-            StageRun.job_id.in_(running),
-            StageRun.status == "running",
-        )
-    )).all())
+    runs = dict(
+        (
+            await session.execute(
+                select(StageRun.job_id, StageRun.progress_json).where(
+                    StageRun.job_id.in_(running),
+                    StageRun.status == "running",
+                )
+            )
+        ).all()
+    )
 
     out = []
     for j in jobs:
@@ -95,7 +99,10 @@ async def job_changes(
         if j.stage == "transfer":
             done, total = j.download_bytes_done, j.download_bytes_total
         else:
-            done, total = (stage_progress or {}).get("bytes_done", 0), (stage_progress or {}).get("bytes_total", 0)
+            done, total = (
+                (stage_progress or {}).get("bytes_done", 0),
+                (stage_progress or {}).get("bytes_total", 0),
+            )
         event = {
             "id": j.id,
             "status": j.status,

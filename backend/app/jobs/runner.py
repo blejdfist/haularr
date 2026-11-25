@@ -58,7 +58,9 @@ def _import_match(match_row: Any, job: Any, library: Any) -> Any:
     from app.domain.models import MediaMatch, MediaType
 
     if job.config_snapshot_json.get("skip_library"):
-        return MediaMatch(media_type=MediaType.MOVIE if library.adapter_type == "radarr" else MediaType.SERIES)
+        return MediaMatch(
+            media_type=MediaType.MOVIE if library.adapter_type == "radarr" else MediaType.SERIES
+        )
     if match_row:
         return MediaMatch(
             media_type=MediaType(match_row.media_type),
@@ -109,13 +111,17 @@ class JobRunner:
             # Dispatch to stage handler
             handler = self._get_stage_handler()
             result = await handler(job, stage_run.id)
-            await self._close_run(stage_run.id, result.status.value, result.error_code, result.error_detail)
+            await self._close_run(
+                stage_run.id, result.status.value, result.error_code, result.error_detail
+            )
             return result
         except asyncio.CancelledError:
             await self._close_run(stage_run.id, "cancelled", "cancelled", "Stage cancelled")
             raise
         except Exception as exc:
-            await self._close_run(stage_run.id, StageRunStatus.FAILED.value, "unexpected_error", repr(exc))
+            await self._close_run(
+                stage_run.id, StageRunStatus.FAILED.value, "unexpected_error", repr(exc)
+            )
             raise
         finally:
             if self._heartbeat_task:
@@ -142,7 +148,8 @@ class JobRunner:
             if job and job.worker_token == self.worker_token:
                 await repo.update(
                     self.job_id,
-                    lease_expires_at=_utcnow() + timedelta(seconds=self.settings.stage_lease_seconds),
+                    lease_expires_at=_utcnow()
+                    + timedelta(seconds=self.settings.stage_lease_seconds),
                 )
                 await session.commit()
 
@@ -164,7 +171,9 @@ class JobRunner:
     # Stage implementations
     # -----------------------------------------------------------------------
 
-    async def _files_not_visible(self, transfer: Any, endpoint: Any, item: Any, manifest: list) -> str | None:
+    async def _files_not_visible(
+        self, transfer: Any, endpoint: Any, item: Any, manifest: list
+    ) -> str | None:
         """Why the manifest's files can't all be seen on the endpoint yet, or None when they can."""
         from app.adapters.transfers import create_transfer_adapter
         from app.domain.models import SourceItemDTO, SourceStatus
@@ -180,7 +189,9 @@ class JobRunner:
             remote_base_path=item.remote_path,
         )
         try:
-            remote = await adapter.inspect(source_item, manifest, path_mappings=endpoint.path_mappings_json)
+            remote = await adapter.inspect(
+                source_item, manifest, path_mappings=endpoint.path_mappings_json
+            )
         except Exception as exc:
             return f"Files not yet visible on transfer endpoint: {exc}"
         missing = len(manifest) - len(remote.files)
@@ -213,11 +224,15 @@ class JobRunner:
             rule = await session.get(SourceLabelRule, job.rule_id)
             if not item or not rule:
                 return StageResult(
-                    StageRunStatus.FAILED, "item_not_found", "Source item or tag rule not found", False
+                    StageRunStatus.FAILED,
+                    "item_not_found",
+                    "Source item or tag rule not found",
+                    False,
                 )
             library = (
                 await session.get(LibraryInstance, rule.library_instance_id)
-                if rule.library_instance_id else None
+                if rule.library_instance_id
+                else None
             )
             eligibility = await classification.classify_item(
                 session, item, rule, library, self._get_master_key()
@@ -228,13 +243,18 @@ class JobRunner:
 
         await self._update_progress(stage_run_id, {"eligibility": eligibility, **summary})
         if eligibility == EligibilityStatus.WAITING_LIBRARY.value:
-            return StageResult(StageRunStatus.FAILED, "library_unreachable", "Library unreachable", True)
+            return StageResult(
+                StageRunStatus.FAILED, "library_unreachable", "Library unreachable", True
+            )
         parked = _LIBRARY_VERDICTS.get(eligibility)
         if parked:
             return StageResult(StageRunStatus.NEEDS_ATTENTION, *parked, False)
         if not automatic and not job.config_snapshot_json.get("approved"):
             return StageResult(
-                StageRunStatus.NEEDS_ATTENTION, "awaiting_approval", "Waiting for you to start it", False
+                StageRunStatus.NEEDS_ATTENTION,
+                "awaiting_approval",
+                "Waiting for you to start it",
+                False,
             )
         return StageResult(StageRunStatus.SUCCEEDED)
 
@@ -260,6 +280,7 @@ class JobRunner:
         # Get source item
         async with factory() as session:
             from app.database.repositories import SourceItemRepository
+
             item_repo = SourceItemRepository(session)
             item = await item_repo.get(job.source_item_id)
             if not item:
@@ -269,6 +290,7 @@ class JobRunner:
 
             # Get transfer config
             from app.database.repositories import TransferRepository
+
             transfer_repo = TransferRepository(session)
             transfer = await transfer_repo.get(transfer_id)
             if not transfer:
@@ -283,6 +305,7 @@ class JobRunner:
 
             # Get source instance for adapter config
             from app.database.repositories import SourceRepository
+
             source_repo = SourceRepository(session)
             source = await source_repo.get(item.source_id)
             if not source:
@@ -318,18 +341,14 @@ class JobRunner:
             endpoints = transfer.endpoints if hasattr(transfer, "endpoints") else []
 
             # Build source adapter and get manifest
-            source_adapter = create_source_adapter(
-                source.id, source.adapter_type, source_config
-            )
+            source_adapter = create_source_adapter(source.id, source.adapter_type, source_config)
 
             # Get file manifest from source adapter
             try:
                 manifest = await source_adapter.get_manifest(item.remote_id)
             except Exception as exc:
                 logger.error("Failed to get file manifest: %s", exc)
-                return StageResult(
-                    StageRunStatus.FAILED, "manifest_error", str(exc), True
-                )
+                return StageResult(StageRunStatus.FAILED, "manifest_error", str(exc), True)
 
             if not manifest:
                 return StageResult(
@@ -353,9 +372,9 @@ class JobRunner:
 
             rows = {
                 f.remote_relpath: f
-                for f in (await session.execute(
-                    select(JobFile).where(JobFile.job_id == self.job_id)
-                )).scalars()
+                for f in (
+                    await session.execute(select(JobFile).where(JobFile.job_id == self.job_id))
+                ).scalars()
             }
             for file_dto in manifest:
                 row = rows.get(file_dto.relative_path)
@@ -395,7 +414,9 @@ class JobRunner:
             # Finished by an earlier attempt (e.g. one that crashed afterwards): don't fetch again.
             if local_path.exists() and local_path.stat().st_size == file_dto.size_bytes:
                 logger.info("Already downloaded: %s", file_dto.relative_path)
-                bytes_done = await self._record_file(file_dto, local_rel, existing_files, bytes_done, total_bytes, stage_run_id)
+                bytes_done = await self._record_file(
+                    file_dto, local_rel, existing_files, bytes_done, total_bytes, stage_run_id
+                )
                 continue
 
             # Check for existing .part file for resume
@@ -407,8 +428,7 @@ class JobRunner:
             # Build transfer config from first available endpoint
             if not endpoints:
                 return StageResult(
-                    StageRunStatus.FAILED, "no_endpoints",
-                    "No transfer endpoints configured", False
+                    StageRunStatus.FAILED, "no_endpoints", "No transfer endpoints configured", False
                 )
 
             endpoint = endpoints[0]  # For now, use first endpoint
@@ -416,6 +436,7 @@ class JobRunner:
             transfer_config = self._transfer_config(transfer, endpoint)
 
             from app.adapters.transfers import create_transfer_adapter
+
             transfer_adapter = create_transfer_adapter(
                 transfer_id, transfer.adapter_type, transfer_config
             )
@@ -424,8 +445,11 @@ class JobRunner:
             # and let a flusher task write it to the job row every couple of seconds.
             received_now = resume_offset
             file_id = existing_files[file_dto.relative_path]
-            await self._set_file(file_id, transfer_status=TransferStatus.IN_PROGRESS.value,
-                                 bytes_received=resume_offset)
+            await self._set_file(
+                file_id,
+                transfer_status=TransferStatus.IN_PROGRESS.value,
+                bytes_received=resume_offset,
+            )
 
             def progress_cb(received: int, total: int) -> None:
                 nonlocal received_now
@@ -473,7 +497,9 @@ class JobRunner:
                 if actual_size != file_dto.size_bytes:
                     logger.warning(
                         "Size mismatch for %s: expected %d got %d",
-                        file_dto.relative_path, file_dto.size_bytes, actual_size
+                        file_dto.relative_path,
+                        file_dto.size_bytes,
+                        actual_size,
                     )
                     await self._set_file(file_id, transfer_status=TransferStatus.FAILED.value)
                     return StageResult(
@@ -486,12 +512,19 @@ class JobRunner:
                 # Atomic .part → final; replace (not rename) so a stale final file can't block it on Windows
                 os.replace(part_path, str(local_path))
 
-            bytes_done = await self._record_file(file_dto, local_rel, existing_files, bytes_done, total_bytes, stage_run_id)
+            bytes_done = await self._record_file(
+                file_dto, local_rel, existing_files, bytes_done, total_bytes, stage_run_id
+            )
 
         return StageResult(StageRunStatus.SUCCEEDED)
 
     async def _record_file(
-        self, file_dto: Any, local_rel: str, existing_files: dict, bytes_done: int, total_bytes: int,
+        self,
+        file_dto: Any,
+        local_rel: str,
+        existing_files: dict,
+        bytes_done: int,
+        total_bytes: int,
         stage_run_id: str,
     ) -> int:
         """Mark a file downloaded (one row per file across retries); returns the new bytes_done."""
@@ -512,11 +545,14 @@ class JobRunner:
             await JobRepository(session).update(self.job_id, download_bytes_done=bytes_done)
             await session.commit()
         # Separate session after commit: a second writer inside the first one locks SQLite.
-        await self._update_progress(stage_run_id, {
-            "file": file_dto.relative_path,
-            "bytes_done": bytes_done,
-            "bytes_total": total_bytes,
-        })
+        await self._update_progress(
+            stage_run_id,
+            {
+                "file": file_dto.relative_path,
+                "bytes_done": bytes_done,
+                "bytes_total": total_bytes,
+            },
+        )
         return bytes_done
 
     async def _stage_verify(self, job: Any, stage_run_id: str) -> StageResult:
@@ -526,8 +562,10 @@ class JobRunner:
         item = long_path(_item_path(job))
         if not item.exists():
             return StageResult(
-                StageRunStatus.NEEDS_ATTENTION, "no_files",
-                f"Downloaded item not found: {plain_path(item)}", False,
+                StageRunStatus.NEEDS_ATTENTION,
+                "no_files",
+                f"Downloaded item not found: {plain_path(item)}",
+                False,
             )
 
         # Find SFV files
@@ -547,22 +585,31 @@ class JobRunner:
         ]
 
         # Show what's being checked while it runs: CRC32 of a big pack takes minutes.
-        await self._update_progress(stage_run_id, {
-            "files": [{"path": f["remote_relpath"], "result": "checking"} for f in job_files],
-        })
+        await self._update_progress(
+            stage_run_id,
+            {
+                "files": [{"path": f["remote_relpath"], "result": "checking"} for f in job_files],
+            },
+        )
         # Off the event loop: CRC32 reads every byte and would stall heartbeats.
         result = await asyncio.to_thread(
-            verify_files, item.parent, job_files, sfv_entries if sfv_entries else None,
+            verify_files,
+            item.parent,
+            job_files,
+            sfv_entries if sfv_entries else None,
         )
 
         outcome = {p: ("crc32 ok", "") for p in result.verified}
         outcome |= {p: ("size ok", "") for p in result.size_only}
         outcome |= {p: ("failed", why) for p, why in result.failed}
         outcome |= {p: ("missing", "") for p in result.missing}
-        await self._update_progress(stage_run_id, {
-            "checks": result.checks_performed,
-            "files": [{"path": p, "result": r, "detail": d} for p, (r, d) in outcome.items()],
-        })
+        await self._update_progress(
+            stage_run_id,
+            {
+                "checks": result.checks_performed,
+                "files": [{"path": p, "result": r, "detail": d} for p, (r, d) in outcome.items()],
+            },
+        )
 
         if result.failed:
             return StageResult(
@@ -589,8 +636,10 @@ class JobRunner:
         local_dir = long_path(_item_path(job))
         if not local_dir.exists():
             return StageResult(
-                StageRunStatus.FAILED, "no_files",
-                f"Downloaded item not found: {plain_path(local_dir)}", False,
+                StageRunStatus.FAILED,
+                "no_files",
+                f"Downloaded item not found: {plain_path(local_dir)}",
+                False,
             )
         if local_dir.is_file():
             return StageResult(StageRunStatus.SKIPPED)
@@ -626,7 +675,8 @@ class JobRunner:
                 try:
                     done = await asyncio.to_thread(written)
                     await self._update_progress(
-                        stage_run_id, {"bytes_done": done, "bytes_total": total, "archives": unpacked},
+                        stage_run_id,
+                        {"bytes_done": done, "bytes_total": total, "archives": unpacked},
                     )
                 except Exception as exc:  # progress is cosmetic; never kill the flusher
                     logger.debug("Extract progress flush failed: %s", exc)
@@ -662,9 +712,14 @@ class JobRunner:
         finally:
             flusher.cancel()
 
-        await self._update_progress(stage_run_id, {
-            "bytes_done": total, "bytes_total": total, "archives": unpacked,
-        })
+        await self._update_progress(
+            stage_run_id,
+            {
+                "bytes_done": total,
+                "bytes_total": total,
+                "archives": unpacked,
+            },
+        )
         return StageResult(StageRunStatus.SUCCEEDED)
 
     async def _stage_move(self, job: Any, stage_run_id: str) -> StageResult:
@@ -677,15 +732,20 @@ class JobRunner:
             downloaded={f.local_relpath or f.remote_relpath for f in job.job_files},
         )
 
-        await self._update_progress(stage_run_id, {
-            "published_path": result.published_path,
-            "files": result.published_files,
-        })
+        await self._update_progress(
+            stage_run_id,
+            {
+                "published_path": result.published_path,
+                "files": result.published_files,
+            },
+        )
 
         if not result.success:
             return StageResult(
-                StageRunStatus.FAILED, "publish_failed",
-                result.error, True,
+                StageRunStatus.FAILED,
+                "publish_failed",
+                result.error,
+                True,
             )
 
         return StageResult(StageRunStatus.SUCCEEDED)
@@ -709,21 +769,23 @@ class JobRunner:
             library = await lib_repo.get(library_id)
             if not library:
                 return StageResult(
-                    StageRunStatus.FAILED, "library_not_found",
-                    "Library instance not found", False,
+                    StageRunStatus.FAILED,
+                    "library_not_found",
+                    "Library instance not found",
+                    False,
                 )
 
             # Get the media match for this source item
             match_result = await session.execute(
-                select(MediaMatchModel).where(
-                    MediaMatchModel.source_item_id == job.source_item_id
-                )
+                select(MediaMatchModel).where(MediaMatchModel.source_item_id == job.source_item_id)
             )
             match = _import_match(match_result.scalar_one_or_none(), job, library)
             if not match:
                 return StageResult(
-                    StageRunStatus.NEEDS_ATTENTION, "no_match",
-                    "No media match found for source item", False,
+                    StageRunStatus.NEEDS_ATTENTION,
+                    "no_match",
+                    "No media match found for source item",
+                    False,
                 )
 
             # Decrypt API key
@@ -733,39 +795,51 @@ class JobRunner:
                 api_key = decrypt_secret(api_key[4:], master_key)
 
             adapter = create_library_adapter(
-                library.id, library.adapter_type,
-                library.base_url, api_key, library.options_json,
+                library.id,
+                library.adapter_type,
+                library.base_url,
+                api_key,
+                library.options_json,
             )
 
             # The ready path is the published directory in Path B
             completed_dir = config.get("completed_directory", "/tmp")
             sanitized_title = _sanitize_dirname(item_title_from_job(job))
             ready_path = _library_path(
-                str(Path(completed_dir) / sanitized_title), (library.options_json or {}).get("path_mappings")
+                str(Path(completed_dir) / sanitized_title),
+                (library.options_json or {}).get("path_mappings"),
             )
 
             try:
                 inspection = await adapter.inspect_import(ready_path, match)
             except Exception as e:
                 return StageResult(
-                    StageRunStatus.FAILED, "inspect_failed",
-                    str(e), True,
+                    StageRunStatus.FAILED,
+                    "inspect_failed",
+                    str(e),
+                    True,
                 )
 
             # Store inspection results
-            await self._update_progress(stage_run_id, {
-                "candidates": len(inspection.candidates),
-                "all_rejected": inspection.all_rejected,
-            })
+            await self._update_progress(
+                stage_run_id,
+                {
+                    "candidates": len(inspection.candidates),
+                    "all_rejected": inspection.all_rejected,
+                },
+            )
 
             if inspection.all_rejected:
                 return StageResult(
-                    StageRunStatus.NEEDS_ATTENTION, "all_rejected",
-                    _rejection_summary(inspection, ready_path), False,
+                    StageRunStatus.NEEDS_ATTENTION,
+                    "all_rejected",
+                    _rejection_summary(inspection, ready_path),
+                    False,
                 )
 
             # Store candidates for the import stage
             import json
+
             candidates_data = {
                 "candidates": [
                     {
@@ -807,9 +881,7 @@ class JobRunner:
                 )
 
             match_row_result = await session.execute(
-                select(MediaMatchModel).where(
-                    MediaMatchModel.source_item_id == job.source_item_id
-                )
+                select(MediaMatchModel).where(MediaMatchModel.source_item_id == job.source_item_id)
             )
             match = _import_match(match_row_result.scalar_one_or_none(), job, library)
             if not match:
@@ -822,40 +894,53 @@ class JobRunner:
                 api_key = decrypt_secret(api_key[4:], self._get_master_key())
 
             adapter = create_library_adapter(
-                library.id, library.adapter_type,
-                library.base_url, api_key, library.options_json,
+                library.id,
+                library.adapter_type,
+                library.base_url,
+                api_key,
+                library.options_json,
             )
 
             completed_dir = config.get("completed_directory", "/tmp")
             sanitized_title = _sanitize_dirname(item_title_from_job(job))
             ready_path = _library_path(
-                str(Path(completed_dir) / sanitized_title), (library.options_json or {}).get("path_mappings")
+                str(Path(completed_dir) / sanitized_title),
+                (library.options_json or {}).get("path_mappings"),
             )
 
             result = await run_import_stage(adapter, ready_path, match)
 
-            await self._update_progress(stage_run_id, {
-                "imported": result.imported_paths,
-                "rejected": result.rejected_paths,
-                "skipped": result.skipped_paths,
-                "pending": result.pending,
-            })
+            await self._update_progress(
+                stage_run_id,
+                {
+                    "imported": result.imported_paths,
+                    "rejected": result.rejected_paths,
+                    "skipped": result.skipped_paths,
+                    "pending": result.pending,
+                },
+            )
 
             if result.pending:
                 return StageResult(
-                    StageRunStatus.FAILED, "import_pending",
-                    result.error, True,
+                    StageRunStatus.FAILED,
+                    "import_pending",
+                    result.error,
+                    True,
                 )
             if result.partial:
                 # Not retryable: a re-inspect would see only the rejected files.
                 return StageResult(
-                    StageRunStatus.NEEDS_ATTENTION, "import_partial",
-                    result.error, False,
+                    StageRunStatus.NEEDS_ATTENTION,
+                    "import_partial",
+                    result.error,
+                    False,
                 )
             if not result.success:
                 return StageResult(
-                    StageRunStatus.FAILED, "import_failed",
-                    result.error, True,
+                    StageRunStatus.FAILED,
+                    "import_failed",
+                    result.error,
+                    True,
                 )
 
             return StageResult(StageRunStatus.SUCCEEDED)
@@ -882,7 +967,9 @@ class JobRunner:
 
         # Clean Path B (only if library configured and import confirmed)
         result_b = cleanup_path_b(
-            completed_dir, title, self.job_id,
+            completed_dir,
+            title,
+            self.job_id,
             library_configured=bool(library_id),
             import_confirmed=True,  # We only reach here after confirm_import succeeded
         )
@@ -897,13 +984,16 @@ class JobRunner:
 
         # In progress (A): the downloaded archives, so a count is enough. Completed (B):
         # what the library left behind, which is worth seeing file by file.
-        await self._update_progress(stage_run_id, {
-            "cleaned_a": plain_path(result_a.cleaned_path_a),
-            "deleted_a": {"count": len(result_a.deleted), "bytes": result_a.deleted_bytes},
-            "cleaned_b": plain_path(result_b.cleaned_path_b),
-            "deleted_b": {"files": result_b.deleted, "bytes": result_b.deleted_bytes},
-            "skipped_b": result_b.skipped_b,
-        })
+        await self._update_progress(
+            stage_run_id,
+            {
+                "cleaned_a": plain_path(result_a.cleaned_path_a),
+                "deleted_a": {"count": len(result_a.deleted), "bytes": result_a.deleted_bytes},
+                "cleaned_b": plain_path(result_b.cleaned_path_b),
+                "deleted_b": {"files": result_b.deleted, "bytes": result_b.deleted_bytes},
+                "skipped_b": result_b.skipped_b,
+            },
+        )
 
         return StageResult(StageRunStatus.SUCCEEDED)
 
@@ -933,9 +1023,12 @@ class JobRunner:
         # This is set on the app state during lifespan startup
         # For test purposes, we can also read it from the config dir
         from app.security import get_or_create_master_key
+
         return get_or_create_master_key(self.settings.config_dir)
 
-    async def _close_run(self, run_id: str, status: str, error_code: str, error_detail: str) -> None:
+    async def _close_run(
+        self, run_id: str, status: str, error_code: str, error_detail: str
+    ) -> None:
         """Record a stage run's outcome; without this every attempt stays 'running' forever."""
         from sqlalchemy import update
         from app.database.models import StageRun
@@ -959,7 +1052,9 @@ class JobRunner:
 
         async with get_session_factory(self.settings)() as session:
             await JobRepository(session).update(self.job_id, download_bytes_done=n)
-            await session.execute(update(JobFile).where(JobFile.id == file_id).values(bytes_received=file_bytes))
+            await session.execute(
+                update(JobFile).where(JobFile.id == file_id).values(bytes_received=file_bytes)
+            )
             await session.commit()
 
     async def _set_file(self, file_id: str, **values: Any) -> None:
@@ -989,14 +1084,22 @@ async def _library_summary(session: Any, item: Any, library: Any) -> dict[str, A
     the verdict's reason and evidence, and how the library parsed the name."""
     from app.database.models import EligibilityCheck, MediaMatch as MediaMatchModel
 
-    check = (await session.execute(
-        select(EligibilityCheck).where(EligibilityCheck.source_item_id == item.id)
-        .order_by(EligibilityCheck.checked_at.desc()).limit(1)
-    )).scalar_one_or_none()
-    match = (await session.execute(
-        select(MediaMatchModel).where(MediaMatchModel.source_item_id == item.id)
-        .order_by(MediaMatchModel.matched_at.desc()).limit(1)
-    )).scalar_one_or_none()
+    check = (
+        await session.execute(
+            select(EligibilityCheck)
+            .where(EligibilityCheck.source_item_id == item.id)
+            .order_by(EligibilityCheck.checked_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    match = (
+        await session.execute(
+            select(MediaMatchModel)
+            .where(MediaMatchModel.source_item_id == item.id)
+            .order_by(MediaMatchModel.matched_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
 
     out: dict[str, Any] = {
         "library": f"{library.name} ({library.adapter_type})" if library else None,
@@ -1007,7 +1110,9 @@ async def _library_summary(session: Any, item: Any, library: Any) -> dict[str, A
         p = match.parse_json or {}
         parsed = {
             # Radarr: movieTitles/year/edition; Sonarr: seriesTitle/seasonNumber/episodeNumbers.
-            "title": ", ".join(p.get("movieTitles") or []) or p.get("movieTitle") or p.get("seriesTitle"),
+            "title": ", ".join(p.get("movieTitles") or [])
+            or p.get("movieTitle")
+            or p.get("seriesTitle"),
             "year": p.get("year") or None,
             "season": p.get("seasonNumber"),
             "episodes": p.get("episodeNumbers") or None,
@@ -1058,7 +1163,7 @@ def _library_path(path: str, mappings: list[dict] | None) -> str:
         lib = (m.get("library_prefix") or "").rstrip("/")
         if not local:
             continue
-        head, rest = norm[: len(local)], norm[len(local):]
+        head, rest = norm[: len(local)], norm[len(local) :]
         if head.lower() == local.lower() and (not rest or rest.startswith("/")):
             if "/" not in lib:  # Windows-style library prefix: keep backslashes
                 return lib + rest.replace("/", "\\")

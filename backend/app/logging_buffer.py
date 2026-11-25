@@ -79,17 +79,13 @@ class LogBufferHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             entry: dict[str, Any] = {
-                "timestamp": datetime.fromtimestamp(
-                    record.created, tz=timezone.utc
-                ).isoformat(),
+                "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
                 "level": record.levelname,
                 "logger": record.name,
                 "message": record.getMessage(),
             }
             if record.exc_info:
-                entry["exception"] = (
-                    logging.Formatter().formatException(record.exc_info).rstrip()
-                )
+                entry["exception"] = logging.Formatter().formatException(record.exc_info).rstrip()
         except Exception:
             # A logging handler must never break the application.
             return

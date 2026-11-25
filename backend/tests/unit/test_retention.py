@@ -12,7 +12,12 @@ import pytest
 from sqlalchemy import select
 
 from app.database.models import Job, SourceItem, SourceLabelRule, SourceInstance, JobEvent, StageRun
-from app.database.repositories import JobRepository, SourceRepository, LabelRuleRepository, SourceItemRepository
+from app.database.repositories import (
+    JobRepository,
+    SourceRepository,
+    LabelRuleRepository,
+    SourceItemRepository,
+)
 from app.domain.models import JobStage, JobStatus
 from app.jobs.retention import RetentionJob
 
@@ -30,7 +35,8 @@ async def test_retention_prunes_old_completed_jobs(app, settings):
         source = await source_repo.create(
             name="Test",
             adapter_type="rtorrent",
-            connection_config_json={}, credential_ref="",
+            connection_config_json={},
+            credential_ref="",
         )
         label_repo = LabelRuleRepository(session)
         rule = await label_repo.create(
@@ -91,7 +97,8 @@ async def test_retention_preserves_failed_jobs(app, settings):
         source = await source_repo.create(
             name="Test",
             adapter_type="rtorrent",
-            connection_config_json={}, credential_ref="",
+            connection_config_json={},
+            credential_ref="",
         )
         label_repo = LabelRuleRepository(session)
         rule = await label_repo.create(
@@ -145,7 +152,8 @@ async def test_retention_preserves_needs_attention_jobs(app, settings):
         source = await source_repo.create(
             name="Test",
             adapter_type="rtorrent",
-            connection_config_json={}, credential_ref="",
+            connection_config_json={},
+            credential_ref="",
         )
         label_repo = LabelRuleRepository(session)
         rule = await label_repo.create(
@@ -198,7 +206,8 @@ async def test_retention_preserves_recent_completed(app, settings):
         source = await source_repo.create(
             name="Test",
             adapter_type="rtorrent",
-            connection_config_json={}, credential_ref="",
+            connection_config_json={},
+            credential_ref="",
         )
         label_repo = LabelRuleRepository(session)
         rule = await label_repo.create(
@@ -251,7 +260,8 @@ async def test_retention_preserves_source_items(app, settings):
         source = await source_repo.create(
             name="Test",
             adapter_type="rtorrent",
-            connection_config_json={}, credential_ref="",
+            connection_config_json={},
+            credential_ref="",
         )
         label_repo = LabelRuleRepository(session)
         rule = await label_repo.create(

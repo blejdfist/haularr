@@ -85,10 +85,16 @@ async def resume_waiting_jobs(session: AsyncSession, source_id: str, transfer_id
     from app.database.models import Job
 
     jobs = (
-        await session.execute(
-            select(Job).where(Job.status == "waiting_transfer", Job.error_code == "no_transfer_config")
+        (
+            await session.execute(
+                select(Job).where(
+                    Job.status == "waiting_transfer", Job.error_code == "no_transfer_config"
+                )
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     n = 0
     for job in jobs:
         if job.config_snapshot_json.get("source_id") != source_id:

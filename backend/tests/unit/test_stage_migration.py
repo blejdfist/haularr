@@ -16,7 +16,13 @@ def test_stage_rename_migration(settings, monkeypatch):
 
     db = sqlite3.connect(settings.config_dir / "haularr.db")
     now = "2026-01-01 00:00:00"
-    jobs = {"j1": "resolve_source", "j2": "download", "j3": "publish", "j4": "confirm_import", "j5": "notify"}
+    jobs = {
+        "j1": "resolve_source",
+        "j2": "download",
+        "j3": "publish",
+        "j4": "confirm_import",
+        "j5": "notify",
+    }
     for job_id, stage in jobs.items():
         db.execute(
             "INSERT INTO jobs (id, source_item_id, rule_id, config_snapshot_json, priority, status, stage,"
@@ -46,6 +52,12 @@ def test_stage_rename_migration(settings, monkeypatch):
     run_stages = {s for (s,) in db.execute("SELECT stage FROM stage_runs")}
     db.close()
 
-    assert stages == {"j1": "transfer", "j2": "transfer", "j3": "move", "j4": "cleanup", "j5": "cleanup"}
+    assert stages == {
+        "j1": "transfer",
+        "j2": "transfer",
+        "j3": "move",
+        "j4": "cleanup",
+        "j5": "cleanup",
+    }
     assert parked == "waiting_transfer"
     assert run_stages == {"transfer", "move"}

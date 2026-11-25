@@ -22,22 +22,37 @@ async def _seed(settings, specs, library_id="lib-1"):
         rule = await LabelRuleRepository(session).create(
             source_id=source.id, label="tv", temporary_directory="/t", completed_directory="/c"
         )
-        session.add(LibraryInstance(
-            id="lib-1", name="My Sonarr", adapter_type="sonarr", base_url="http://x",
-            api_key_secret_ref="",
-        ))
+        session.add(
+            LibraryInstance(
+                id="lib-1",
+                name="My Sonarr",
+                adapter_type="sonarr",
+                base_url="http://x",
+                api_key_secret_ref="",
+            )
+        )
         for n, (status, age) in enumerate(specs):
             item = SourceItem(
-                source_id=source.id, remote_id=f"h{n}", title=f"Title {n}",
-                labels_json=["tv"], source_status="completed", remote_path="/p", size_bytes=1,
+                source_id=source.id,
+                remote_id=f"h{n}",
+                title=f"Title {n}",
+                labels_json=["tv"],
+                source_status="completed",
+                remote_path="/p",
+                size_bytes=1,
             )
             session.add(item)
             await session.flush()
             snap = {"library_instance_id": library_id} if library_id else {}
-            session.add(Job(
-                source_item_id=item.id, rule_id=rule.id, config_snapshot_json=snap,
-                status=status, created_at=now - timedelta(minutes=age),
-            ))
+            session.add(
+                Job(
+                    source_item_id=item.id,
+                    rule_id=rule.id,
+                    config_snapshot_json=snap,
+                    status=status,
+                    created_at=now - timedelta(minutes=age),
+                )
+            )
         await session.commit()
 
 

@@ -32,7 +32,7 @@ class SFVEntry:
 
 @dataclass
 class VerificationResult:
-    verified: list[str] = field(default_factory=list)     # Files that passed all checks
+    verified: list[str] = field(default_factory=list)  # Files that passed all checks
     failed: list[tuple[str, str]] = field(default_factory=list)  # (filename, reason)
     missing: list[str] = field(default_factory=list)
     size_only: list[str] = field(default_factory=list)
@@ -115,7 +115,9 @@ def verify_files(
         actual_size = local_path.stat().st_size
         expected_size = file_info.get("size_bytes", 0)
         if actual_size != expected_size:
-            result.failed.append((relpath, f"size mismatch: expected {expected_size}, got {actual_size}"))
+            result.failed.append(
+                (relpath, f"size mismatch: expected {expected_size}, got {actual_size}")
+            )
             continue
 
         # SFV CRC32 check
@@ -127,7 +129,9 @@ def verify_files(
                 if actual_crc is None:
                     result.failed.append((relpath, "CRC32 computation failed"))
                 elif actual_crc != crc_expected:
-                    result.failed.append((relpath, f"CRC32 mismatch: expected {crc_expected}, got {actual_crc}"))
+                    result.failed.append(
+                        (relpath, f"CRC32 mismatch: expected {crc_expected}, got {actual_crc}")
+                    )
                 else:
                     result.verified.append(relpath)
             else:
@@ -140,7 +144,9 @@ def verify_files(
     # Check SFV entries that have no corresponding job file
     if sfv_map:
         for sfv_name in sfv_map:
-            if sfv_name not in expected_files and Path(sfv_name).name not in [Path(f).name for f in expected_files]:
+            if sfv_name not in expected_files and Path(sfv_name).name not in [
+                Path(f).name for f in expected_files
+            ]:
                 result.missing.append(sfv_name)
 
     return result

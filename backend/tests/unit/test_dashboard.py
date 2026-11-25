@@ -35,8 +35,11 @@ async def _seed(settings, specs, error=None):
     now = datetime.now(timezone.utc)
     async with get_session_factory(settings)() as session:
         src = SourceInstance(
-            name="Src", adapter_type="rtorrent", connection_config_json={},
-            credential_ref="", last_scan_error=error,
+            name="Src",
+            adapter_type="rtorrent",
+            connection_config_json={},
+            credential_ref="",
+            last_scan_error=error,
         )
         session.add(src)
         await session.flush()
@@ -46,15 +49,25 @@ async def _seed(settings, specs, error=None):
         session.add(rule)
         for n, (status, days) in enumerate(specs):
             item = SourceItem(
-                source_id=src.id, remote_id=f"h{n}", title=f"T{n}", labels_json=["tv"],
-                source_status="completed", remote_path="/p", size_bytes=1,
+                source_id=src.id,
+                remote_id=f"h{n}",
+                title=f"T{n}",
+                labels_json=["tv"],
+                source_status="completed",
+                remote_path="/p",
+                size_bytes=1,
             )
             session.add(item)
             await session.flush()
-            session.add(Job(
-                source_item_id=item.id, rule_id=rule.id, config_snapshot_json={}, status=status,
-                ended_at=now - timedelta(days=days) if days is not None else None,
-            ))
+            session.add(
+                Job(
+                    source_item_id=item.id,
+                    rule_id=rule.id,
+                    config_snapshot_json={},
+                    status=status,
+                    ended_at=now - timedelta(days=days) if days is not None else None,
+                )
+            )
         await session.commit()
         return src.id
 
@@ -70,7 +83,8 @@ async def test_dashboard_completed_7d(auth_client, settings):
 async def test_dashboard_by_status(auth_client, settings):
     await _seed(settings, [("queued", None), ("waiting_source", None)])
     assert (await auth_client.get("/api/v1/dashboard")).json()["jobs"]["by_status"] == {
-        "queued": 1, "waiting_source": 1,
+        "queued": 1,
+        "waiting_source": 1,
     }
 
 

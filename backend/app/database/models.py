@@ -59,9 +59,7 @@ class SourceInstance(Base):
         String(36), ForeignKey("transfer_instances.id"), nullable=True
     )
     poll_interval: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
-    onboarding_state: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="pending"
-    )
+    onboarding_state: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
     initial_scan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_scan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_scan_error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -75,16 +73,12 @@ class SourceInstance(Base):
     label_rules: Mapped[list[SourceLabelRule]] = relationship(
         "SourceLabelRule", back_populates="source", cascade="all, delete-orphan"
     )
-    source_items: Mapped[list[SourceItem]] = relationship(
-        "SourceItem", back_populates="source"
-    )
+    source_items: Mapped[list[SourceItem]] = relationship("SourceItem", back_populates="source")
 
 
 class SourceLabelRule(Base):
     __tablename__ = "source_label_rules"
-    __table_args__ = (
-        UniqueConstraint("source_id", "label", name="uq_source_label"),
-    )
+    __table_args__ = (UniqueConstraint("source_id", "label", name="uq_source_label"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
     source_id: Mapped[str] = mapped_column(
@@ -151,9 +145,7 @@ class TransferEndpoint(Base):
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     host: Mapped[str] = mapped_column(String(255), nullable=False)
     port: Mapped[int] = mapped_column(Integer, nullable=False, default=21)
-    tls_settings_json: Mapped[dict[str, Any]] = mapped_column(
-        JSON, nullable=False, default=dict
-    )
+    tls_settings_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     credential_ref: Mapped[str] = mapped_column(Text, nullable=False)
     path_mappings_json: Mapped[list[dict[str, Any]]] = mapped_column(
         JSON, nullable=False, default=list
@@ -163,7 +155,9 @@ class TransferEndpoint(Base):
         DateTime(timezone=True), nullable=False, default=_utcnow
     )
 
-    transfer: Mapped[TransferInstance] = relationship("TransferInstance", back_populates="endpoints")
+    transfer: Mapped[TransferInstance] = relationship(
+        "TransferInstance", back_populates="endpoints"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -224,9 +218,7 @@ class SourceItem(Base):
     )
     ignored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     infohash: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    remote_metadata_json: Mapped[dict[str, Any]] = mapped_column(
-        JSON, nullable=False, default=dict
-    )
+    remote_metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
     source: Mapped[SourceInstance] = relationship("SourceInstance", back_populates="source_items")
     jobs: Mapped[list[Job]] = relationship(
@@ -294,7 +286,14 @@ class EligibilityCheck(Base):
 class Job(Base):
     __tablename__ = "jobs"
     __table_args__ = (
-        Index("ix_jobs_status_stage_next_run", "status", "stage", "next_run_at", "priority", "created_at"),
+        Index(
+            "ix_jobs_status_stage_next_run",
+            "status",
+            "stage",
+            "next_run_at",
+            "priority",
+            "created_at",
+        ),
         Index("ix_jobs_lease_expires", "lease_expires_at"),
         Index("ix_jobs_source_item", "source_item_id"),
     )
@@ -349,14 +348,10 @@ class Job(Base):
 
 class StageRun(Base):
     __tablename__ = "stage_runs"
-    __table_args__ = (
-        Index("ix_stage_runs_job_stage", "job_id", "stage"),
-    )
+    __table_args__ = (Index("ix_stage_runs_job_stage", "job_id", "stage"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
-    job_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("jobs.id"), nullable=False
-    )
+    job_id: Mapped[str] = mapped_column(String(36), ForeignKey("jobs.id"), nullable=False)
     stage: Mapped[str] = mapped_column(String(50), nullable=False)
     attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="queued")
@@ -374,9 +369,7 @@ class JobFile(Base):
     __tablename__ = "job_files"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
-    job_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("jobs.id"), nullable=False
-    )
+    job_id: Mapped[str] = mapped_column(String(36), ForeignKey("jobs.id"), nullable=False)
     remote_relpath: Mapped[str] = mapped_column(Text, nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     remote_identity_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
@@ -384,9 +377,7 @@ class JobFile(Base):
     bytes_received: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     checksum_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     checksum: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    transfer_status: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="pending"
-    )
+    transfer_status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     job: Mapped[Job] = relationship("Job", back_populates="job_files")
@@ -396,9 +387,7 @@ class FileImport(Base):
     __tablename__ = "file_imports"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
-    job_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("jobs.id"), nullable=False
-    )
+    job_id: Mapped[str] = mapped_column(String(36), ForeignKey("jobs.id"), nullable=False)
     candidate_relpath: Mapped[str] = mapped_column(Text, nullable=False)
     library_instance_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("library_instances.id"), nullable=True
@@ -415,14 +404,10 @@ class FileImport(Base):
 
 class JobEvent(Base):
     __tablename__ = "job_events"
-    __table_args__ = (
-        Index("ix_job_events_job_created", "job_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_job_events_job_created", "job_id", "created_at"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
-    job_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("jobs.id"), nullable=False
-    )
+    job_id: Mapped[str] = mapped_column(String(36), ForeignKey("jobs.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )
@@ -444,9 +429,7 @@ class NotificationDelivery(Base):
     __tablename__ = "notification_deliveries"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
-    job_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("jobs.id"), nullable=False
-    )
+    job_id: Mapped[str] = mapped_column(String(36), ForeignKey("jobs.id"), nullable=False)
     target_id: Mapped[str] = mapped_column(String(255), nullable=False)
     event_type: Mapped[str] = mapped_column(String(100), nullable=False)
     attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

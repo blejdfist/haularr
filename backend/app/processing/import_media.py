@@ -62,7 +62,9 @@ async def run_import_stage(
             result.rejected_paths.append(candidate.relative_path)
             # Samples are meant to be thrown away; anything else is a file the user wants.
             if not all("sample" in r.lower() for r in candidate.rejection_reasons):
-                left_behind.append(f"{candidate.relative_path} ({'; '.join(candidate.rejection_reasons)})")
+                left_behind.append(
+                    f"{candidate.relative_path} ({'; '.join(candidate.rejection_reasons)})"
+                )
         else:
             accepted.append(candidate)
 

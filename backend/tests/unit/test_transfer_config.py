@@ -19,7 +19,13 @@ def test_transfer_config_includes_decrypted_credentials(settings):
 
     cfg = JobRunner(settings, "j", "transfer", "tok")._transfer_config(transfer, endpoint)
 
-    assert cfg == {"tls_verify": False, "host": "ftp.x", "port": 2121, "username": "u", "password": "pw"}
+    assert cfg == {
+        "tls_verify": False,
+        "host": "ftp.x",
+        "port": 2121,
+        "username": "u",
+        "password": "pw",
+    }
 
 
 def test_connect_uses_configured_port(monkeypatch):

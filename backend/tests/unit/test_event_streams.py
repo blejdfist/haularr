@@ -30,8 +30,11 @@ async def test_job_changes_skip_heartbeats_and_report_new_jobs(app, settings):
         changes, since = await job_changes(s, since, sent)
         assert changes == []
 
-        await s.execute(update(Job).where(Job.id == job_id).values(
-            download_bytes_done=50, download_bytes_total=100, stage="transfer"))
+        await s.execute(
+            update(Job)
+            .where(Job.id == job_id)
+            .values(download_bytes_done=50, download_bytes_total=100, stage="transfer")
+        )
         await s.commit()
         changes, since = await job_changes(s, since, sent)
         assert [(c["id"], c["progress"]) for c in changes] == [(job_id, 50)]
@@ -44,8 +47,14 @@ async def test_job_changes_skip_heartbeats_and_report_new_jobs(app, settings):
 
         # A job created between checks shows up.
         first = await s.get(Job, job_id)
-        s.add(Job(source_item_id=first.source_item_id, rule_id=first.rule_id,
-                  config_snapshot_json={}, status="queued"))
+        s.add(
+            Job(
+                source_item_id=first.source_item_id,
+                rule_id=first.rule_id,
+                config_snapshot_json={},
+                status="queued",
+            )
+        )
         await s.commit()
         changes, since = await job_changes(s, since, sent)
         assert [c["status"] for c in changes] == ["queued"]
@@ -82,8 +91,12 @@ async def test_downloading_job_streams_progress(app, settings):
     async with factory() as s:
         job = (await s.execute(select(Job))).scalar_one()
         job.stage = "source_download"
-        run = StageRun(job_id=job.id, stage="source_download", status="running",
-                       progress_json={"bytes_done": 25, "bytes_total": 100})
+        run = StageRun(
+            job_id=job.id,
+            stage="source_download",
+            status="running",
+            progress_json={"bytes_done": 25, "bytes_total": 100},
+        )
         s.add(run)
         await s.commit()
         [c], since = await job_changes(s, None, sent)

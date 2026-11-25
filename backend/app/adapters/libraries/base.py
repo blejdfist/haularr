@@ -30,15 +30,11 @@ class LibraryAdapter(Protocol):
         """Derive library presence/file state from match.library_record (no HTTP)."""
         ...
 
-    async def inspect_import(
-        self, ready_path: str, match: MediaMatch
-    ) -> ImportInspection:
+    async def inspect_import(self, ready_path: str, match: MediaMatch) -> ImportInspection:
         """Inspect files in Path B for import candidates and rejections."""
         ...
 
-    async def submit_import(
-        self, selected_candidates: list
-    ) -> ImportOperation:
+    async def submit_import(self, selected_candidates: list) -> ImportOperation:
         """Submit accepted candidates to Arr for import."""
         ...
 

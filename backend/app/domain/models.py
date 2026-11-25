@@ -95,10 +95,10 @@ class TransferStatus(str, Enum):
 
 
 class OnboardingState(str, Enum):
-    PENDING = "pending"           # Initial scan not yet done
-    SCANNING = "scanning"         # Currently scanning
+    PENDING = "pending"  # Initial scan not yet done
+    SCANNING = "scanning"  # Currently scanning
     AWAITING_REVIEW = "awaiting_review"  # Scan done; admin must acknowledge
-    COMPLETED = "completed"       # Admin acknowledged; auto-processing enabled
+    COMPLETED = "completed"  # Admin acknowledged; auto-processing enabled
 
 
 class AdapterType(str, Enum):
@@ -170,7 +170,7 @@ class MediaMatch(BaseModel):
     """Result of parsing a release name against a library."""
 
     media_type: MediaType
-    catalog_id: int | None = None       # Sonarr series_id or Radarr movie_id
+    catalog_id: int | None = None  # Sonarr series_id or Radarr movie_id
     title: str = ""
     year: int | None = None
     episode_ids: list[int] = Field(default_factory=list)

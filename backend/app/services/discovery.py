@@ -70,7 +70,9 @@ class DiscoveryService:
         self.master_key = master_key
         self.source_label = ""  # "Name" (id) of the last source scanned, for log lines
 
-    async def run_discovery_for_source(self, source_id: str, progress_only: bool = False) -> dict[str, int]:
+    async def run_discovery_for_source(
+        self, source_id: str, progress_only: bool = False
+    ) -> dict[str, int]:
         """Run one discovery cycle for a source.
 
         ``progress_only``: the fast tick while torrents download. Refreshes downloads and
@@ -128,6 +130,7 @@ class DiscoveryService:
         # Create source adapter. No separate connection test: a failed listing below records
         # the same error, and this runs every few seconds while torrents download.
         from app.adapters.sources import create_source_adapter
+
         try:
             adapter = create_source_adapter(source_id_copy, adapter_type, conn_config)
         except Exception as exc:
@@ -166,7 +169,9 @@ class DiscoveryService:
             except Exception as exc:
                 logger.debug(
                     "Error processing item %s from %s: %s",
-                    item_dto.remote_id, source_label, exc,
+                    item_dto.remote_id,
+                    source_label,
+                    exc,
                 )
                 counts["errors"] += 1
 
@@ -183,7 +188,8 @@ class DiscoveryService:
                 update_kwargs["initial_scan_at"] = _utcnow()
                 logger.info(
                     "Source %s first scan complete (%d items) — awaiting admin review",
-                    source_label, len(items_dto),
+                    source_label,
+                    len(items_dto),
                 )
             elif is_first_scan:
                 # First scan, no items
@@ -195,8 +201,12 @@ class DiscoveryService:
 
         logger.info(
             "Source %s scan: discovered=%d new=%d classified=%d queued=%d errors=%d",
-            source_label, counts["discovered"], counts["new"],
-            counts["classified"], counts["queued"], counts["errors"],
+            source_label,
+            counts["discovered"],
+            counts["new"],
+            counts["classified"],
+            counts["queued"],
+            counts["errors"],
         )
         return counts
 
@@ -211,17 +221,21 @@ class DiscoveryService:
 
         early = (JobStage.SOURCE_DOWNLOAD.value, JobStage.CHECK_LIBRARY.value)
         async with get_session_factory(self.settings)() as session:
-            rows = (await session.execute(
-                select(Job, SourceItem.remote_id)
-                .join(SourceItem, Job.source_item_id == SourceItem.id)
-                .where(
-                    SourceItem.source_id == source_id,
-                    Job.stage.in_(early),
-                    Job.status.not_in((JobStatus.RUNNING.value, JobStatus.NEEDS_ATTENTION.value)),
-                    # Open jobs, plus ones an earlier build ended as skipped for this reason.
-                    Job.ended_at.is_(None) | (Job.error_code == "source_removed"),
+            rows = (
+                await session.execute(
+                    select(Job, SourceItem.remote_id)
+                    .join(SourceItem, Job.source_item_id == SourceItem.id)
+                    .where(
+                        SourceItem.source_id == source_id,
+                        Job.stage.in_(early),
+                        Job.status.not_in(
+                            (JobStatus.RUNNING.value, JobStatus.NEEDS_ATTENTION.value)
+                        ),
+                        # Open jobs, plus ones an earlier build ended as skipped for this reason.
+                        Job.ended_at.is_(None) | (Job.error_code == "source_removed"),
+                    )
                 )
-            )).all()
+            ).all()
             repo = JobRepository(session)
             gone: list[str] = []
             for job, remote_id in rows:
@@ -232,23 +246,35 @@ class DiscoveryService:
                     job.error_code = "source_removed"
                     job.error_detail = "Removed from seedbox before it finished"
                     await repo.add_event(
-                        job_id=job.id, severity="error", kind="stage.needs_attention",
-                        stage=job.stage, message=job.error_detail,
+                        job_id=job.id,
+                        severity="error",
+                        kind="stage.needs_attention",
+                        stage=job.stage,
+                        message=job.error_detail,
                     )
                 else:
                     gone.append(job.id)
-                    logger.info("Removed job %s: its torrent left the seedbox", named(job.config_snapshot_json.get("title", ""), job.id))
+                    logger.info(
+                        "Removed job %s: its torrent left the seedbox",
+                        named(job.config_snapshot_json.get("title", ""), job.id),
+                    )
             if gone:
                 await delete_jobs(session, gone)
                 session.expunge_all()
 
-            orphans = (await session.execute(
-                select(SourceItem).where(
-                    SourceItem.source_id == source_id,
-                    SourceItem.remote_id.not_in(listed),
-                    ~select(Job.id).where(Job.source_item_id == SourceItem.id).exists(),
+            orphans = (
+                (
+                    await session.execute(
+                        select(SourceItem).where(
+                            SourceItem.source_id == source_id,
+                            SourceItem.remote_id.not_in(listed),
+                            ~select(Job.id).where(Job.source_item_id == SourceItem.id).exists(),
+                        )
+                    )
                 )
-            )).scalars().all()
+                .scalars()
+                .all()
+            )
             for item in orphans:
                 await session.delete(item)
             await session.commit()
@@ -331,8 +357,13 @@ class DiscoveryService:
             # Still downloading: a job right away, so it shows; the library is asked once it's done.
             if not item_complete(item):
                 await create_job(
-                    session, item, matched_rule, self.settings,
-                    approved=False, kind="job.discovered", message="Seen on the seedbox",
+                    session,
+                    item,
+                    matched_rule,
+                    self.settings,
+                    approved=False,
+                    kind="job.discovered",
+                    message="Seen on the seedbox",
                 )
                 counts["queued"] += 1
                 await session.commit()
@@ -354,9 +385,8 @@ class DiscoveryService:
 
             # Classify
             from app.services.classification import classify_item
-            eligibility = await classify_item(
-                session, item, matched_rule, library, self.master_key
-            )
+
+            eligibility = await classify_item(session, item, matched_rule, library, self.master_key)
             counts["classified"] += 1
 
             # Auto-queue if eligible
@@ -373,7 +403,11 @@ class DiscoveryService:
                 cancelled = await job_repo.has_cancelled_for_item(item.id)
                 if not existing and not cancelled:
                     await create_job(
-                        session, item, matched_rule, self.settings, approved=False,
+                        session,
+                        item,
+                        matched_rule,
+                        self.settings,
+                        approved=False,
                         kind="job.auto_queued",
                         message=f"Auto-queued after discovery: eligibility={item.last_eligibility}",
                     )
@@ -415,10 +449,7 @@ class DiscoveryService:
             return None
 
         label_set = set(labels)
-        candidates = [
-            r for r in rules
-            if r.enabled and r.label in label_set
-        ]
+        candidates = [r for r in rules if r.enabled and r.label in label_set]
 
         if not candidates:
             return None

@@ -53,9 +53,7 @@ async def get_settings_api(request: Request) -> SettingsResponse:
 
 
 @router.patch("/settings", response_model=SettingsResponse)
-async def patch_settings_api(
-    body: SettingsPatch, request: Request
-) -> SettingsResponse:
+async def patch_settings_api(body: SettingsPatch, request: Request) -> SettingsResponse:
     """Change settings. Omitted fields are kept; concurrency changes apply immediately."""
     settings = request.app.state.settings
     updates = body.model_dump(exclude_none=True)
@@ -77,9 +75,12 @@ async def patch_settings_api(
 
     # Apply concurrency limits to live scheduler
     if hasattr(request.app.state, "scheduler") and any(
-        k in updates for k in [
-            "max_concurrent_download_jobs", "max_concurrent_verify_jobs",
-            "max_concurrent_extract_jobs", "max_concurrent_publish_jobs",
+        k in updates
+        for k in [
+            "max_concurrent_download_jobs",
+            "max_concurrent_verify_jobs",
+            "max_concurrent_extract_jobs",
+            "max_concurrent_publish_jobs",
             "max_concurrent_import_jobs",
         ]
     ):

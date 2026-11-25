@@ -5,6 +5,7 @@ Revises: 4d843a53da62
 Create Date: 2026-11-13 10:48:35.878773
 
 """
+
 from __future__ import annotations
 
 from typing import Sequence, Union
@@ -14,8 +15,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '52f507048e57'
-down_revision: Union[str, None] = '4d843a53da62'
+revision: str = "52f507048e57"
+down_revision: Union[str, None] = "4d843a53da62"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -41,6 +42,7 @@ def upgrade() -> None:
     ).fetchall()
 
     import json
+
     _SENSITIVE_KEYS = {"password", "api_key", "apikey", "secret", "token"}
 
     for row_id, raw in rows:
@@ -78,6 +80,7 @@ def downgrade() -> None:
         )
 
     import json
+
     rows = conn.execute(
         sa.text("SELECT id, connection_config_json, credential_ref FROM source_instances")
     ).fetchall()

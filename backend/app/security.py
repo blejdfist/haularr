@@ -49,9 +49,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(data: dict, settings: Settings) -> str:
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=settings.access_token_expire_minutes
-    )
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.secret_key, algorithm=ALGORITHM)
 
@@ -86,6 +84,7 @@ def encrypt_secret(plaintext: str, master_key: bytes) -> str:
     """Simple XOR-based encryption placeholder; replace with Fernet in prod."""
     from cryptography.fernet import Fernet
     import base64, hashlib
+
     # Derive a Fernet key from master_key
     fernet_key = base64.urlsafe_b64encode(master_key)
     f = Fernet(fernet_key)
@@ -95,6 +94,7 @@ def encrypt_secret(plaintext: str, master_key: bytes) -> str:
 def decrypt_secret(ciphertext: str, master_key: bytes) -> str:
     from cryptography.fernet import Fernet
     import base64
+
     fernet_key = base64.urlsafe_b64encode(master_key)
     f = Fernet(fernet_key)
     return f.decrypt(ciphertext.encode()).decode()
@@ -142,4 +142,3 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     return AuthUser(id=user.id, username=user.username, is_admin=user.is_admin)
-

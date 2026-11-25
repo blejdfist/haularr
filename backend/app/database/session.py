@@ -29,6 +29,7 @@ def get_engine(settings: Settings) -> AsyncEngine:
                 "check_same_thread": False,
             },
         )
+
         # Set SQLite pragmas on every new connection
         @event.listens_for(_engine.sync_engine, "connect")
         def set_pragmas(dbapi_connection, connection_record):  # type: ignore[no-untyped-def]

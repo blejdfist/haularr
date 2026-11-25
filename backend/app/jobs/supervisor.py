@@ -93,7 +93,9 @@ class DiscoverySupervisor:
             result = await session.execute(
                 select(SourceInstance).where(SourceInstance.enabled == True)  # noqa: E712
             )
-            enabled_sources = {s.id: (s.poll_interval, named(s.name, s.id)) for s in result.scalars().all()}
+            enabled_sources = {
+                s.id: (s.poll_interval, named(s.name, s.id)) for s in result.scalars().all()
+            }
 
         # Start tasks for new sources
         for source_id, (poll_interval, label) in enabled_sources.items():
@@ -176,9 +178,14 @@ class DiscoverySupervisor:
         from sqlalchemy import select
 
         async with get_session_factory(self.settings)() as session:
-            return (await session.execute(
-                select(Job.id)
-                .join(SourceItem, Job.source_item_id == SourceItem.id)
-                .where(SourceItem.source_id == source_id, Job.status == JobStatus.WAITING_SOURCE.value)
-                .limit(1)
-            )).first() is not None
+            return (
+                await session.execute(
+                    select(Job.id)
+                    .join(SourceItem, Job.source_item_id == SourceItem.id)
+                    .where(
+                        SourceItem.source_id == source_id,
+                        Job.status == JobStatus.WAITING_SOURCE.value,
+                    )
+                    .limit(1)
+                )
+            ).first() is not None

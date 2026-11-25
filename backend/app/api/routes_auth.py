@@ -62,7 +62,9 @@ async def setup(
 ) -> TokenResponse:
     """Create the admin account. Only works while no user exists (409 afterwards)."""
     if await session.scalar(select(func.count()).select_from(User)):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Admin account already set up.")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Admin account already set up."
+        )
     user = User(username=body.username, password_hash=hash_password(body.password), is_admin=True)
     session.add(user)
     await session.commit()

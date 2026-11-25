@@ -129,7 +129,8 @@ class SonarrAdapter:
         """Derive library state from the /parse episode records (no HTTP)."""
         episodes = match.library_record.get("episodes", [])
         missing = [
-            e["id"] for e in episodes
+            e["id"]
+            for e in episodes
             if e.get("id") is not None and e["id"] in match.episode_ids and not e.get("hasFile")
         ]
         return LibraryInventory(
@@ -140,9 +141,7 @@ class SonarrAdapter:
             missing_episode_ids=missing,
         )
 
-    async def inspect_import(
-        self, ready_path: str, match: MediaMatch
-    ) -> ImportInspection:
+    async def inspect_import(self, ready_path: str, match: MediaMatch) -> ImportInspection:
         """Inspect files at ready_path using Sonarr's ManualImport GET.
 
         No catalog_id (the user skipped the library check, e.g. a multi-movie pack): each
@@ -157,7 +156,7 @@ class SonarrAdapter:
             return ImportInspection(all_rejected=True)
 
         candidates = []
-        for item in (candidates_raw or []):
+        for item in candidates_raw or []:
             path = item.get("path", "")
             rejections = [r.get("reason", "") for r in item.get("rejections", [])]
             episode_ids = [ep["id"] for ep in item.get("episodes", []) if ep.get("id")]
@@ -192,14 +191,16 @@ class SonarrAdapter:
         """Submit accepted candidates via ManualImport command."""
         files = []
         for c in selected_candidates:
-            files.append({
-                "path": c.absolute_path,
-                "seriesId": c.media_id,
-                "episodeIds": c.episode_ids,
-                "quality": c.quality_model,  # as detected by Sonarr in the GET
-                "languages": c.languages,
-                "releaseGroup": c.release_group,
-            })
+            files.append(
+                {
+                    "path": c.absolute_path,
+                    "seriesId": c.media_id,
+                    "episodeIds": c.episode_ids,
+                    "quality": c.quality_model,  # as detected by Sonarr in the GET
+                    "languages": c.languages,
+                    "releaseGroup": c.release_group,
+                }
+            )
 
         body = {
             "name": "ManualImport",
@@ -235,15 +236,24 @@ class SonarrAdapter:
         cmd_status = cmd.get("status", "unknown")
         if cmd_status == "completed":
             # A completed ManualImport can still have imported nothing: check the episodes.
-            episodes = await self._get("/episode", episodeIds=match.episode_ids) if match.episode_ids else []
+            episodes = (
+                await self._get("/episode", episodeIds=match.episode_ids)
+                if match.episode_ids
+                else []
+            )
             missing = [e["id"] for e in episodes if not e.get("hasFile")]
             if missing:
                 return ImportOutcome(
                     success=False,
-                    details={"command_status": cmd_status, "error": f"Episodes {missing} still have no file"},
+                    details={
+                        "command_status": cmd_status,
+                        "error": f"Episodes {missing} still have no file",
+                    },
                 )
             return ImportOutcome(
-                success=True, imported_paths=operation.candidates, details={"command_status": cmd_status}
+                success=True,
+                imported_paths=operation.candidates,
+                details={"command_status": cmd_status},
             )
         elif cmd_status in ("failed", "aborted"):
             return ImportOutcome(

@@ -136,7 +136,10 @@ async def test_logs_resolve_ids_to_names(auth_client, settings):
 
     async with get_session_factory(settings)() as session:
         src = await SourceRepository(session).create(
-            name="Seedbox", adapter_type="rtorrent", connection_config_json={}, credential_ref="",
+            name="Seedbox",
+            adapter_type="rtorrent",
+            connection_config_json={},
+            credential_ref="",
         )
         await session.commit()
 

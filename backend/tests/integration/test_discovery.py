@@ -83,7 +83,8 @@ async def test_classify_missing_media(app, settings):
         source = await source_repo.create(
             name="Test",
             adapter_type="rtorrent",
-            connection_config_json={}, credential_ref="",
+            connection_config_json={},
+            credential_ref="",
         )
         label_repo = LabelRuleRepository(session)
         rule = await label_repo.create(
@@ -146,7 +147,8 @@ async def test_classify_not_registered(app, settings):
         source = await source_repo.create(
             name="Test",
             adapter_type="rtorrent",
-            connection_config_json={}, credential_ref="",
+            connection_config_json={},
+            credential_ref="",
         )
         label_repo = LabelRuleRepository(session)
         rule = await label_repo.create(
@@ -203,7 +205,8 @@ async def test_classify_already_available(app, settings):
         source = await source_repo.create(
             name="Test",
             adapter_type="rtorrent",
-            connection_config_json={}, credential_ref="",
+            connection_config_json={},
+            credential_ref="",
         )
         label_repo = LabelRuleRepository(session)
         rule = await label_repo.create(
@@ -270,7 +273,8 @@ async def test_first_scan_auto_queues_missing_item(app, settings):
         source = await source_repo.create(
             name="Test Source",
             adapter_type="rtorrent",
-            connection_config_json={'xmlrpc_url': 'http://rt.example/RPC2'}, credential_ref='',
+            connection_config_json={"xmlrpc_url": "http://rt.example/RPC2"},
+            credential_ref="",
             onboarding_state=OnboardingState.PENDING.value,
         )
         label_repo = LabelRuleRepository(session)
@@ -300,7 +304,9 @@ async def test_first_scan_auto_queues_missing_item(app, settings):
 
     with (
         patch("app.adapters.sources.create_source_adapter") as mock_sa,
-        patch("app.services.classification.create_library_adapter", return_value=fake_library_adapter),
+        patch(
+            "app.services.classification.create_library_adapter", return_value=fake_library_adapter
+        ),
     ):
         mock_adapter = AsyncMock()
         mock_adapter.test_connection = AsyncMock(return_value={"ok": True})
@@ -332,7 +338,8 @@ async def test_auto_queue_after_onboarding(app, settings):
         source = await source_repo.create(
             name="Test Source",
             adapter_type="rtorrent",
-            connection_config_json={'xmlrpc_url': 'http://rt.example/RPC2'}, credential_ref='',
+            connection_config_json={"xmlrpc_url": "http://rt.example/RPC2"},
+            credential_ref="",
             onboarding_state=OnboardingState.COMPLETED.value,  # Onboarding done
         )
         label_repo = LabelRuleRepository(session)
@@ -360,7 +367,9 @@ async def test_auto_queue_after_onboarding(app, settings):
 
     with (
         patch("app.adapters.sources.create_source_adapter") as mock_sa,
-        patch("app.services.classification.create_library_adapter", return_value=fake_library_adapter),
+        patch(
+            "app.services.classification.create_library_adapter", return_value=fake_library_adapter
+        ),
     ):
         mock_adapter = AsyncMock()
         mock_adapter.test_connection = AsyncMock(return_value={"ok": True})
@@ -394,7 +403,8 @@ async def test_no_duplicate_jobs_on_rescan(app, settings):
         source = await source_repo.create(
             name="Test Source",
             adapter_type="rtorrent",
-            connection_config_json={'xmlrpc_url': 'http://rt.example/RPC2'}, credential_ref='',
+            connection_config_json={"xmlrpc_url": "http://rt.example/RPC2"},
+            credential_ref="",
             onboarding_state=OnboardingState.COMPLETED.value,
         )
         label_repo = LabelRuleRepository(session)
@@ -422,7 +432,9 @@ async def test_no_duplicate_jobs_on_rescan(app, settings):
 
     with (
         patch("app.adapters.sources.create_source_adapter") as mock_sa,
-        patch("app.services.classification.create_library_adapter", return_value=fake_library_adapter),
+        patch(
+            "app.services.classification.create_library_adapter", return_value=fake_library_adapter
+        ),
     ):
         mock_adapter = AsyncMock()
         mock_adapter.test_connection = AsyncMock(return_value={"ok": True})
@@ -458,7 +470,8 @@ async def test_unrouted_items_not_queued(app, settings):
         source = await source_repo.create(
             name="Test Source",
             adapter_type="rtorrent",
-            connection_config_json={'xmlrpc_url': 'http://rt.example/RPC2'}, credential_ref='',
+            connection_config_json={"xmlrpc_url": "http://rt.example/RPC2"},
+            credential_ref="",
             onboarding_state=OnboardingState.COMPLETED.value,
         )
         # Only "movies" label rule, but item has "tv" label
@@ -502,7 +515,6 @@ async def test_unrouted_items_not_queued(app, settings):
         assert items[0].last_eligibility == EligibilityStatus.UNROUTED.value
 
 
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "episode_ids,expected",
@@ -519,37 +531,51 @@ async def test_classify_series_by_resolved_episodes(app, settings, episode_ids, 
     factory = get_session_factory(settings)
     async with factory() as session:
         source = await SourceRepository(session).create(
-            name="Test", adapter_type="rtorrent",
-            connection_config_json={}, credential_ref="",
+            name="Test",
+            adapter_type="rtorrent",
+            connection_config_json={},
+            credential_ref="",
         )
         label_repo = LabelRuleRepository(session)
         rule = await label_repo.create(
-            source_id=source.id, label="tv",
-            temporary_directory="/tmp", completed_directory="/tmp",
+            source_id=source.id,
+            label="tv",
+            temporary_directory="/tmp",
+            completed_directory="/tmp",
         )
         library = LibraryInstance(
-            name="Sonarr", adapter_type="sonarr",
-            base_url="http://sonarr:8989", api_key_secret_ref="k",
+            name="Sonarr",
+            adapter_type="sonarr",
+            base_url="http://sonarr:8989",
+            api_key_secret_ref="k",
         )
         session.add(library)
         await session.flush()
         rule.library_instance_id = library.id
         item_repo = SourceItemRepository(session)
         item, _ = await item_repo.upsert(
-            source_id=source.id, remote_id="h", title="Test.Show.S01E01.1080p",
-            labels_json=["tv"], source_status="completed",
+            source_id=source.id,
+            remote_id="h",
+            title="Test.Show.S01E01.1080p",
+            labels_json=["tv"],
+            source_status="completed",
         )
         await session.commit()
         item = await item_repo.get(item.id)
 
         fake = FakeLibraryAdapter(
             match=MediaMatch(
-                media_type=MediaType.SERIES, catalog_id=1, title="Test Show",
+                media_type=MediaType.SERIES,
+                catalog_id=1,
+                title="Test Show",
                 episode_ids=episode_ids,
             ),
             inventory=LibraryInventory(
-                catalog_id=1, title="Test Show", registered=True,
-                has_file=bool(episode_ids), missing_episode_ids=[],
+                catalog_id=1,
+                title="Test Show",
+                registered=True,
+                has_file=bool(episode_ids),
+                missing_episode_ids=[],
             ),
         )
         with patch("app.services.classification.create_library_adapter", return_value=fake):
@@ -566,8 +592,10 @@ async def test_scan_failure_sets_last_scan_error(app, settings):
     factory = get_session_factory(settings)
     async with factory() as session:
         source = await SourceRepository(session).create(
-            name="S", adapter_type="rtorrent",
-            connection_config_json={"xmlrpc_url": "http://rt.example/RPC2"}, credential_ref="",
+            name="S",
+            adapter_type="rtorrent",
+            connection_config_json={"xmlrpc_url": "http://rt.example/RPC2"},
+            credential_ref="",
         )
         await session.commit()
         source_id = source.id
@@ -601,23 +629,34 @@ async def test_cancelled_job_not_requeued_on_rescan(app, settings):
         source = await SourceRepository(session).create(
             name="Test Source",
             adapter_type="rtorrent",
-            connection_config_json={'xmlrpc_url': 'http://rt.example/RPC2'}, credential_ref='',
+            connection_config_json={"xmlrpc_url": "http://rt.example/RPC2"},
+            credential_ref="",
             onboarding_state=OnboardingState.COMPLETED.value,
         )
         await LabelRuleRepository(session).create(
-            source_id=source.id, label="tv", temporary_directory="/tmp",
-            completed_directory="/tmp", automatic_processing=True,
+            source_id=source.id,
+            label="tv",
+            temporary_directory="/tmp",
+            completed_directory="/tmp",
+            automatic_processing=True,
         )
         await session.commit()
         source_id = source.id
 
-    fake_items = [SourceItemDTO(
-        remote_id="hash1", name="Test.Show.S01E01.1080p", labels=["tv"],
-        status=SourceStatus.COMPLETED, total_bytes=1000,
-    )]
+    fake_items = [
+        SourceItemDTO(
+            remote_id="hash1",
+            name="Test.Show.S01E01.1080p",
+            labels=["tv"],
+            status=SourceStatus.COMPLETED,
+            total_bytes=1000,
+        )
+    ]
     with (
         patch("app.adapters.sources.create_source_adapter") as mock_sa,
-        patch("app.services.classification.create_library_adapter", return_value=FakeLibraryAdapter()),
+        patch(
+            "app.services.classification.create_library_adapter", return_value=FakeLibraryAdapter()
+        ),
     ):
         mock_adapter = AsyncMock()
         mock_adapter.test_connection = AsyncMock(return_value={"ok": True})
@@ -648,21 +687,31 @@ async def test_rescan_skips_classification_once_item_has_job(app, settings):
     factory = get_session_factory(settings)
     async with factory() as session:
         source = await SourceRepository(session).create(
-            name="S", adapter_type="rtorrent",
-            connection_config_json={'xmlrpc_url': 'http://rt.example/RPC2'}, credential_ref='',
+            name="S",
+            adapter_type="rtorrent",
+            connection_config_json={"xmlrpc_url": "http://rt.example/RPC2"},
+            credential_ref="",
             onboarding_state=OnboardingState.COMPLETED.value,
         )
         await LabelRuleRepository(session).create(
-            source_id=source.id, label="tv", temporary_directory="/tmp",
-            completed_directory="/tmp", automatic_processing=True,
+            source_id=source.id,
+            label="tv",
+            temporary_directory="/tmp",
+            completed_directory="/tmp",
+            automatic_processing=True,
         )
         await session.commit()
         source_id = source.id
 
-    fake_items = [SourceItemDTO(
-        remote_id="hash1", name="Test.Show.S01E01.1080p", labels=["tv"],
-        status=SourceStatus.COMPLETED, total_bytes=1000,
-    )]
+    fake_items = [
+        SourceItemDTO(
+            remote_id="hash1",
+            name="Test.Show.S01E01.1080p",
+            labels=["tv"],
+            status=SourceStatus.COMPLETED,
+            total_bytes=1000,
+        )
+    ]
     real = classification.classify_item
     spy = AsyncMock(side_effect=real)
     with (
@@ -689,13 +738,18 @@ async def test_not_registered_is_rechecked_every_scan(app, settings):
     factory = get_session_factory(settings)
     async with factory() as session:
         source = await SourceRepository(session).create(
-            name="S", adapter_type="rtorrent",
-            connection_config_json={'xmlrpc_url': 'http://rt.example/RPC2'}, credential_ref='',
+            name="S",
+            adapter_type="rtorrent",
+            connection_config_json={"xmlrpc_url": "http://rt.example/RPC2"},
+            credential_ref="",
             onboarding_state=OnboardingState.COMPLETED.value,
         )
         await LabelRuleRepository(session).create(
-            source_id=source.id, label="tv", temporary_directory="/tmp",
-            completed_directory="/tmp", automatic_processing=True,
+            source_id=source.id,
+            label="tv",
+            temporary_directory="/tmp",
+            completed_directory="/tmp",
+            automatic_processing=True,
         )
         await session.commit()
         source_id = source.id
@@ -710,10 +764,17 @@ async def test_not_registered_is_rechecked_every_scan(app, settings):
         patch.object(classification, "classify_item", spy),
     ):
         mock_adapter = AsyncMock()
-        mock_adapter.list_items = AsyncMock(return_value=[SourceItemDTO(
-            remote_id="hash1", name="Test.Show.S01E01.1080p", labels=["tv"],
-            status=SourceStatus.COMPLETED, total_bytes=1000,
-        )])
+        mock_adapter.list_items = AsyncMock(
+            return_value=[
+                SourceItemDTO(
+                    remote_id="hash1",
+                    name="Test.Show.S01E01.1080p",
+                    labels=["tv"],
+                    status=SourceStatus.COMPLETED,
+                    total_bytes=1000,
+                )
+            ]
+        )
         mock_sa.return_value = mock_adapter
         svc = DiscoveryService(settings, b"\x00" * 32)
         await svc.run_discovery_for_source(source_id)

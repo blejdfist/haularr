@@ -108,8 +108,9 @@ class JobScheduler:
     @property
     def active_download_count(self) -> int:
         """Count of currently running download jobs."""
-        return len([t for s, t in self._active_jobs.items()
-                     if s.startswith(JobStage.TRANSFER.value)])
+        return len(
+            [t for s, t in self._active_jobs.items() if s.startswith(JobStage.TRANSFER.value)]
+        )
 
     async def start(self) -> None:
         """Start the scheduler loop."""
@@ -191,7 +192,9 @@ class JobScheduler:
             task = asyncio.create_task(self._run_job(job.id, stage, worker_token, semaphore))
             self._active_jobs[f"{stage}:{job.id}"] = task
 
-    async def _run_job(self, job_id: str, stage: str, worker_token: str, semaphore: StageSemaphore) -> None:
+    async def _run_job(
+        self, job_id: str, stage: str, worker_token: str, semaphore: StageSemaphore
+    ) -> None:
         """Run a single job stage, then transition to next stage."""
         from app.jobs.runner import JobRunner
 
@@ -206,9 +209,13 @@ class JobScheduler:
             elif result.status == StageRunStatus.SKIPPED:
                 await self._transition_skipped(job_id, stage)
             elif result.status == StageRunStatus.FAILED:
-                await self._transition_failed(job_id, stage, result.error_code, result.error_detail, result.retryable)
+                await self._transition_failed(
+                    job_id, stage, result.error_code, result.error_detail, result.retryable
+                )
             elif result.status == StageRunStatus.NEEDS_ATTENTION:
-                await self._transition_needs_attention(job_id, stage, result.error_code, result.error_detail)
+                await self._transition_needs_attention(
+                    job_id, stage, result.error_code, result.error_detail
+                )
 
         except asyncio.CancelledError:
             if not self._running:
@@ -223,7 +230,9 @@ class JobScheduler:
             await self._transition_cancelled(job_id, stage)
         except Exception:
             logger.exception("Job %s stage %s crashed", runner.label, stage)
-            await self._transition_failed(job_id, stage, "unexpected_error", "Unhandled exception", False)
+            await self._transition_failed(
+                job_id, stage, "unexpected_error", "Unhandled exception", False
+            )
         finally:
             semaphore.release()
             key = f"{stage}:{job_id}"
@@ -291,7 +300,7 @@ class JobScheduler:
 
             if retryable and attempts < self.settings.retry_limit:
                 # Exponential backoff with jitter
-                backoff = min(2 ** attempts + random.uniform(0, 5), 300)
+                backoff = min(2**attempts + random.uniform(0, 5), 300)
                 next_run = _utcnow() + timedelta(seconds=backoff)
                 await repo.update(
                     job_id,
@@ -331,7 +340,9 @@ class JobScheduler:
                 )
             await session.commit()
 
-    async def _transition_needs_attention(self, job_id: str, stage: str, error_code: str, error_detail: str) -> None:
+    async def _transition_needs_attention(
+        self, job_id: str, stage: str, error_code: str, error_detail: str
+    ) -> None:
         """Mark job as needing attention."""
         factory = get_session_factory(self.settings)
         async with factory() as session:
@@ -353,7 +364,9 @@ class JobScheduler:
                 severity="info" if parked else "error",
                 kind="stage.parked" if parked else "stage.needs_attention",
                 stage=stage,
-                message=error_detail if parked else f"Stage {stage} needs attention: {error_detail}",
+                message=error_detail
+                if parked
+                else f"Stage {stage} needs attention: {error_detail}",
                 details_json={"error_code": error_code},
             )
             await session.commit()

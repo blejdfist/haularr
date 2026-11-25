@@ -45,9 +45,7 @@ def test_path_mapping_resolution():
         remote_base_path="/srv/torrents/Downloads/Test.Release",
     )
 
-    mappings = [
-        {"source_prefix": "/srv/torrents/", "remote_prefix": "/completed/"}
-    ]
+    mappings = [{"source_prefix": "/srv/torrents/", "remote_prefix": "/completed/"}]
     source_prefixes = [m["source_prefix"] for m in mappings]
     remote_prefixes = [m["remote_prefix"] for m in mappings]
 

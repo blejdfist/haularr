@@ -121,26 +121,40 @@ async def test_delete_source_removes_owned_transfer(auth_client, app):
 
 async def _lib_with_history(auth_client, app, with_rule):
     from app.database.models import (
-        FileImport, Job, LibraryInstance, MediaMatch, SourceItem, SourceLabelRule,
+        FileImport,
+        Job,
+        LibraryInstance,
+        MediaMatch,
+        SourceItem,
+        SourceLabelRule,
     )
+
     sid = (await auth_client.post("/api/v1/sources", json=_src())).json()["id"]
     async with get_session_factory(app.state.settings)() as s:
-        lib = LibraryInstance(name="L", adapter_type="sonarr", base_url="http://x", api_key_secret_ref="k")
+        lib = LibraryInstance(
+            name="L", adapter_type="sonarr", base_url="http://x", api_key_secret_ref="k"
+        )
         s.add(lib)
         await s.flush()
-        rule = SourceLabelRule(source_id=sid, label="x", temporary_directory="/t",
-                               completed_directory="/c",
-                               library_instance_id=lib.id if with_rule else None)
+        rule = SourceLabelRule(
+            source_id=sid,
+            label="x",
+            temporary_directory="/t",
+            completed_directory="/c",
+            library_instance_id=lib.id if with_rule else None,
+        )
         item = SourceItem(source_id=sid, remote_id="r")
         s.add_all([rule, item])
         await s.flush()
         job = Job(source_item_id=item.id, rule_id=rule.id, config_snapshot_json={})
         s.add(job)
         await s.flush()
-        s.add_all([
-            MediaMatch(source_item_id=item.id, library_instance_id=lib.id),
-            FileImport(job_id=job.id, candidate_relpath="a", library_instance_id=lib.id),
-        ])
+        s.add_all(
+            [
+                MediaMatch(source_item_id=item.id, library_instance_id=lib.id),
+                FileImport(job_id=job.id, candidate_relpath="a", library_instance_id=lib.id),
+            ]
+        )
         await s.commit()
         return lib.id
 
@@ -156,6 +170,7 @@ async def test_delete_library_used_by_rule_conflicts(auth_client, app):
 @pytest.mark.asyncio
 async def test_delete_library_with_only_history_nulls_refs(auth_client, app):
     from app.database.models import FileImport, LibraryInstance, MediaMatch
+
     lid = await _lib_with_history(auth_client, app, with_rule=False)
     assert (await auth_client.delete(f"/api/v1/libraries/{lid}")).status_code == 204
     async with get_session_factory(app.state.settings)() as s:
@@ -172,8 +187,13 @@ async def test_fetch_test_uses_saved_password_when_blank(auth_client, monkeypatc
     seen = {}
 
     async def fake_test(self):
-        seen.update(host=self._host, port=self._port, user=self._username,
-                    pw=self._password, verify=self._tls_verify)
+        seen.update(
+            host=self._host,
+            port=self._port,
+            user=self._username,
+            pw=self._password,
+            verify=self._tls_verify,
+        )
         return {"ok": True, "adapter": "ftps"}
 
     monkeypatch.setattr(FTPSAdapter, "test_connection", fake_test)
@@ -184,8 +204,13 @@ async def test_fetch_test_uses_saved_password_when_blank(auth_client, monkeypatc
     )
     assert r.status_code == 200, r.text
     assert r.json()["ok"] is True
-    assert seen == {"host": "ftp.example", "port": 21, "user": "ftpuser",
-                    "pw": "ftp-secret-pw", "verify": False}
+    assert seen == {
+        "host": "ftp.example",
+        "port": 21,
+        "user": "ftpuser",
+        "pw": "ftp-secret-pw",
+        "verify": False,
+    }
 
 
 @pytest.mark.asyncio

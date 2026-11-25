@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-PUBLIC = {("POST", "/api/v1/auth/login"), ("POST", "/api/v1/auth/setup"), ("GET", "/api/v1/auth/setup"),("GET", "/api/v1/health")}
+PUBLIC = {
+    ("POST", "/api/v1/auth/login"),
+    ("POST", "/api/v1/auth/setup"),
+    ("GET", "/api/v1/auth/setup"),
+    ("GET", "/api/v1/health"),
+}
 
 
 @pytest.mark.asyncio

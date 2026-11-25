@@ -64,11 +64,17 @@ def stage(app, settings, tmp_path, monkeypatch, hidden):
             t = TransferInstance(name="ftp", adapter_type="ftps", config_json={})
             session.add(t)
             await session.flush()
-            session.add(TransferEndpoint(transfer_id=t.id, name="p", host="h", port=21, credential_ref=""))
+            session.add(
+                TransferEndpoint(transfer_id=t.id, name="p", host="h", port=21, credential_ref="")
+            )
             job = await session.get(Job, job_id)
-            job.config_snapshot_json = {**job.config_snapshot_json, "transfer_id": t.id,
-                                        "title": "T", "temporary_directory": str(tmp_path / "in"),
-                                        "completed_directory": str(tmp_path / "done")}
+            job.config_snapshot_json = {
+                **job.config_snapshot_json,
+                "transfer_id": t.id,
+                "title": "T",
+                "temporary_directory": str(tmp_path / "in"),
+                "completed_directory": str(tmp_path / "done"),
+            }
             await session.commit()
         return job_id
 
@@ -78,7 +84,9 @@ def stage(app, settings, tmp_path, monkeypatch, hidden):
 
 async def _files(settings, job_id):
     async with get_session_factory(settings)() as session:
-        return (await session.execute(select(JobFile).where(JobFile.job_id == job_id))).scalars().all()
+        return (
+            (await session.execute(select(JobFile).where(JobFile.job_id == job_id))).scalars().all()
+        )
 
 
 @pytest.mark.asyncio
@@ -195,9 +203,15 @@ async def test_extract_records_byte_progress(stage, settings, monkeypatch):
     for st in ("transfer", "verify", "extract"):
         await run(st)
     async with get_session_factory(settings)() as session:
-        run_row = (await session.execute(
-            select(StageRun).where(StageRun.job_id == job_id, StageRun.stage == "extract")
-        )).scalars().one()
+        run_row = (
+            (
+                await session.execute(
+                    select(StageRun).where(StageRun.job_id == job_id, StageRun.stage == "extract")
+                )
+            )
+            .scalars()
+            .one()
+        )
     assert run_row.progress_json["bytes_total"] == 2 * len(DATA)
     assert run_row.progress_json["bytes_done"] == run_row.progress_json["bytes_total"]
     # The first volume only, with what came out of it.
@@ -215,7 +229,9 @@ async def test_every_expected_file_is_listed_with_its_own_status(stage, settings
 
     async def transfer(self, remote_file, remote_base_path, destination_part_path, **kw):
         if remote_file.relative_path == "a.mkv":
-            seen_during_a.update({f.remote_relpath: f.transfer_status for f in await _files(settings, job_id)})
+            seen_during_a.update(
+                {f.remote_relpath: f.transfer_status for f in await _files(settings, job_id)}
+            )
             with open(destination_part_path, "wb") as f:
                 f.write(DATA)
             return TransferResult(success=True, bytes_transferred=len(DATA), endpoint_name="h")
@@ -252,6 +268,10 @@ async def test_transfer_waits_when_inspect_raises(stage, hidden):
     await setup()
 
     result = await run()
-    assert (result.status, result.error_code, result.retryable) == (StageRunStatus.FAILED, "waiting_for_source", True)
+    assert (result.status, result.error_code, result.retryable) == (
+        StageRunStatus.FAILED,
+        "waiting_for_source",
+        True,
+    )
     assert "550 no such directory" in result.error_detail
     assert calls == []

@@ -15,7 +15,9 @@ async def test_demo_seeds_and_ticks(app, auth_client):
     states = {j["status"] for j in jobs["items"]}
     assert {"waiting_source", "running", "failed", "completed", "paused"} <= states
 
-    transfer = next(j for j in jobs["items"] if j["stage"] == "transfer" and j["status"] == "running")
+    transfer = next(
+        j for j in jobs["items"] if j["stage"] == "transfer" and j["status"] == "running"
+    )
     await tick(settings)
     after = (await auth_client.get(f"/api/v1/jobs/{transfer['id']}")).json()
     assert after["download_bytes_done"] > transfer["download_bytes_done"]
@@ -35,6 +37,7 @@ async def test_showcase_plays_every_stage_and_replays(app, auth_client, monkeypa
             seen.append((stage, job.stage, job.status))
             if inner:
                 await inner(s, run, f)
+
         inner = kw.pop("step", None)
         await play(factory, stage, *a, step=step, **kw)
 

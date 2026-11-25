@@ -8,6 +8,7 @@ Revises: a7c3e91d2b10
 Create Date: 2026-11-24 12:00:00
 
 """
+
 from __future__ import annotations
 
 import uuid
@@ -17,8 +18,8 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = 'b4e1f0c2d9a3'
-down_revision: Union[str, None] = 'a7c3e91d2b10'
+revision: str = "b4e1f0c2d9a3"
+down_revision: Union[str, None] = "a7c3e91d2b10"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -47,10 +48,18 @@ def upgrade() -> None:
     )
     admin = _legacy_admin()
     if admin:
-        op.bulk_insert(users, [{
-            "id": str(uuid.uuid4()), "username": admin[0], "password_hash": admin[1],
-            "is_admin": True, "created_at": datetime.now(timezone.utc),
-        }])
+        op.bulk_insert(
+            users,
+            [
+                {
+                    "id": str(uuid.uuid4()),
+                    "username": admin[0],
+                    "password_hash": admin[1],
+                    "is_admin": True,
+                    "created_at": datetime.now(timezone.utc),
+                }
+            ],
+        )
 
 
 def downgrade() -> None:

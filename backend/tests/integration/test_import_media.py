@@ -49,7 +49,9 @@ class FakeLibraryAdapter:
             candidates=[c.absolute_path for c in candidates],
         )
 
-    async def reconcile_import(self, operation: ImportOperation, match: MediaMatch) -> ImportOutcome:
+    async def reconcile_import(
+        self, operation: ImportOperation, match: MediaMatch
+    ) -> ImportOutcome:
         return self._outcome or ImportOutcome(success=True, imported_paths=operation.candidates)
 
 
@@ -106,8 +108,10 @@ async def test_import_rejected_sample_is_not_partial():
         candidates=[
             ImportCandidate(relative_path="/p/movie.mkv", absolute_path="/p/movie.mkv", media_id=1),
             ImportCandidate(
-                relative_path="/p/sample.mkv", absolute_path="/p/sample.mkv",
-                rejection_reasons=["Sample"], media_id=1,
+                relative_path="/p/sample.mkv",
+                absolute_path="/p/sample.mkv",
+                rejection_reasons=["Sample"],
+                media_id=1,
             ),
         ],
         all_rejected=False,

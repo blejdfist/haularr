@@ -58,7 +58,8 @@ def publish_item(item: Path, completed_dir: str, downloaded: set[str]) -> Public
     try:
         if src.is_dir() and detect_archives(src):
             extracted = [
-                f for f in sorted(src.rglob("*"))
+                f
+                for f in sorted(src.rglob("*"))
                 if f.is_file() and f.relative_to(src.parent).as_posix() not in downloaded
             ]
             if not extracted:

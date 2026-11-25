@@ -67,6 +67,7 @@ class SourceUpdate(BaseModel):
 
 class SourceTestRequest(BaseModel):
     """Test connection config before saving (no DB record required)."""
+
     adapter_type: str
     connection_config: dict[str, Any] = {}
     credential: str = ""
@@ -197,7 +198,10 @@ async def delete_source(
     # Items (and their jobs) reference label rules, so they must go first
     from sqlalchemy import select
     from app.database.models import SourceItem
-    for item in (await session.scalars(select(SourceItem).where(SourceItem.source_id == source_id))).all():
+
+    for item in (
+        await session.scalars(select(SourceItem).where(SourceItem.source_id == source_id))
+    ).all():
         await session.delete(item)
     await session.flush()
     await repo.delete(source_id)
@@ -220,6 +224,7 @@ async def test_source_config(
         config["password"] = body.credential  # Pass plaintext directly for test
 
     from app.adapters.sources import create_source_adapter
+
     adapter = create_source_adapter("__test__", body.adapter_type, config)
     result = await adapter.test_connection()
     return result
@@ -237,6 +242,7 @@ async def test_fetch_config(
     password = await resolve_password(session, transfer_id, body, request.app.state.master_key)
 
     from app.adapters.transfers.ftps import FTPSAdapter
+
     adapter = FTPSAdapter(
         transfer_id=transfer_id or "__test__",
         host=body.host,
@@ -264,6 +270,7 @@ async def test_source(
     config = _build_adapter_config(obj, master_key)
 
     from app.adapters.sources import create_source_adapter
+
     adapter = create_source_adapter(obj.id, obj.adapter_type, config)
     return await adapter.test_connection()
 
@@ -282,9 +289,11 @@ async def scan_source(
 
     if hasattr(request.app.state, "supervisor"):
         import asyncio
+
         asyncio.create_task(request.app.state.supervisor.trigger_scan(source_id))
     else:
         from datetime import datetime, timezone
+
         await repo.update(source_id, last_scan_at=datetime.now(timezone.utc))
         await session.commit()
 
@@ -371,6 +380,7 @@ async def delete_label(
 def _encrypt_credential(plaintext: str, master_key: bytes) -> str:
     """Encrypt a plaintext credential with the master key."""
     from app.security import encrypt_secret
+
     return "enc:" + encrypt_secret(plaintext, master_key)
 
 
@@ -449,4 +459,3 @@ def _label_to_dict(obj: Any) -> dict:
         "transfer_override_id": obj.transfer_override_id,
         "retention_days": obj.retention_days,
     }
-

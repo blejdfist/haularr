@@ -91,10 +91,14 @@ async def test_rtorrent_test_connection_mocked():
   <params><param><value><string>0.9.8</string></value></param></params>
 </methodResponse>"""
 
-    mock_response = type("MockResp", (), {
-        "text": mock_response_text,
-        "raise_for_status": lambda self: None,
-    })()
+    mock_response = type(
+        "MockResp",
+        (),
+        {
+            "text": mock_response_text,
+            "raise_for_status": lambda self: None,
+        },
+    )()
 
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
         result = await adapter.test_connection()
@@ -136,25 +140,43 @@ async def test_list_items_raises_on_fault():
             await adapter.list_items()
 
 
-
 # Field values as reported by a real rTorrent (seedbox) for both torrent shapes.
-_COMMON = {"d.custom1=": "TV", "d.custom2=": "", "d.state=": 1, "d.complete=": 1, "d.size_bytes=": 10,
-           "d.completed_bytes=": 10, "d.timestamp.finished=": 0, "d.message=": "",
-           "d.down.rate=": 0}
-_SINGLE = {**_COMMON, "d.hash=": "A", "d.name=": "Show.S01E01.mkv",
-           "d.base_path=": "/home/u/files/completed/TV/Show.S01E01.mkv",
-           "d.directory=": "/home/u/files/completed/TV"}
-_MULTI = {**_COMMON, "d.hash=": "B", "d.name=": "Show.S02",
-          "d.base_path=": "/home/u/files/completed/TV/Show.S02",
-          "d.directory=": "/home/u/files/completed/TV/Show.S02"}
+_COMMON = {
+    "d.custom1=": "TV",
+    "d.custom2=": "",
+    "d.state=": 1,
+    "d.complete=": 1,
+    "d.size_bytes=": 10,
+    "d.completed_bytes=": 10,
+    "d.timestamp.finished=": 0,
+    "d.message=": "",
+    "d.down.rate=": 0,
+}
+_SINGLE = {
+    **_COMMON,
+    "d.hash=": "A",
+    "d.name=": "Show.S01E01.mkv",
+    "d.base_path=": "/home/u/files/completed/TV/Show.S01E01.mkv",
+    "d.directory=": "/home/u/files/completed/TV",
+}
+_MULTI = {
+    **_COMMON,
+    "d.hash=": "B",
+    "d.name=": "Show.S02",
+    "d.base_path=": "/home/u/files/completed/TV/Show.S02",
+    "d.directory=": "/home/u/files/completed/TV/Show.S02",
+}
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("rt,expected", [
-    (_SINGLE, "/home/u/files/completed/TV"),          # + f.path "Show.S01E01.mkv"
-    (_MULTI, "/home/u/files/completed/TV/Show.S02"),  # + f.path "Show.S02E01.mkv"
-    ({**_MULTI, "d.base_path=": ""}, "/home/u/files/completed/TV/Show.S02"),  # stopped torrent
-])
+@pytest.mark.parametrize(
+    "rt,expected",
+    [
+        (_SINGLE, "/home/u/files/completed/TV"),  # + f.path "Show.S01E01.mkv"
+        (_MULTI, "/home/u/files/completed/TV/Show.S02"),  # + f.path "Show.S02E01.mkv"
+        ({**_MULTI, "d.base_path=": ""}, "/home/u/files/completed/TV/Show.S02"),  # stopped torrent
+    ],
+)
 async def test_remote_base_path_is_folder_manifest_paths_are_relative_to(rt, expected):
     async def fake_call(method, target, view, *fields):
         return [[rt[f] for f in fields]]
@@ -185,7 +207,10 @@ async def test_get_files_reports_partial_progress():
     with patch.object(adapter, "_call", new_callable=AsyncMock, return_value=_FILES):
         files = await adapter.get_files("hash")
     assert [(f.relative_path, f.size_bytes, f.done_bytes) for f in files] == [
-        ("a.mkv", 1000, 500), ("b.nfo", 10, 10), ("c.txt", 0, 0)]
+        ("a.mkv", 1000, 500),
+        ("b.nfo", 10, 10),
+        ("c.txt", 0, 0),
+    ]
 
 
 @pytest.mark.asyncio

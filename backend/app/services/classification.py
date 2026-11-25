@@ -80,8 +80,11 @@ async def classify_item(
 
     try:
         adapter = create_library_adapter(
-            library.id, library.adapter_type,
-            library.base_url, api_key, library.options_json,
+            library.id,
+            library.adapter_type,
+            library.base_url,
+            api_key,
+            library.options_json,
         )
     except Exception as exc:
         status = EligibilityStatus.WAITING_LIBRARY.value
@@ -114,7 +117,10 @@ async def classify_item(
     if match.ambiguous:
         status = EligibilityStatus.NEEDS_REVIEW.value
         await _persist_check(
-            session, item.id, rule.id, status,
+            session,
+            item.id,
+            rule.id,
+            status,
             "Ambiguous parse: multiple possible identities",
             evidence={"parse": match.parse_data},
         )
@@ -127,7 +133,10 @@ async def classify_item(
     if match.catalog_id is None:
         status = EligibilityStatus.NOT_REGISTERED.value
         await _persist_check(
-            session, item.id, rule.id, status,
+            session,
+            item.id,
+            rule.id,
+            status,
             f"Title not found in library: {item.title}",
             evidence={"parsed_title": match.title or item.title},
         )
@@ -149,7 +158,10 @@ async def classify_item(
     if not inventory.registered:
         status = EligibilityStatus.NOT_REGISTERED.value
         await _persist_check(
-            session, item.id, rule.id, status,
+            session,
+            item.id,
+            rule.id,
+            status,
             "Catalog ID found in parse but not registered in library",
         )
         await _persist_match(session, item.id, library.id, match)
@@ -179,7 +191,10 @@ async def classify_item(
 
     await _persist_match(session, item.id, library.id, match)
     await _persist_check(
-        session, item.id, rule.id, status,
+        session,
+        item.id,
+        rule.id,
+        status,
         f"Classification complete: {status}",
         evidence={
             "catalog_id": match.catalog_id,

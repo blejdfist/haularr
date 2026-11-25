@@ -27,17 +27,17 @@ logger = logging.getLogger(__name__)
 _TORRENT_FIELDS = [
     "d.hash=",
     "d.name=",
-    "d.custom1=",        # ruTorrent label
-    "d.custom2=",        # sometimes used
-    "d.state=",          # 0=stopped 1=started
-    "d.complete=",       # 1=complete
+    "d.custom1=",  # ruTorrent label
+    "d.custom2=",  # sometimes used
+    "d.state=",  # 0=stopped 1=started
+    "d.complete=",  # 1=complete
     "d.size_bytes=",
     "d.completed_bytes=",
     "d.timestamp.finished=",
     "d.base_path=",
     "d.message=",
     "d.directory=",
-    "d.down.rate=",      # bytes/s
+    "d.down.rate=",  # bytes/s
 ]
 
 _FILE_FIELDS = [
