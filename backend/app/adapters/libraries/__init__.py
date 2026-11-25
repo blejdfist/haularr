@@ -27,6 +27,7 @@ def create_library_adapter(
             base_url=base_url,
             api_key=api_key,
             tls_verify=tls_verify,
+            import_mode=config.get("import_mode", "Copy"),
         )
     elif adapter_type == AdapterType.RADARR.value:
         return RadarrAdapter(
@@ -34,6 +35,7 @@ def create_library_adapter(
             base_url=base_url,
             api_key=api_key,
             tls_verify=tls_verify,
+            import_mode=config.get("import_mode", "Copy"),
         )
     else:
         raise ValueError(f"Unknown library adapter type: {adapter_type}")

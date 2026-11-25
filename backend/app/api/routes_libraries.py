@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel
 
 from app.database.repositories import LibraryRepository
 from app.database.session import SessionDep
 
 router = APIRouter(tags=["libraries"])
+
+
+def _validate_options(options: dict[str, Any]) -> dict[str, Any]:
+    if options.get("import_mode", "Copy") not in ("Copy", "Move"):
+        raise ValueError("import_mode must be Copy or Move")
+    return options
+
+
+LibraryOptions = Annotated[dict[str, Any], AfterValidator(_validate_options)]
 
 
 class LibraryCreate(BaseModel):
@@ -19,7 +28,7 @@ class LibraryCreate(BaseModel):
     base_url: str
     api_key_secret_ref: str
     enabled: bool = True
-    options: dict[str, Any] = {}
+    options: LibraryOptions = {}
 
 
 class LibraryUpdate(BaseModel):
@@ -27,7 +36,7 @@ class LibraryUpdate(BaseModel):
     base_url: str | None = None
     api_key_secret_ref: str | None = None
     enabled: bool | None = None
-    options: dict[str, Any] | None = None
+    options: LibraryOptions | None = None
 
 
 class LibraryTestConfig(BaseModel):

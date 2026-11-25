@@ -42,11 +42,13 @@ class SonarrAdapter:
         base_url: str,
         api_key: str,
         tls_verify: bool = True,
+        import_mode: str = "Copy",
     ) -> None:
         self.library_id = library_id
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._tls_verify = tls_verify
+        self._import_mode = import_mode
 
     def _make_client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
@@ -212,7 +214,7 @@ class SonarrAdapter:
         body = {
             "name": "ManualImport",
             "files": files,
-            "importMode": "Move",
+            "importMode": self._import_mode,
         }
 
         result = await self._post("/command", body)

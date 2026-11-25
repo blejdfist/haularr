@@ -18,12 +18,13 @@
   let adapterType = $state('sonarr');
   let baseUrl = $state('');
   let apiKey = $state('');
+  let importMode = $state<'Copy' | 'Move'>('Copy');
   let maps = $state<{ local_prefix: string; library_prefix: string }[]>([]);
   let error = $state('');
   let saving = $state(false);
   let testing = $state(false);
   let testResult = $state<{ ok: boolean; text: string } | null>(null);
-  let tab = $state<'general' | 'paths'>('general');
+  let tab = $state<'general' | 'paths' | 'advanced'>('general');
   let confirmOpen = $state(false);
 
   // Reset the form each time the modal opens.
@@ -33,6 +34,7 @@
     adapterType = library?.adapter_type ?? 'sonarr';
     baseUrl = library?.base_url ?? '';
     apiKey = '';
+    importMode = library?.options?.import_mode ?? 'Copy';
     maps = (library?.options?.path_mappings ?? []).map((m: any) => ({ ...m }));
     error = '';
     tab = 'general';
@@ -86,6 +88,7 @@
     try {
       const options = {
         ...(library?.options ?? {}),
+        import_mode: importMode,
         path_mappings: maps.filter((m) => m.local_prefix && m.library_prefix),
       };
       if (library) {
@@ -115,7 +118,7 @@
   }
 </script>
 
-{#snippet tabButton(id: 'general' | 'paths', label: string)}
+{#snippet tabButton(id: 'general' | 'paths' | 'advanced', label: string)}
   <button
     type="button"
     role="tab"
@@ -134,6 +137,7 @@
     <div role="tablist" class="flex border-b border-gray-200 dark:border-gray-700">
       {@render tabButton('general', 'General')}
       {@render tabButton('paths', `Path mappings${maps.length ? ` (${maps.length})` : ''}`)}
+      {@render tabButton('advanced', 'Advanced')}
     </div>
     <section class="flex flex-col gap-4" class:hidden={tab !== 'general'}>
       <div>
@@ -190,6 +194,20 @@
       <Button size="xs" color="alternative" onclick={() => maps.push({ local_prefix: '', library_prefix: '' })}
         >Add mapping</Button
       >
+    </section>
+    <section class:hidden={tab !== 'advanced'}>
+      <Label for="lib-import-mode" class="mb-2">Import mode</Label>
+      <Select
+        id="lib-import-mode"
+        items={[{ value: 'Copy', name: 'Copy' }, { value: 'Move', name: 'Move' }]}
+        bind:value={importMode}
+        aria-describedby="lib-import-mode-help"
+      />
+      <p id="lib-import-mode-help" class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+        {importMode === 'Copy'
+          ? 'The library copies files. Haularr removes the source files after confirming the import.'
+          : 'The library moves files and needs permission to delete the source files.'}
+      </p>
     </section>
     <div class="flex flex-wrap items-center gap-2 border-t border-gray-200 pt-4 dark:border-gray-700">
       {#if library}<Button color="red" outline onclick={() => (confirmOpen = true)}>Delete</Button>{/if}
