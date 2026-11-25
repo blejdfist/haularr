@@ -23,7 +23,7 @@
 
   // Geometry in px. One pill size for every label, and the two nodes that resize share an easing,
   // so the track is the same width in every state and mid-move: table columns never jump.
-  const DOT = 10, PILL_W = 68, PILL_H = 20, GAP = 12, LINE = 4, H = 20;
+  const DOT = 10, PILL_W = 82, PILL_H = 22, GAP = 18, LINE = 3, H = 22;
   const Y = H / 2; // center line
   const WIDTH = $derived(PILL_W + (steps.length - 1) * (DOT + GAP));
 

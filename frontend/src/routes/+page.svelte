@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { Button, Table, TableHead, TableHeadCell, TableBody, TableBodyRow, TableBodyCell, Alert } from 'flowbite-svelte';
+  import { Button, Alert } from 'flowbite-svelte';
   import { SearchOutline } from 'flowbite-svelte-icons';
   import { endpoints, type Job } from '$lib/api/client';
   import { STATUS_GROUPS, jobIcon, ago, groupCount as sum } from '$lib/status';
@@ -35,6 +35,9 @@
   // Jobs seen finishing while the page is open: their row acknowledges the arrival once.
   let arrived = $state<Record<string, true>>({});
   const DONE = ['completed', 'completed_with_warnings'];
+  // Tables sit on the page, not in a card: a quiet label row, hairlines between rows.
+  const HEAD_ROW = 'border-b border-gray-800 text-xs text-gray-400';
+  const TH = 'px-4 pt-1 pb-2.5 font-medium';
   let drawerOpen = $state(false);
   let drawerJob = $state<string | null>(null);
 
@@ -216,42 +219,52 @@
   {#if error}<Alert color="red">{error}</Alert>{/if}
 
   {#if filter === 'skipped'}
-    <Table hoverable>
-      <TableHead>
-        <TableHeadCell>Title</TableHeadCell>
-        <TableHeadCell>Source / label</TableHeadCell>
-        <TableHeadCell>Reason</TableHeadCell>
-        <TableHeadCell></TableHeadCell>
-      </TableHead>
-      <TableBody>
+    <table class="w-full text-left text-sm">
+      <thead class="hidden sm:table-header-group">
+        <tr class={HEAD_ROW}>
+          <th scope="col" class="{TH} pl-3">Title</th>
+          <th scope="col" class={TH}>Source / label</th>
+          <th scope="col" class={TH}>Reason</th>
+          <th scope="col" class="{TH} pr-3"><span class="sr-only">Action</span></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-800">
         {#each shownSkipped as i (i.id)}
-          <TableBodyRow>
-            <TableBodyCell class="font-medium break-words whitespace-normal text-gray-100">{i.title ?? '—'}</TableBodyCell>
-            <TableBodyCell class="text-gray-400">{i.source_name ?? i.source_id} · {(i.labels ?? []).join(', ') || '—'}</TableBodyCell>
-            <TableBodyCell class="text-gray-400">Already in library</TableBodyCell>
-            <TableBodyCell><Button size="xs" onclick={() => fetchAnyway(i.id)}>Fetch anyway</Button></TableBodyCell>
-          </TableBodyRow>
+          <tr class="transition-colors duration-150 hover:bg-gray-800/50">
+            <td class="py-3.5 pr-4 pl-3 font-medium break-words text-gray-100">{i.title ?? '—'}</td>
+            <td class="hidden px-4 py-3.5 text-gray-400 sm:table-cell">{i.source_name ?? i.source_id} · {(i.labels ?? []).join(', ') || '—'}</td>
+            <td class="hidden px-4 py-3.5 whitespace-nowrap text-gray-400 sm:table-cell">Already in library</td>
+            <td class="py-3.5 pr-3 pl-4 text-right"><Button size="xs" color="alternative" class="whitespace-nowrap" onclick={() => fetchAnyway(i.id)}>Fetch anyway</Button></td>
+          </tr>
         {/each}
-      </TableBody>
-    </Table>
+      </tbody>
+    </table>
     {#if loaded && !shownSkipped.length}
       <p class="py-10 text-center text-gray-300">{q ? `Nothing skipped matches “${search.trim()}”` : EMPTY.skipped}</p>
     {/if}
   {:else}
-    <Table hoverable>
-      <TableHead>
-        <TableHeadCell class="w-full px-2 sm:px-6"><span class="pl-8">Title</span></TableHeadCell>
-        <TableHeadCell class="hidden sm:table-cell">Status</TableHeadCell>
-        <TableHeadCell class="hidden text-right sm:table-cell">When</TableHeadCell>
-      </TableHead>
-      <TableBody>
+    <table class="w-full text-left text-sm">
+      <thead class="hidden sm:table-header-group">
+        <tr class={HEAD_ROW}>
+          <!-- pl-11: the label lines up with the titles, past the status icon -->
+          <th scope="col" class="{TH} pl-11">Title</th>
+          <th scope="col" class={TH}>Status</th>
+          <th scope="col" class="{TH} pr-3 text-right">When</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-800">
         {#each shownJobs as j (j.id)}
           {@const reason = reasonFor(j)}
           {@const kind = jobIcon(j.status, !!reason)}
           {@const problem = kind === 'warning' || kind === 'failed' ? reason : undefined}
-          <TableBodyRow class="cursor-pointer {arrived[j.id] ? 'arrived' : ''}" onclick={() => openJob(j.id)}>
+          <tr
+            class="cursor-pointer transition-colors duration-150 hover:bg-gray-800/50 focus-visible:bg-gray-800/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-500 {arrived[j.id] ? 'arrived' : ''}"
+            tabindex="0"
+            onclick={() => openJob(j.id)}
+            onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), openJob(j.id))}
+          >
             <!-- max-w-0 + w-full: the title takes the spare width and truncates instead of widening the table. -->
-            <TableBodyCell class="w-full max-w-0 min-w-32 px-2 py-3 sm:px-6">
+            <td class="w-full max-w-0 min-w-32 py-3.5 pr-4 pl-3">
               <!-- icon shares the title's flex row so it sits on the title line, not the middle of the whole cell -->
               <div class="flex items-start gap-3">
                 <StatusIcon {kind} tip={problem} draw={!!arrived[j.id]} />
@@ -270,28 +283,28 @@
                   <div class="mt-2 sm:hidden">{@render steps(j)}</div>
                 </div>
               </div>
-            </TableBodyCell>
-            <TableBodyCell class="hidden sm:table-cell">{@render steps(j)}</TableBodyCell>
-            <TableBodyCell class="hidden text-right text-gray-400 tabular-nums sm:table-cell">{ago(j.ended_at ?? j.created_at)}</TableBodyCell>
-          </TableBodyRow>
+            </td>
+            <td class="hidden px-4 py-3.5 sm:table-cell">{@render steps(j)}</td>
+            <td class="hidden py-3.5 pr-3 pl-4 text-right whitespace-nowrap text-gray-400 tabular-nums sm:table-cell">{ago(j.ended_at ?? j.created_at)}</td>
+          </tr>
         {:else}
           {#if !loaded}
             {#each [0, 1, 2] as _}
-              <TableBodyRow>
-                <TableBodyCell class="px-2 py-3 sm:px-6">
+              <tr>
+                <td class="py-3.5 pr-4 pl-3">
                   <div class="flex items-center gap-3">
-                    <div class="h-5 w-5 shrink-0 animate-pulse rounded-full bg-gray-700"></div>
-                    <div class="h-3.5 w-2/3 animate-pulse rounded bg-gray-700"></div>
+                    <div class="h-5 w-5 shrink-0 animate-pulse rounded-full bg-gray-800"></div>
+                    <div class="h-3.5 w-2/3 animate-pulse rounded bg-gray-800"></div>
                   </div>
-                </TableBodyCell>
-                <TableBodyCell class="hidden sm:table-cell"><div class="h-2.5 w-48 animate-pulse rounded-full bg-gray-700"></div></TableBodyCell>
-                <TableBodyCell class="hidden sm:table-cell"><div class="ml-auto h-3 w-12 animate-pulse rounded bg-gray-700"></div></TableBodyCell>
-              </TableBodyRow>
+                </td>
+                <td class="hidden px-4 py-3.5 sm:table-cell"><div class="h-2.5 w-62 animate-pulse rounded-full bg-gray-800"></div></td>
+                <td class="hidden py-3.5 pr-3 pl-4 sm:table-cell"><div class="ml-auto h-3 w-12 animate-pulse rounded bg-gray-800"></div></td>
+              </tr>
             {/each}
           {/if}
         {/each}
-      </TableBody>
-    </Table>
+      </tbody>
+    </table>
     {#if loaded && !shownJobs.length}
       <div class="py-10 text-center">
         <p class="text-gray-300">{q ? `No transfers match “${search.trim()}”` : EMPTY[filter]}</p>
