@@ -66,17 +66,24 @@
   {/snippet}
   {#each sources as s (s.id)}
     {@const h = sourceHealth(s)}
+    {@const busy = scanning && s.enabled}
     <EntityCard
       name={s.name}
-      dot={h}
-      dotText={HEALTH[h]}
+      dot={busy ? 'checking' : h}
+      dotText={busy ? 'Scanning…' : HEALTH[h]}
       badge={TYPES[s.adapter_type] ?? s.adapter_type}
       badgeColor="purple"
       onclick={() => edit(s)}
     >
-      {#if !s.enabled}Disabled ·{/if}
-      Last scan: {s.last_scan_at ? ago(s.last_scan_at) : 'never'} · {s.label_rules.length}
-      {s.label_rules.length === 1 ? 'tag' : 'tags'}
+      {#if busy}
+        Scanning…
+      {:else if h === 'error'}
+        Scan failed{s.last_scan_at ? ` ${ago(s.last_scan_at)}` : ''}: {s.last_scan_error}
+      {:else}
+        {#if !s.enabled}Disabled ·{/if}
+        Last scan: {s.last_scan_at ? ago(s.last_scan_at) : 'never'} · {s.label_rules.length}
+        {s.label_rules.length === 1 ? 'tag' : 'tags'}
+      {/if}
     </EntityCard>
   {/each}
 </EntityPage>
