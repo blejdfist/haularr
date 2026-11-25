@@ -9,13 +9,29 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException
 
 from app.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
+
+
+class SPAStaticFiles(StaticFiles):
+    """Static files with an SPA fallback: unknown paths get index.html."""
+
+    async def get_response(self, path: str, scope):
+        # Unknown API paths get FastAPI's JSON 404, not the SPA shell.
+        # StaticFiles hands us the path with OS separators (api\v1\x on Windows).
+        if path == "api" or path.startswith("api" + os.sep):
+            raise HTTPException(404)
+        try:
+            return await super().get_response(path, scope)
+        except HTTPException as e:
+            if e.status_code != 404:
+                raise
+            return await super().get_response("index.html", scope)
 
 
 def _alembic_config(settings: Settings):
@@ -272,25 +288,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Serve static frontend (SPA fallback)
     static_dir = settings.static_dir
     if static_dir.exists() and (static_dir / "index.html").exists():
-        # Mount assets if the directory exists
-        assets_dir = static_dir / "assets"
-        if assets_dir.exists():
-            app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
-
-        @app.get("/{path:path}", include_in_schema=False)
-        async def spa_fallback(request: Request, path: str):
-            # API routes take precedence (already matched by this point)
-            file_path = static_dir / path
-            if file_path.is_file():
-                return FileResponse(str(file_path))
-            # SPA fallback to index.html
-            index = static_dir / "index.html"
-            if index.exists():
-                return FileResponse(str(index))
-            return JSONResponse(
-                {"detail": "Frontend not built. Run pnpm build in frontend/."},
-                status_code=404,
-            )
+        # Mounted last so API routes match first
+        app.mount("/", SPAStaticFiles(directory=static_dir, html=True), name="spa")
 
     return app
 
