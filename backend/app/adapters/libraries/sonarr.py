@@ -196,7 +196,9 @@ class SonarrAdapter:
         all_rejected = all(bool(c.rejection_reasons) for c in candidates) if candidates else True
         return ImportInspection(candidates=candidates, all_rejected=all_rejected)
 
-    async def submit_import(self, selected_candidates: list) -> ImportOperation:
+    async def submit_import(
+        self, selected_candidates: list, *, download_id: str | None = None
+    ) -> ImportOperation:
         """Submit accepted candidates via ManualImport command."""
         files = []
         for c in selected_candidates:
@@ -208,6 +210,7 @@ class SonarrAdapter:
                     "quality": c.quality_model,  # as detected by Sonarr in the GET
                     "languages": c.languages,
                     "releaseGroup": c.release_group,
+                    **({"downloadId": download_id} if download_id else {}),
                 }
             )
 

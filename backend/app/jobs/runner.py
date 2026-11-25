@@ -861,6 +861,7 @@ class JobRunner:
 
     async def _stage_import(self, job: Any, stage_run_id: str) -> StageResult:
         """Submit import to library via Library Adapter."""
+        from app.database.models import SourceItem
         from app.processing.import_media import run_import_stage
 
         config = job.config_snapshot_json
@@ -910,7 +911,11 @@ class JobRunner:
                 (library.options_json or {}).get("path_mappings"),
             )
 
-            result = await run_import_stage(adapter, ready_path, match)
+            # Use the stored torrent identity, never a title/path guess. Arr tracks
+            # torrent download IDs in uppercase; manual imports otherwise lose the link.
+            item = await session.get(SourceItem, job.source_item_id)
+            download_id = item.infohash.upper() if item and item.infohash else None
+            result = await run_import_stage(adapter, ready_path, match, download_id=download_id)
 
             await self._update_progress(
                 stage_run_id,

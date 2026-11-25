@@ -35,6 +35,8 @@ async def run_import_stage(
     ready_path: str,
     match: Any,
     timeout: float = 300,
+    *,
+    download_id: str | None = None,
 ) -> ImportProcessResult:
     """Inspect and submit import for accepted candidates.
 
@@ -42,6 +44,7 @@ async def run_import_stage(
         library_adapter: LibraryAdapter instance
         ready_path: Path B directory with prepared files
         match: MediaMatch from classification
+        download_id: Source torrent infohash, when known
 
     Returns ImportProcessResult.
     """
@@ -77,7 +80,7 @@ async def run_import_stage(
 
     # Step 2: Submit import for accepted candidates only
     try:
-        operation = await library_adapter.submit_import(accepted)
+        operation = await library_adapter.submit_import(accepted, download_id=download_id)
     except Exception as e:
         result.error = f"Submit failed: {e}"
         return result

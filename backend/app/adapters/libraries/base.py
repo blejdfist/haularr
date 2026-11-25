@@ -34,8 +34,10 @@ class LibraryAdapter(Protocol):
         """Inspect files in Path B for import candidates and rejections."""
         ...
 
-    async def submit_import(self, selected_candidates: list) -> ImportOperation:
-        """Submit accepted candidates to Arr for import."""
+    async def submit_import(
+        self, selected_candidates: list, *, download_id: str | None = None
+    ) -> ImportOperation:
+        """Submit accepted candidates, optionally linked to their source torrent."""
         ...
 
     async def reconcile_import(

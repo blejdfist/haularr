@@ -38,7 +38,9 @@ class FakeLibraryAdapter:
     async def inspect_import(self, ready_path: str, match: MediaMatch) -> ImportInspection:
         return self._inspection or ImportInspection(candidates=[], all_rejected=True)
 
-    async def submit_import(self, candidates: list) -> ImportOperation:
+    async def submit_import(
+        self, candidates: list, *, download_id: str | None = None
+    ) -> ImportOperation:
         return self._operation or ImportOperation(
             operation_id="op_123",
             command_id=42,
