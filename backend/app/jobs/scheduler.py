@@ -30,7 +30,8 @@ class StageSemaphore:
 
     def __init__(self, initial_limit: int) -> None:
         self._limit = initial_limit
-        self._semaphore = asyncio.Semaphore(initial_limit)
+        self._in_use = 0
+        self._changed = asyncio.Event()
 
     @property
     def limit(self) -> int:
@@ -40,24 +41,29 @@ class StageSemaphore:
         """Adjust the limit. Only takes effect for new acquisitions."""
         if new_limit == self._limit:
             return
-        # Rebuild semaphore with new limit — existing holders keep running
         self._limit = new_limit
-        self._semaphore = asyncio.Semaphore(new_limit)
+        self._changed.set()
 
     async def acquire(self) -> bool:
         try:
-            await asyncio.wait_for(self._semaphore.acquire(), timeout=0.1)
+            async with asyncio.timeout(0.1):
+                while self._in_use >= self._limit:
+                    self._changed.clear()
+                    await self._changed.wait()
+                # No await between the capacity check and reservation.
+                self._in_use += 1
             return True
         except TimeoutError:
             return False
 
     def release(self) -> None:
-        self._semaphore.release()
+        self._in_use -= 1
+        self._changed.set()
 
     @property
     def current_value(self) -> int:
-        """Approximate available permits (may be stale)."""
-        return self._limit  # For reporting only
+        """Available permits, accounting for holders from before a limit change."""
+        return max(0, self._limit - self._in_use)
 
 
 class JobScheduler:
@@ -89,7 +95,7 @@ class JobScheduler:
         }
 
     def update_concurrency_limits(self) -> None:
-        """Called when settings change — rebuild semaphores for key stages."""
+        """Apply live limits while preserving occupied slots."""
         stages = {
             JobStage.TRANSFER.value: self.settings.max_concurrent_download_jobs,
             JobStage.VERIFY.value: self.settings.max_concurrent_verify_jobs,
