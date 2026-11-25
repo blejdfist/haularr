@@ -210,7 +210,7 @@ async def classify_item(
 async def _persist_match(
     session: AsyncSession,
     source_item_id: str,
-    library_instance_id: str,
+    library_instance_id: str | None,
     match: MediaMatch,
 ) -> None:
     item_repo = SourceItemRepository(session)

@@ -67,7 +67,7 @@ def stage(app, settings, tmp_path, monkeypatch, hidden):
             session.add(
                 TransferEndpoint(transfer_id=t.id, name="p", host="h", port=21, credential_ref="")
             )
-            job = await session.get(Job, job_id)
+            job = await session.get_one(Job, job_id)
             job.config_snapshot_json = {
                 **job.config_snapshot_json,
                 "transfer_id": t.id,
@@ -78,7 +78,7 @@ def stage(app, settings, tmp_path, monkeypatch, hidden):
             await session.commit()
         return job_id
 
-    job_id = None
+    job_id = ""
     return setup, run, calls, tmp_path / "in" / "T" / "a.mkv", names
 
 

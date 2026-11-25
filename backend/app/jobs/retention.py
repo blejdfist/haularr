@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
-from sqlalchemy import and_, delete, select
+from sqlalchemy import CursorResult, and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import (
@@ -125,7 +126,10 @@ async def delete_jobs(session: AsyncSession, job_ids: list[str]) -> dict[str, in
         ("events", JobEvent),
         ("notifications", NotificationDelivery),
     ):
-        result = await session.execute(delete(model).where(model.job_id.in_(job_ids)))
+        # A DELETE returns a CursorResult, which has rowcount.
+        result = cast(
+            CursorResult, await session.execute(delete(model).where(model.job_id.in_(job_ids)))
+        )
         counts[key] = result.rowcount or 0
     await session.execute(delete(Job).where(Job.id.in_(job_ids)))
     return counts

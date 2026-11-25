@@ -48,7 +48,7 @@ async def _job(settings, status="queued", source_name="S", error_code=None) -> t
 
 async def _get(settings, job_id) -> Job:
     async with get_session_factory(settings)() as session:
-        return await session.get(Job, job_id)
+        return await session.get_one(Job, job_id)
 
 
 @pytest.mark.asyncio
@@ -77,7 +77,7 @@ async def test_saving_fetch_resumes_waiting_jobs(auth_client, settings):
     assert r.status_code == 200, r.text
 
     async with get_session_factory(settings)() as session:
-        transfer_id = (await session.get(SourceInstance, a)).default_transfer_id
+        transfer_id = (await session.get_one(SourceInstance, a)).default_transfer_id
     ja, jb = await _get(settings, job_a), await _get(settings, job_b)
     assert ja.status == "queued"
     assert ja.config_snapshot_json["transfer_id"] == transfer_id
@@ -109,7 +109,7 @@ async def test_download_uses_fetch_saved_after_job_was_created(auth_client, sett
 async def test_manual_retry_resets_attempts(auth_client, settings):
     _, job_id = await _job(settings, "needs_attention")
     async with get_session_factory(settings)() as session:
-        job = await session.get(Job, job_id)
+        job = await session.get_one(Job, job_id)
         job.attempts = settings.retry_limit
         await session.commit()
 
@@ -187,7 +187,7 @@ async def test_heartbeat_renews_lease(app, settings):
 
     _, job_id = await _job(settings)
     async with get_session_factory(settings)() as session:
-        (await session.get(Job, job_id)).worker_token = "tok"
+        (await session.get_one(Job, job_id)).worker_token = "tok"
         await session.commit()
     await JobRunner(settings, job_id, "transfer", "tok")._renew_lease()
     assert (await _get(settings, job_id)).lease_expires_at is not None
@@ -200,7 +200,7 @@ async def test_restart_runs_job_from_the_beginning(auth_client, settings):
 
     _, job_id = await _job(settings, "needs_attention")
     async with get_session_factory(settings)() as session:
-        job = await session.get(Job, job_id)
+        job = await session.get_one(Job, job_id)
         job.stage, job.attempts, job.download_bytes_done = "move", 3, 10
         session.add(JobFile(job_id=job_id, remote_relpath="a.mkv", size_bytes=10))
         await session.commit()

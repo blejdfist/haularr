@@ -669,8 +669,8 @@ async def showcase_once(settings: Settings) -> None:
     async with factory() as s:
         for model in (StageRun, JobFile, JobEvent):
             await s.execute(delete(model).where(model.job_id == LOOP_ID))
-        job = await s.get(Job, LOOP_ID)
-        item = await s.get(SourceItem, job.source_item_id)
+        job = await s.get_one(Job, LOOP_ID)
+        item = await s.get_one(SourceItem, job.source_item_id)
         item.source_status, item.completed_at = "active", None
         job.status, job.stage, job.created_at, job.ended_at = (
             "waiting_source",
@@ -697,8 +697,8 @@ async def showcase_once(settings: Settings) -> None:
         step=download,
     )
     async with factory() as s:
-        job = await s.get(Job, LOOP_ID)
-        item = await s.get(SourceItem, job.source_item_id)
+        job = await s.get_one(Job, LOOP_ID)
+        item = await s.get_one(SourceItem, job.source_item_id)
         item.source_status, item.completed_at = "completed", _now()
         await s.commit()
 
@@ -711,7 +711,7 @@ async def showcase_once(settings: Settings) -> None:
     )
 
     async with factory() as s:
-        (await s.get(Job, LOOP_ID)).download_bytes_total = size
+        (await s.get_one(Job, LOOP_ID)).download_bytes_total = size
         s.add_all(
             JobFile(job_id=LOOP_ID, remote_relpath=p, size_bytes=n, transfer_status="pending")
             for p, n in files
@@ -720,7 +720,7 @@ async def showcase_once(settings: Settings) -> None:
 
     async def transfer(s: AsyncSession, run: StageRun, f: float) -> None:
         done = int(size * f)
-        (await s.get(Job, LOOP_ID)).download_bytes_done = done
+        (await s.get_one(Job, LOOP_ID)).download_bytes_done = done
         await _fill_files(s, LOOP_ID, done)
         run.progress_json = {
             "file": files[min(int(f * len(files)), len(files) - 1)][0],
@@ -809,7 +809,7 @@ async def showcase_once(settings: Settings) -> None:
     )
 
     async with factory() as s:
-        job = await s.get(Job, LOOP_ID)
+        job = await s.get_one(Job, LOOP_ID)
         job.status, job.ended_at = "completed", _now()
         s.add(JobEvent(job_id=LOOP_ID, kind="job.completed", message="Job completed"))
         await s.commit()
@@ -826,7 +826,7 @@ async def _play(
     """One showcase stage: queued a moment, then running for ``seconds`` (``step`` gets the
     fraction done about once a second), then succeeded with ``finish`` as its progress."""
     async with factory() as s:
-        job = await s.get(Job, LOOP_ID)
+        job = await s.get_one(Job, LOOP_ID)
         if stage != "source_download":  # the seedbox download has no queue
             job.stage, job.status = stage, "queued"
             await s.commit()

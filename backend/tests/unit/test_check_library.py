@@ -29,10 +29,10 @@ def verdict(monkeypatch):
 async def _gated_job(settings, automatic=True, approved=False) -> str:
     _, job_id = await _job(settings, "running")
     async with get_session_factory(settings)() as session:
-        job = await session.get(Job, job_id)
+        job = await session.get_one(Job, job_id)
         job.stage = "check_library"
         job.config_snapshot_json = {**job.config_snapshot_json, "approved": approved}
-        (await session.get(SourceLabelRule, job.rule_id)).automatic_processing = automatic
+        (await session.get_one(SourceLabelRule, job.rule_id)).automatic_processing = automatic
         await session.commit()
     return job_id
 
@@ -112,7 +112,7 @@ async def test_skip_library_check_continues_whatever_the_verdict(app, settings, 
     verdict[0] = v
     job_id = await _gated_job(settings, automatic=False)
     async with get_session_factory(settings)() as session:
-        job = await session.get(Job, job_id)
+        job = await session.get_one(Job, job_id)
         job.config_snapshot_json = {**job.config_snapshot_json, "skip_library": True}
         await session.commit()
     job = await _run(settings, job_id)
@@ -122,7 +122,7 @@ async def test_skip_library_check_continues_whatever_the_verdict(app, settings, 
 async def _staged(settings, stage, status):
     _, job_id = await _job(settings, status)
     async with get_session_factory(settings)() as session:
-        (await session.get(Job, job_id)).stage = stage
+        (await session.get_one(Job, job_id)).stage = stage
         await session.commit()
     return job_id
 
@@ -159,7 +159,7 @@ async def test_skip_library_reopens_job_ended_as_already_in_library(auth_client,
 
     job_id = await _staged(settings, "check_library", "skipped")
     async with get_session_factory(settings)() as session:
-        job = await session.get(Job, job_id)
+        job = await session.get_one(Job, job_id)
         job.error_code, job.ended_at = "already_available", datetime.now(UTC)
         await session.commit()
     r = await auth_client.post(f"/api/v1/jobs/{job_id}/skip-library")

@@ -95,7 +95,8 @@ def _parse_xmlrpc_response(xml_text: str) -> Any:
     root = ET.fromstring(xml_text)
     fault = root.find("fault")
     if fault is not None:
-        fault_val = _decode_value(fault.find("value"))  # type: ignore[arg-type]
+        value = fault.find("value")
+        fault_val = _decode_value(value) if value is not None else None
         raise RuntimeError(f"XML-RPC fault: {fault_val}")
     params = root.find("params")
     if params is None:
@@ -154,7 +155,7 @@ class RtorrentAdapter:
     ) -> None:
         self.source_id = source_id
         self._url = xmlrpc_url
-        self._auth = (username, password) if username else None
+        self._auth = (username, password or "") if username else None
         self._tls_verify = tls_verify
 
     def _make_client(self) -> httpx.AsyncClient:

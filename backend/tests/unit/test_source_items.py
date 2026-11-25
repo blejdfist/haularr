@@ -193,7 +193,7 @@ async def test_queue_snapshot_has_title_and_list_has_source_name(auth_client, se
     from app.database.session import get_session_factory
 
     async with get_session_factory(settings)() as s:
-        job = await s.get(Job, r.json()["job_id"])
+        job = await s.get_one(Job, r.json()["job_id"])
         assert job.config_snapshot_json["title"] == "a"
         assert job.config_snapshot_json["source_name"] == "Test"
 

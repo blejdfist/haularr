@@ -46,7 +46,7 @@ async def test_job_changes_skip_heartbeats_and_report_new_jobs(app, settings):
         assert [(c["id"], c["files"]) for c in changes] == [(job_id, {"pending": 1})]
 
         # A job created between checks shows up.
-        first = await s.get(Job, job_id)
+        first = await s.get_one(Job, job_id)
         s.add(
             Job(
                 source_item_id=first.source_item_id,

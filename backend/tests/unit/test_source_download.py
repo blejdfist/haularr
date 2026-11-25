@@ -116,7 +116,7 @@ async def test_incomplete_item_on_manual_rule_still_gets_job(seedbox, settings):
 
     fake, scan, rule_id = seedbox
     async with get_session_factory(settings)() as session:
-        (await session.get(SourceLabelRule, rule_id)).automatic_processing = False
+        (await session.get_one(SourceLabelRule, rule_id)).automatic_processing = False
         await session.commit()
     fake.items = [_dto()]
     await scan()
@@ -218,7 +218,7 @@ async def test_restart_complete_item_goes_to_check_library(seedbox, settings, au
     async with get_session_factory(settings)() as session:
         job = (await session.execute(select(Job))).scalar_one()
         job.stage, job.status = "move", "needs_attention"
-        item = await session.get(SourceItem, job.source_item_id)
+        item = await session.get_one(SourceItem, job.source_item_id)
         item.source_status = "completed"
         item.remote_metadata_json = {**item.remote_metadata_json, "complete": True}
         await session.commit()
@@ -276,7 +276,7 @@ async def test_manual_queue_is_preapproved(seedbox, settings, auth_client):
 
     fake, scan, rule_id = seedbox
     async with get_session_factory(settings)() as session:
-        (await session.get(SourceLabelRule, rule_id)).automatic_processing = False
+        (await session.get_one(SourceLabelRule, rule_id)).automatic_processing = False
         await session.commit()
     fake.items = [_dto(done=1000, status=SourceStatus.COMPLETED, complete=True)]
     await scan()
@@ -321,7 +321,7 @@ async def test_progress_scan_skips_library(seedbox, settings, monkeypatch):
     await scan()
     [job] = await _jobs(settings)
     async with get_session_factory(settings)() as session:
-        source_id = (await session.get(SourceItem, job.source_item_id)).source_id
+        source_id = (await session.get_one(SourceItem, job.source_item_id)).source_id
 
     calls = []
 
@@ -350,7 +350,7 @@ async def test_progress_scan_leaves_waiting_library_alone(seedbox, settings):
     async with get_session_factory(settings)() as session:
         job = (await session.execute(select(Job))).scalar_one()
         job.stage, job.status = "check_library", "waiting_library"
-        source_id = (await session.get(SourceItem, job.source_item_id)).source_id
+        source_id = (await session.get_one(SourceItem, job.source_item_id)).source_id
         await session.commit()
     fake.items = [_dto(done=1000, status=SourceStatus.COMPLETED, complete=True)]
     await DiscoveryService(settings, KEY).run_discovery_for_source(source_id, progress_only=True)

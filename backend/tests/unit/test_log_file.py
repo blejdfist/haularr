@@ -75,7 +75,7 @@ def test_server_errors_are_captured():
     handler.clear()
     try:
         try:
-            _a, _b = (1, 2, 3)
+            raise ValueError("too many values to unpack (expected 2)")
         except ValueError:
             logging.getLogger("uvicorn.error").exception("Exception in ASGI application")
         [entry] = handler.snapshot()
@@ -90,7 +90,7 @@ def test_search_matches_exception_text():
 
     h = LogBufferHandler()
     try:
-        _a, _b = (1, 2, 3)
+        raise ValueError("too many values to unpack (expected 2)")
     except ValueError:
         rec = logging.LogRecord(
             "app.x", logging.ERROR, "", 0, "Job crashed", None, __import__("sys").exc_info()

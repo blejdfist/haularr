@@ -111,6 +111,7 @@ async def test_classify_missing_media(app, settings):
 
         # Reload for classification
         item = await item_repo.get(item.id)
+        assert item is not None
         rule = (await label_repo.list_by_source(source.id))[0]
         rule.library_instance_id = library.id
 
@@ -127,6 +128,7 @@ async def test_classify_missing_media(app, settings):
     async with factory() as session:
         item_repo = SourceItemRepository(session)
         updated = await item_repo.get(item.id)
+        assert updated is not None
         assert updated.last_eligibility == EligibilityStatus.MISSING.value
 
 
@@ -173,6 +175,7 @@ async def test_classify_not_registered(app, settings):
         await session.commit()
 
         item = await item_repo.get(item.id)
+        assert item is not None
         rule = (await label_repo.list_by_source(source.id))[0]
         rule.library_instance_id = library.id
 
@@ -231,6 +234,7 @@ async def test_classify_already_available(app, settings):
         await session.commit()
 
         item = await item_repo.get(item.id)
+        assert item is not None
         rule = (await label_repo.list_by_source(source.id))[0]
         rule.library_instance_id = library.id
 
@@ -556,6 +560,7 @@ async def test_classify_series_by_resolved_episodes(app, settings, episode_ids, 
         )
         await session.commit()
         item = await item_repo.get(item.id)
+        assert item is not None
 
         fake = FakeLibraryAdapter(
             match=MediaMatch(
@@ -596,7 +601,9 @@ async def test_scan_failure_sets_last_scan_error(app, settings):
 
     async def last_error():
         async with factory() as session:
-            return (await SourceRepository(session).get(source_id)).last_scan_error
+            source = await SourceRepository(session).get(source_id)
+            assert source is not None
+            return source.last_scan_error
 
     with patch("app.adapters.sources.create_source_adapter") as mock_sa:
         adapter = AsyncMock()

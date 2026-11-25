@@ -40,7 +40,7 @@ class StageResult:
     error_code: str = ""
     error_detail: str = ""
     retryable: bool = True
-    progress: dict[str, Any] = None
+    progress: dict[str, Any] | None = None
 
 
 # Library verdicts that stop the job at check_library: (error_code, detail). The scheduler

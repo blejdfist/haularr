@@ -102,7 +102,7 @@ async def test_update_without_credential_keeps_source_credential(auth_client, ap
 
     async def ref():
         async with get_session_factory(app.state.settings)() as s:
-            return (await s.get(SourceInstance, sid)).credential_ref
+            return (await s.get_one(SourceInstance, sid)).credential_ref
 
     before = await ref()
     r = await auth_client.patch(f"/api/v1/sources/{sid}", json={"name": "Renamed"})
