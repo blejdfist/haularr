@@ -98,6 +98,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     app.state.master_key = get_or_create_master_key(settings.config_dir)
     logger.info("Master key initialized at %s/.master_key", settings.config_dir)
 
+    # JWT secret: use HAULARR_SECRET_KEY if set, else a generated persistent one
+    from app.security import get_or_create_jwt_secret
+
+    if not settings.secret_key:
+        settings.secret_key = get_or_create_jwt_secret(settings.config_dir)
+
     # Load persisted settings from DB (overrides env/file defaults)
     await _load_persisted_settings(settings)
 

@@ -84,7 +84,7 @@ async def auth_client(app):
     async with get_session_factory(settings)() as session:
         session.add(user)
         await session.commit()
-    token = create_access_token({"sub": user.id}, settings)
+    token = create_access_token(user, settings)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(

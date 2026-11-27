@@ -1,7 +1,5 @@
 """Application settings using Pydantic BaseSettings."""
 
-from __future__ import annotations
-
 import os
 from pathlib import Path
 from typing import Literal
@@ -28,7 +26,7 @@ class Settings(BaseSettings):
     # Server
     host: str = "0.0.0.0"
     port: int = 8080
-    secret_key: str = Field(default="change-me-in-production-use-32-chars-min")
+    secret_key: str | None = None  # empty: generated at startup unless specified
     access_token_expire_minutes: int = 1440  # 24h
 
     # Database

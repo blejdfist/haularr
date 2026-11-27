@@ -25,7 +25,7 @@ class TokenResponse(BaseModel):
 
 
 def _token(user: User, request: Request) -> TokenResponse:
-    token = create_access_token({"sub": user.id}, request.app.state.settings)
+    token = create_access_token(user, request.app.state.settings)
     return TokenResponse(access_token=token, username=user.username)
 
 

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import contextlib
+import hashlib
+import hmac
 import os
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -10,10 +11,11 @@ from pathlib import Path
 from typing import Annotated
 
 import bcrypt
+import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
 
+from app.database.models import User
 from app.settings import Settings
 
 ALGORITHM = "HS256"
@@ -48,20 +50,59 @@ def verify_password(plain: str, hashed: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def create_access_token(data: dict, settings: Settings) -> str:
-    to_encode = data.copy()
-    expire = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, settings.secret_key, algorithm=ALGORITHM)
+def _require_secret(settings: Settings) -> str:
+    if not settings.secret_key:
+        raise RuntimeError("JWT secret key is not configured")
+    return settings.secret_key
+
+
+def _password_version(password_hash: str, settings: Settings) -> str:
+    """Opaque keyed digest of the password hash; a password change invalidates old tokens."""
+    key = _require_secret(settings).encode()
+    return hmac.new(key, password_hash.encode(), hashlib.sha256).hexdigest()[:16]
+
+
+def create_access_token(user: User, settings: Settings) -> str:
+    now = datetime.now(UTC)
+    claims = {
+        "sub": user.id,
+        "ver": _password_version(user.password_hash, settings),
+        "iat": now,
+        "exp": now + timedelta(minutes=settings.access_token_expire_minutes),
+    }
+    return jwt.encode(claims, _require_secret(settings), algorithm=ALGORITHM)
 
 
 def decode_access_token(token: str, settings: Settings) -> dict:
-    return jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
+    """Verify signature and expiry; raises jwt.PyJWTError on any invalid token."""
+    return jwt.decode(
+        token,
+        _require_secret(settings),
+        algorithms=[ALGORITHM],
+        options={"require": ["exp", "iat", "sub", "ver"]},
+        leeway=30,
+    )
+
+
+def token_matches_user(claims: dict, user: User, settings: Settings) -> bool:
+    """False once the user's password has changed since the token was issued."""
+    return hmac.compare_digest(claims["ver"], _password_version(user.password_hash, settings))
 
 
 # ---------------------------------------------------------------------------
 # Master encryption key (for credential secrets at rest)
 # ---------------------------------------------------------------------------
+
+
+def _create_private_file(path: Path, data: bytes) -> bool:
+    """Create `path` with mode 0600 from the start; False if it already exists."""
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        return False
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+    return True
 
 
 def get_or_create_master_key(config_dir: Path) -> bytes:
@@ -73,10 +114,22 @@ def get_or_create_master_key(config_dir: Path) -> bytes:
             return raw
     key_bytes = secrets.token_bytes(32)
     config_dir.mkdir(parents=True, exist_ok=True)
-    key_path.write_bytes(key_bytes)
-    with contextlib.suppress(OSError):  # Windows may not support chmod
-        os.chmod(key_path, 0o600)
-    return key_bytes
+    if _create_private_file(key_path, key_bytes):
+        return key_bytes
+    return key_path.read_bytes()  # lost a creation race: use the winner's key
+
+
+def get_or_create_jwt_secret(config_dir: Path) -> str:
+    """Return persistent JWT signing secret; create on first run (mode 0600)."""
+    path = config_dir / ".jwt_secret"
+    if path.exists() and (existing := path.read_text().strip()):
+        return existing
+    path.unlink(missing_ok=True)  # empty/blank file: replace it
+    secret = secrets.token_urlsafe(48)
+    config_dir.mkdir(parents=True, exist_ok=True)
+    if _create_private_file(path, secret.encode()):
+        return secret
+    return path.read_text().strip()  # lost a creation race: use the winner's secret
 
 
 def encrypt_secret(plaintext: str, master_key: bytes) -> str:
@@ -130,13 +183,14 @@ async def get_current_user(
 
     user = None
     try:
-        user_id = decode_access_token(credentials.credentials, settings).get("sub")
-        if user_id:
-            async with get_session_factory(settings)() as session:
-                user = await session.get(User, user_id)
-    except JWTError:
+        claims = decode_access_token(credentials.credentials, settings)
+        async with get_session_factory(settings)() as session:
+            user = await session.get(User, claims["sub"])
+        if user is not None and not token_matches_user(claims, user, settings):
+            user = None
+    except jwt.PyJWTError:
         pass
-    if user is None:  # bad/expired token, or the user was deleted
+    if user is None:  # bad/expired token, user deleted, or password changed
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
