@@ -55,6 +55,9 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the version comes from git history and tags
+          persist-credentials: false # keep the token out of the build context
 
       - uses: docker/setup-buildx-action@v3
 

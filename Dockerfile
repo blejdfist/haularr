@@ -25,15 +25,22 @@ WORKDIR /app
 
 ENV UV_PYTHON_DOWNLOADS=never
 
+# git provides the version; autocrlf keeps a Windows checkout from looking modified
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/* \
+    && git config --global core.autocrlf true
+
 # Locked dependency versions and hashes, for the runtime stage to install
 COPY --from=ghcr.io/astral-sh/uv:0.9 /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock ./
 RUN uv export --frozen --no-dev --no-emit-project -o requirements.txt
 
-# The wheel carries the frontend as app/static
-COPY . .
-COPY --from=frontend-build /app/frontend/build ./backend/app/static
-RUN uv build --wheel
+# The wheel carries the frontend as app/static. Sources are mounted, so neither
+# they nor .git end up in a layer.
+RUN --mount=type=bind,target=/app,rw \
+    --mount=from=frontend-build,source=/app/frontend/build,target=/tmp/static \
+    cp -r /tmp/static backend/app/static \
+    && uv build --wheel --out-dir /dist
 
 # ---- Stage 3: Python runtime ----
 FROM python:3.14-slim AS runtime
@@ -48,7 +55,7 @@ WORKDIR /app
 RUN --mount=from=python-build,source=/app/requirements.txt,target=/tmp/requirements.txt \
     pip install --no-cache-dir --root-user-action=ignore -r /tmp/requirements.txt
 
-RUN --mount=from=python-build,source=/app/dist,target=/tmp/dist \
+RUN --mount=from=python-build,source=/dist,target=/tmp/dist \
     pip install --no-cache-dir --root-user-action=ignore --no-deps /tmp/dist/*.whl
 
 # Create config directory

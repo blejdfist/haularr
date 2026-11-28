@@ -1,6 +1,6 @@
 [project]
 name = "haularr"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Download orchestrator for self-hosted media automation"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -27,8 +27,15 @@ dependencies = [
 haularr = "app.main:cli"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.uv]
+# Rebuild when the commit or tags change, so the version stays current
+cache-keys = [{ file = "pyproject.toml" }, { git = { commit = true, tags = true } }]
 
 [tool.hatch.build.targets.wheel]
 packages = ["backend/app"]
