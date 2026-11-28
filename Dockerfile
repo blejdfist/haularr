@@ -18,35 +18,38 @@ COPY frontend/ ./
 # Build static output
 RUN pnpm run build
 
-# ---- Stage 2: Python runtime ----
-FROM python:3.13-slim AS runtime
+# ---- Stage 2: Build the wheel ----
+FROM python:3.14-slim AS python-build
 
-# Install system dependencies
-# libcurl for PyCURL, libarchive for archive extraction, sqlite3
+WORKDIR /app
+
+ENV UV_PYTHON_DOWNLOADS=never
+
+# Locked dependency versions and hashes, for the runtime stage to install
+COPY --from=ghcr.io/astral-sh/uv:0.9 /uv /usr/local/bin/uv
+COPY pyproject.toml uv.lock ./
+RUN uv export --frozen --no-dev --no-emit-project -o requirements.txt
+
+# The wheel carries the frontend as app/static
+COPY . .
+COPY --from=frontend-build /app/frontend/build ./backend/app/static
+RUN uv build --wheel
+
+# ---- Stage 3: Python runtime ----
+FROM python:3.14-slim AS runtime
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libcurl4-openssl-dev \
-    libssl-dev \
-    libarchive-tools \
-    p7zip-full \
+    7zip \
     unrar-free \
-    sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install Python dependencies
-COPY --from=ghcr.io/astral-sh/uv:0.9 /uv /usr/local/bin/uv
-COPY pyproject.toml uv.lock ./
-RUN UV_PYTHON_DOWNLOADS=never uv sync --frozen --no-dev --no-install-project
+RUN --mount=from=python-build,source=/app/requirements.txt,target=/tmp/requirements.txt \
+    pip install --no-cache-dir --root-user-action=ignore -r /tmp/requirements.txt
 
-# Copy backend source
-COPY backend/ ./backend/
-COPY README.md ./
-# Install the project itself so importlib.metadata can report its version
-RUN UV_PYTHON_DOWNLOADS=never uv sync --frozen --no-dev
-
-# Copy built frontend
-COPY --from=frontend-build /app/frontend/build ./frontend/build
+RUN --mount=from=python-build,source=/app/dist,target=/tmp/dist \
+    pip install --no-cache-dir --root-user-action=ignore --no-deps /tmp/dist/*.whl
 
 # Create config directory
 RUN mkdir -p /config
@@ -54,10 +57,7 @@ RUN mkdir -p /config
 # Default environment
 ENV HAULARR_CONFIG_DIR=/config \
     HAULARR_HOST=0.0.0.0 \
-    HAULARR_PORT=8080 \
-    HAULARR_STATIC_DIR=/app/frontend/build \
-    PATH=/app/.venv/bin:$PATH \
-    PYTHONPATH=/app/backend
+    HAULARR_PORT=8080
 
 # Expose port
 EXPOSE 8080
