@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
+from app import __version__
+
 health_router = APIRouter(tags=["system"])
 
 
@@ -28,5 +30,5 @@ async def health(request: Request) -> dict:
     return {
         "status": "healthy" if db_ok else "degraded",
         "database": "ok" if db_ok else "error",
-        "version": "0.1.0",
+        "version": __version__,
     }

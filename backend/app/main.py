@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
+from app import __version__
 from app.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -247,7 +248,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "an optional push channel for UIs: they carry changes only, so a client fetches "
             "current state from the regular endpoints after (re)connecting."
         ),
-        version="0.1.0",
+        version=__version__,
         openapi_tags=OPENAPI_TAGS,
         lifespan=lifespan,
     )
