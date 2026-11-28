@@ -10,8 +10,9 @@
     BarsOutline,
     ChartPieOutline,
     CogOutline,
-    DatabaseOutline,
+    DesktopPcOutline,
     FileLinesOutline,
+    FolderOutline,
     ServerOutline,
     ArrowRightToBracketOutline,
     MoonOutline,
@@ -23,9 +24,10 @@
   const links = [
     { href: '/', label: 'Dashboard', icon: ChartPieOutline },
     { href: '/sources/', label: 'Sources', icon: ServerOutline },
-    { href: '/libraries/', label: 'Libraries', icon: DatabaseOutline },
+    { href: '/libraries/', label: 'Libraries', icon: FolderOutline },
     { href: '/logs/', label: 'Logs', icon: FileLinesOutline },
     { href: '/settings/', label: 'Settings', icon: CogOutline },
+    { href: '/system/', label: 'System', icon: DesktopPcOutline },
   ];
 
   const path = $derived(page.url.pathname);
@@ -78,7 +80,9 @@
       }
     });
     return subscribe('/events/jobs', {
-      open: refetch,
+      open: () => {
+        refetch();
+      },
       job: (e: JobEvent) => {
         const k = `${e.status}|${e.stage}`;
         if (seen.get(e.id) !== k) {
@@ -155,45 +159,47 @@
         {/each}
       </div>
     </nav>
-    <!-- Utility footer: one quiet row under a hairline, so it doesn't compete with the nav. -->
-    <div class="m-3 flex items-center gap-2 border-t border-gray-200 pt-3 dark:border-gray-800">
-      <button
-        class="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-200 hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-none dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
-        onclick={logout}
-      >
-        <ArrowRightToBracketOutline class="h-5 w-5" />Log out
-      </button>
-      <!-- Sun/moon pill: the knob sits under the active theme. -->
-      <button
-        type="button"
-        role="switch"
-        aria-checked={dark}
-        aria-label="Dark mode"
-        title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-        onclick={() => {
-          dark = !dark;
-          applyTheme();
-        }}
-        class="group relative grid h-7 w-14 shrink-0 before:absolute before:-inset-1.5 grid-cols-2 items-center rounded-full bg-gray-200 p-0.5 transition-colors duration-150 hover:bg-gray-300 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-100 focus-visible:outline-none dark:bg-gray-800 dark:hover:bg-gray-700 dark:focus-visible:ring-offset-gray-950"
-      >
-        <span
-          aria-hidden="true"
-          class="absolute inset-y-0.5 left-0.5 w-[calc(50%-0.125rem)] rounded-full bg-white shadow-xs transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none dark:bg-gray-600 {dark
-            ? 'translate-x-full'
-            : ''}"
-        ></span>
-        <!-- Active icon is orange; the other darkens on hover to hint where a click goes. -->
-        <SunOutline
-          class="relative mx-auto h-4 w-4 transition-colors duration-300 {dark
-            ? 'text-gray-400 group-hover:text-gray-200'
-            : 'text-primary-600'}"
-        />
-        <MoonOutline
-          class="relative mx-auto h-4 w-4 transition-colors duration-300 {dark
-            ? 'text-primary-400'
-            : 'text-gray-500 group-hover:text-gray-800'}"
-        />
-      </button>
+    <!-- Utility footer: quiet rows under a hairline, so they don't compete with the nav. -->
+    <div class="m-3 border-t border-gray-200 pt-3 dark:border-gray-800">
+      <div class="flex items-center gap-2">
+        <button
+          class="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-200 hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-none dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
+          onclick={logout}
+        >
+          <ArrowRightToBracketOutline class="h-5 w-5" />Log out
+        </button>
+        <!-- Sun/moon pill: the knob sits under the active theme. -->
+        <button
+          type="button"
+          role="switch"
+          aria-checked={dark}
+          aria-label="Dark mode"
+          title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+          onclick={() => {
+            dark = !dark;
+            applyTheme();
+          }}
+          class="group relative grid h-7 w-14 shrink-0 before:absolute before:-inset-1.5 grid-cols-2 items-center rounded-full bg-gray-200 p-0.5 transition-colors duration-150 hover:bg-gray-300 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-100 focus-visible:outline-none dark:bg-gray-800 dark:hover:bg-gray-700 dark:focus-visible:ring-offset-gray-950"
+        >
+          <span
+            aria-hidden="true"
+            class="absolute inset-y-0.5 left-0.5 w-[calc(50%-0.125rem)] rounded-full bg-white shadow-xs transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none dark:bg-gray-600 {dark
+              ? 'translate-x-full'
+              : ''}"
+          ></span>
+          <!-- Active icon is orange; the other darkens on hover to hint where a click goes. -->
+          <SunOutline
+            class="relative mx-auto h-4 w-4 transition-colors duration-300 {dark
+              ? 'text-gray-400 group-hover:text-gray-200'
+              : 'text-primary-600'}"
+          />
+          <MoonOutline
+            class="relative mx-auto h-4 w-4 transition-colors duration-300 {dark
+              ? 'text-primary-400'
+              : 'text-gray-500 group-hover:text-gray-800'}"
+          />
+        </button>
+      </div>
     </div>
   </aside>
 

@@ -199,6 +199,8 @@ function qs(params: Record<string, string | number | undefined>): string {
 
 // API endpoints
 export const endpoints = {
+  health: () =>
+    api.get<{ status: 'healthy' | 'degraded'; database: 'ok' | 'error'; version: string }>('/health'),
   filesystem: {
     browse: (path: string = '') => api.get<DirectoryListing>(`/filesystem${qs({ path })}`),
   },
