@@ -58,8 +58,10 @@ RUN --mount=from=python-build,source=/app/requirements.txt,target=/tmp/requireme
 RUN --mount=from=python-build,source=/dist,target=/tmp/dist \
     pip install --no-cache-dir --root-user-action=ignore --no-deps /tmp/dist/*.whl
 
-# Create config directory
-RUN mkdir -p /config
+# Unprivileged user; /config must be writable by it
+RUN groupadd --system --gid 1000 haularr \
+    && useradd --system --uid 1000 --gid haularr --no-create-home haularr \
+    && mkdir -p /config && chown haularr:haularr /config
 
 # Default environment
 ENV HAULARR_CONFIG_DIR=/config \
@@ -71,8 +73,8 @@ EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/v1/health')" || exit 1
+    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://localhost:%s/api/v1/health' % os.environ['HAULARR_PORT'])" || exit 1
 
-# Run as non-root by default (can be overridden with --user or PUID/PGID)
-# The entrypoint handles PUID/PGID if needed
+# Mounted volumes must be writable by uid 1000, or override with --user
+USER haularr
 ENTRYPOINT ["python", "-m", "app.main"]
