@@ -42,6 +42,7 @@ def _alembic_config(settings: Settings):
 
     cfg = Config()
     cfg.set_main_option("script_location", str(Path(__file__).parent / "migrations"))
+    cfg.attributes["database_url"] = settings.database_url
     return cfg
 
 
@@ -61,7 +62,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         import tempfile
 
         settings.config_dir = Path(tempfile.mkdtemp(prefix="haularr-demo-"))
-        os.environ["HAULARR_CONFIG_DIR"] = str(settings.config_dir)  # migrations read it
 
     # Ensure config dir exists
     settings.config_dir.mkdir(parents=True, exist_ok=True)
@@ -83,7 +83,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info("Running database migrations...")
     from alembic import command
 
-    os.environ.setdefault("HAULARR_CONFIG_DIR", str(settings.config_dir))
     alembic_cfg = _alembic_config(settings)
     # env.py calls asyncio.run(), which can't nest in this loop; run it in a thread.
     # Failure is fatal: serving on a stale schema corrupts data.

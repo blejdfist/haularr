@@ -11,7 +11,7 @@ dependencies = [
     "pydantic-settings>=2.6.0",
     "httpx>=0.28.0",
     "sqlalchemy>=2.0.36",
-    "alembic>=1.14.0",
+    "alembic>=1.16.0",
     "aiosqlite>=0.20.0",
     "greenlet>=3.1.0",
     "python-multipart>=0.0.17",
@@ -43,6 +43,11 @@ dev = [
     "respx>=0.21.0",
     "pre-commit>=4.7.0",
 ]
+
+[tool.alembic]
+# Used by the `alembic` command line; the app builds its own config.
+script_location = "%(here)s/backend/app/migrations"
+prepend_sys_path = ["backend"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

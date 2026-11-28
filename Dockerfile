@@ -41,7 +41,7 @@ RUN UV_PYTHON_DOWNLOADS=never uv sync --frozen --no-dev --no-install-project
 
 # Copy backend source
 COPY backend/ ./backend/
-COPY alembic.ini README.md ./
+COPY README.md ./
 # Install the project itself so importlib.metadata can report its version
 RUN UV_PYTHON_DOWNLOADS=never uv sync --frozen --no-dev
 

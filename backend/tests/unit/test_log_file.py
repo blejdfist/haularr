@@ -99,14 +99,13 @@ def test_search_matches_exception_text():
     assert len(h.snapshot(search="unpack")) == 1
 
 
-def test_startup_migrations_keep_log_handlers(tmp_path, monkeypatch):
+def test_startup_migrations_keep_log_handlers(tmp_path):
     """Startup migrations must not replace the app's log handlers (log view, file) or level."""
     from alembic import command
     from app.logging_buffer import install_log_handler, remove_log_handler
     from app.main import _alembic_config
     from app.settings import Settings
 
-    monkeypatch.setenv("HAULARR_CONFIG_DIR", str(tmp_path))
     root = logging.getLogger()
     level = root.level
     handler = install_log_handler()
