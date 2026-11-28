@@ -32,6 +32,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["backend/app"]
+# Frontend build, copied here before building the wheel. Gitignored.
+artifacts = ["backend/app/static/**"]
 
 [dependency-groups]
 dev = [

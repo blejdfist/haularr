@@ -8,6 +8,12 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def default_static_dir(package_dir: Path = Path(__file__).parent) -> Path:
+    """The frontend shipped inside the package, else the build in a source checkout."""
+    packaged = package_dir / "static"
+    return packaged if (packaged / "index.html").exists() else Path("frontend/build")
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="HAULARR_",
@@ -55,7 +61,7 @@ class Settings(BaseSettings):
     demo: bool = False
 
     # Static frontend
-    static_dir: Path = Field(default=Path("frontend/build"))
+    static_dir: Path = Field(default_factory=default_static_dir)
 
     @field_validator("config_dir", mode="before")
     @classmethod

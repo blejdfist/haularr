@@ -66,6 +66,7 @@ Thumbs.db
 node_modules/
 frontend/.svelte-kit/
 frontend/build/
+backend/app/static/
 frontend/node_modules/
 *.tsbuildinfo
 
