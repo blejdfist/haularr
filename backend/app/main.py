@@ -40,11 +40,8 @@ def _alembic_config(settings: Settings):
 
     from alembic.config import Config
 
-    root = Path(__file__).resolve().parents[2]
-    cfg = Config(str(root / "alembic.ini"))
-    cfg.set_main_option("script_location", str(root / "backend" / "migrations"))
-    # The app owns logging; alembic.ini's config would replace its handlers (log view, file).
-    cfg.attributes["configure_logger"] = False
+    cfg = Config()
+    cfg.set_main_option("script_location", str(Path(__file__).parent / "migrations"))
     return cfg
 
 

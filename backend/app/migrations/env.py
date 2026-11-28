@@ -3,26 +3,20 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 from logging.config import fileConfig
-from pathlib import Path
 
 from alembic import context
+from app.database.models import Base
+from app.settings import Settings
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
-
-# Add backend to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from app.database.models import Base
-from app.settings import Settings
 
 # Alembic config object
 config = context.config
 
 # Logging
-if config.config_file_name is not None and config.attributes.get("configure_logger", True):
+if config.config_file_name is not None:
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata

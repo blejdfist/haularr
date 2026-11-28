@@ -100,7 +100,7 @@ def test_search_matches_exception_text():
 
 
 def test_startup_migrations_keep_log_handlers(tmp_path, monkeypatch):
-    """alembic.ini's logging config must not replace the app's handlers (log view, file) or level."""
+    """Startup migrations must not replace the app's log handlers (log view, file) or level."""
     from alembic import command
     from app.logging_buffer import install_log_handler, remove_log_handler
     from app.main import _alembic_config
