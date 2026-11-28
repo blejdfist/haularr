@@ -133,7 +133,7 @@ def get_or_create_jwt_secret(config_dir: Path) -> str:
 
 
 def encrypt_secret(plaintext: str, master_key: bytes) -> str:
-    """Simple XOR-based encryption placeholder; replace with Fernet in prod."""
+    """Encrypt a secret with Fernet, keyed from the master key; returns a urlsafe token."""
     import base64
 
     from cryptography.fernet import Fernet
