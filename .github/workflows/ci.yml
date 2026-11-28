@@ -18,6 +18,14 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --all-groups
 
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.python-version', '.pre-commit-config.yaml') }}
+
+      - name: Lint and type check
+        run: uv run pre-commit run --all-files --show-diff-on-failure
+
       - name: Run tests
         env:
           HAULARR_CONFIG_DIR: ${{ runner.temp }}/haularr-config
